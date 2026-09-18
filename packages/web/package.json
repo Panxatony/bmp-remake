@@ -1,0 +1,11 @@
+{
+  "name": "@bmp/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --outfile=dist/app.js --target=es2022 --format=iife",
+    "start": "npm run build && node server.mjs",
+    "test": "npm run build"
+  }
+}

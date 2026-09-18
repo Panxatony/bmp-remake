@@ -1,0 +1,13 @@
+{
+  "name": "@bmp/core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Spielstand-Codec und Datenmodell von Bundesliga Manager Professional",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --import ./test/setup.ts --test \"test/*.test.ts\""
+  }
+}

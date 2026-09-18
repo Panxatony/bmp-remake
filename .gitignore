@@ -1,0 +1,17 @@
+tools/out/
+node_modules/
+dist/
+
+# Alles, was aus der eigenen Installation des Originals erzeugt wird (npm run assets).
+# Im Repo liegen nur die Werkzeuge dazu - siehe README.
+assets/pic/
+assets/font/
+assets/sound/
+assets/tore/
+assets/text/
+docs/original/
+tools/dosbox/*.MAN
+__pycache__/
+assets/stand.json
+# Bildschirmfotos aus dem Vergleich mit dem Original (entstehen beim Arbeiten)
+p-*.png

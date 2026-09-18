@@ -1,0 +1,41 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { SaveFile, GameState, playerInfo, sideLabel, text } from "../src/index.ts";
+
+const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
+const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
+
+test("Spielerinfo (0x15346): Alterslabel, Status nach Nummer und Flag, Daten und Balken", () => {
+  const g = load("TEST4.MAN");
+  const l = g.lineups.at(0);
+  const p = g.players.at(l.playerIndex);
+  p.setU8(26, 19);
+  l.setU8(10, 7);
+  l.setU8(9, l.u8(9) & ~3);
+  let info = playerInfo(g, 0);
+  assert.ok(info.ageLine.endsWith("IST 19 JAHRE ALT, (GR}NSCHNABEL)"), info.ageLine);
+  assert.equal(info.status, "STATUS: IST F]R'S N[CHSTE SPIEL EINGEPLANT (NR. 7)");
+  p.setU8(26, 33);
+  l.setU8(10, 14);
+  info = playerInfo(g, 0);
+  assert.ok(info.ageLine.endsWith(text("spielerinfo.alter", 3)));
+  assert.equal(info.status, "STATUS: H}TET DIE ERSATZBANK");
+  l.setU8(10, 0);
+  assert.equal(playerInfo(g, 0).status, "STATUS: KANN SPIELEN, DARF ABER SCHEINBAR NICHT...");
+  l.setU8(9, l.u8(9) | 1);
+  l.setU8(13, 2);
+  assert.equal(playerInfo(g, 0).status, "STATUS: NOCH 2 SPIELE GESPERRT.");
+  l.setU8(9, (l.u8(9) & ~3) | 2);
+  l.setU8(23, 0);
+  assert.equal(playerInfo(g, 0).status, "STATUS: NOCH 2 SPIELE VERLETZT (Oberschenkelzerrung)");
+  assert.deepEqual([sideLabel(0), sideLabel(1), sideLabel(2), sideLabel(4), sideLabel(5), sideLabel(6)], ["LINKS", "LINKS", "MITTE", "MITTE", "RECHTS", "RECHTS"]);
+  l.setU8(14, 68);
+  l.setU8(19, 120);
+  info = playerInfo(g, 0);
+  assert.equal(info.tendency, 94);
+  assert.equal(info.exhaustion, 65);
+  assert.equal(info.data[8][0], text("spielerinfo.zeilen", 8));
+  assert.ok(info.data[7][1].endsWith(" DM"));
+});

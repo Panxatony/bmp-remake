@@ -1,0 +1,54 @@
+MIT License
+
+Copyright (c) 2026 Lars Vonhof-Hunold
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Ausnahmen und fremde Bestandteile / Exceptions and third-party components
+
+**Das Original.** Bundesliga Manager Professional (Software 2000, 1991) und alles, was dazu
+gehört - Programm, Bilder, Schriften, Klänge, Torszenen, Texte, Vereins- und Spielernamen -
+ist nicht Teil dieser Software und steht nicht unter der MIT-Lizenz. Alle Rechte daran liegen
+bei den Urhebern. Dieses Repo enthält keine Datei aus dem Original; die Werkzeuge unter
+`tools/` erzeugen die nötigen Daten aus der eigenen, rechtmäßig erworbenen Installation.
+Was dabei entsteht (`assets/`), ist eine Kopie fremder Inhalte und darf nicht weitergegeben
+werden.
+
+*Bundesliga Manager Professional (Software 2000, 1991) and everything belonging to it -
+program, graphics, fonts, sounds, goal scenes, texts, club and player names - is not part of
+this software and is not covered by the MIT license. This repository contains no file from the
+original game; the tools under `tools/` derive the required data from the user's own, lawfully
+obtained installation. The result (`assets/`) is a copy of third-party content and must not be
+redistributed.*
+
+**`tools/cmf/`** (Wandler für die Titelmusik, wird nur lokal gebraucht und ist nicht Teil des
+Spiels):
+
+- `opl3.c`, `opl3.h` - Nuked OPL3 von Alexey Khokholov (Nuke.YKT), MIT-Lizenz. Die
+  Urheberrechtsvermerke stehen in den Dateien.
+- `cmf2wav.c`, `tables.h` - die Abspiellogik und die Tabellen sind aus AdPlug
+  (`src/cmf.cpp`, GPL-2.0-or-later) portiert. Wer diesen Wandler weitergibt, gibt ihn unter
+  der GPL-2.0-or-later weiter; für den Rest dieses Repos gilt weiterhin die MIT-Lizenz.
+
+*The CMF converter under `tools/cmf/` is a local build tool, not part of the game. `opl3.c`/
+`opl3.h` are Nuked OPL3 (MIT). `cmf2wav.c` and `tables.h` are ported from AdPlug
+(GPL-2.0-or-later); distribute that converter under GPL-2.0-or-later. The rest of this
+repository remains MIT.*

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Bundesliga Manager Professional</title>
+<style>
+  html, body { margin: 0; background: #202028; color: #ddd; font-family: sans-serif; }
+  #wrap { display: flex; flex-direction: column; align-items: center; gap: 0; padding: 8px; }
+  #loader { margin-top: 8px; }
+  #screen, #status { image-rendering: pixelated; image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges; background: #000; display: block; }
+  #screen { width: 960px; height: 720px; }
+  /* Die Meldungszeile steht unter dem Spielbild, damit sie es nicht beschneidet */
+  #status[hidden] { display: none; }
+  #loader { font-size: 14px; }
+  #login[hidden] { display: none; }
+  #login { position: fixed; inset: 0; background: rgba(0,0,0,.8); display: flex; align-items: center; justify-content: center; }
+  #login form { background: #2e2e44; padding: 24px 28px; border: 2px solid #8a8ab8; display: flex; flex-direction: column; gap: 10px; min-width: 260px; }
+  #login h2 { margin: 0 0 6px; font-size: 18px; }
+  #login label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+  #login input { font-size: 15px; padding: 4px 6px; }
+  #login button { font-size: 15px; padding: 6px; margin-top: 4px; }
+  #loginError { color: #ff8080; font-size: 13px; min-height: 1em; }
+</style>
+</head>
+<body>
+<div id="login" hidden>
+  <form id="loginForm">
+    <h2>Bundesliga Manager Professional</h2>
+    <label>Name <input name="user" autocomplete="username" required></label>
+    <label>Passwort <input name="password" type="password" autocomplete="current-password" required></label>
+    <button type="submit">Anmelden</button>
+    <div id="loginError"></div>
+  </form>
+</div>
+<div id="wrap">
+  <canvas id="screen"></canvas>
+  <canvas id="status" width="320" height="11" hidden></canvas>
+  <div id="loader">Spielstand laden / hochladen: <input type="file" id="file" accept=".MAN,.man"></div>
+</div>
+<script>
+  // Ganzzahlige Vergrößerung von 320x240, damit Pixel scharf bleiben.
+  function fit() {
+    const c = document.getElementById("screen");
+    const s = document.getElementById("status");
+    // Ganzzahlige Stufe aus der kleineren Richtung; das Bild ist mit der Meldungszeile 251 Zeilen
+    // hoch, für Rand und Scrollbalken bleiben 16 bzw. 24 Pixel frei.
+    const k = Math.max(1, Math.floor(Math.min((innerWidth - 16) / 320, (innerHeight - 24) / 251)));
+    c.style.width = 320 * k + "px";
+    c.style.height = 240 * k + "px";
+    s.style.width = 320 * k + "px";
+    s.style.height = 11 * k + "px";
+  }
+  addEventListener("resize", fit);
+  fit();
+</script>
+<script src="dist/app.js"></script>
+</body>
+</html>

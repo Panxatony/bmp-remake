@@ -1,0 +1,193 @@
+{
+  "name": "konter",
+  "autor": "REMAKE",
+  "bilder": 48,
+  "klaenge": [
+    42,
+    null,
+    null,
+    null
+  ],
+  "kamera": {
+    "art": "folgt",
+    "wem": "ball",
+    "ab": 6
+  },
+  "figuren": [
+    {
+      "name": "torwart",
+      "sprite": 90,
+      "pos": [
+        292,
+        48
+      ],
+      "bahn": [
+        {
+          "art": "halt",
+          "bis": 30
+        },
+        {
+          "art": "lauf",
+          "bis": 38,
+          "nach": [
+            284,
+            58
+          ],
+          "phasen": [
+            90,
+            91
+          ],
+          "takt": 3
+        }
+      ]
+    },
+    {
+      "name": "verteidiger",
+      "sprite": 53,
+      "pos": [
+        200,
+        40
+      ],
+      "bahn": [
+        {
+          "art": "lauf",
+          "bis": 30,
+          "nach": [
+            250,
+            46
+          ],
+          "phasen": [
+            55,
+            54,
+            53
+          ]
+        }
+      ]
+    },
+    {
+      "name": "schuetze",
+      "sprite": 3,
+      "pos": [
+        90,
+        58
+      ],
+      "bahn": [
+        {
+          "art": "lauf",
+          "bis": 30,
+          "nach": [
+            230,
+            50
+          ],
+          "phasen": [
+            5,
+            4,
+            3
+          ]
+        },
+        {
+          "art": "halt",
+          "bis": 47
+        }
+      ]
+    },
+    {
+      "name": "mitspieler",
+      "sprite": 3,
+      "pos": [
+        60,
+        30
+      ],
+      "bahn": [
+        {
+          "art": "lauf",
+          "bis": 34,
+          "nach": [
+            190,
+            34
+          ],
+          "phasen": [
+            5,
+            4,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ball",
+      "sprite": 142,
+      "pos": [
+        96,
+        64
+      ],
+      "bahn": [
+        {
+          "art": "folgt",
+          "bis": 30,
+          "wem": "schuetze",
+          "versatz": [
+            6,
+            6
+          ]
+        },
+        {
+          "art": "flug",
+          "bis": 40,
+          "nach": [
+            304,
+            26
+          ],
+          "hoehe": 18,
+          "schatten": 145
+        },
+        {
+          "art": "halt",
+          "bis": 47
+        }
+      ]
+    }
+  ],
+  "chance": {
+    "ab": 30,
+    "klaenge": [
+      null,
+      null,
+      null,
+      null
+    ],
+    "figuren": {
+      "ball": [
+        {
+          "art": "flug",
+          "bis": 40,
+          "nach": [
+            310,
+            6
+          ],
+          "hoehe": 24,
+          "schatten": 145
+        },
+        {
+          "art": "halt",
+          "bis": 47
+        }
+      ],
+      "torwart": [
+        {
+          "art": "lauf",
+          "bis": 38,
+          "nach": [
+            296,
+            40
+          ],
+          "phasen": [
+            90,
+            91
+          ],
+          "takt": 3
+        }
+      ]
+    }
+  }
+}
