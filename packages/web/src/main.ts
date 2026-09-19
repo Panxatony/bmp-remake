@@ -1230,8 +1230,10 @@ class App {
       this.go("squad");
       this.vertragOeffnen(offen[0].place);
     }
-    // Zeremonie: hinein, solange sie offen ist, hinaus, wenn alle bestätigt haben
-    if (this.ceremonyPending()) {
+    // Zeremonie: hinein, solange sie offen ist, hinaus, wenn alle bestätigt haben. Nach einem
+    // Pokaltag steht sie schon an, während die Konferenz noch ihre Schlusstafeln zeigt - erst
+    // wenn die weggeklickt sind, ist die Auslosung dran, wie im Original nach dem Spieltag (#71)
+    if (this.ceremonyPending() && !this.live) {
       if (this.screen !== "auslosung") {
         this.cup = this.server.ceremony!.cup;
         this.go("auslosung");

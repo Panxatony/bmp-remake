@@ -165,10 +165,11 @@ export function initialDraw(g: GameState, cup: number, rng: Rng): void {
  * zusammengeschoben und mit zwanzig Zufallstauschen gemischt; benachbarte Plätze bilden
  * die Paare. Nach dem Finale (Runde 5) passiert nichts.
  */
-export function nextRoundDraw(g: GameState, cup: number, rng: Rng): void {
+export function nextRoundDraw(g: GameState, cup: number, rng: Rng): boolean {
   const p = g.save.plain;
   const round = p[CUP_ROUND + cup];
-  if (round === 5) return;
+  // Nach dem Finale gibt es nichts mehr auszulosen (0x18FF0: Runde 5 springt vorbei)
+  if (round === 5) return false;
   const n = ROUND_PAIRS[round];
   if (cup !== 0) p.fill(0, FIRST_LEG, FIRST_LEG + 96);
   p[CUP_ROUND + cup]++;
@@ -182,6 +183,7 @@ export function nextRoundDraw(g: GameState, cup: number, rng: Rng): void {
     p[a + y] = t;
   }
   if (cup === 0) for (let slot = 0; slot < n; slot++) lowerClassHome(g, slot);
+  return true;
 }
 
 /**
@@ -340,7 +342,7 @@ export interface CupFinal {
  * `init` entspricht dem Initialisierungsmodus 4238:57DC (Relegation): keine Managerbytes,
  * keine Titelverteidiger, kein Löschen, keine Auslosung.
  */
-export function afterCupDay(g: GameState, cups: number[], seasonDayNow: number, rng: Rng, init = false): CupFinal[] {
+export function afterCupDay(g: GameState, cups: number[], seasonDayNow: number, rng: Rng, init = false, gezogen?: number[]): CupFinal[] {
   const p = g.save.plain;
   const finals: CupFinal[] = [];
   for (const cup of cups) {
@@ -403,20 +405,23 @@ export function afterCupDay(g: GameState, cups: number[], seasonDayNow: number, 
   const first = cups[0];
   const roundNow = p[CUP_ROUND + (first === 0 ? 0 : 1)];
   if (first === 0 ? roundNow < 5 : p[LEG_FLAG] !== 0 || roundNow < 5) clearCupResults(g);
-  for (const cup of cups) if (cup === 0 || p[LEG_FLAG + cup - 1] === 0) nextRoundDraw(g, cup, rng);
+  // Die Auslosung ruft im Original gleich die Zeremonie auf (0x18FC2 -> 0x17C26). Wer mitlesen
+  // will, bekommt deshalb zurück, welche Wettbewerbe wirklich neu gezogen wurden (GitLab #71).
+  for (const cup of cups) if ((cup === 0 || p[LEG_FLAG + cup - 1] === 0) && nextRoundDraw(g, cup, rng)) gezogen?.push(cup);
   return finals;
 }
 
 /** Spieltag der drei Europapokale (Kalenderflag 0x70): alle Paare der laufenden Runde. */
-export function playEuropaDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined): { matches: CupMatch[]; finals: CupFinal[] } {
+export function playEuropaDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined): { matches: CupMatch[]; finals: CupFinal[]; gezogen: number[] } {
   const matches: CupMatch[] = [];
   for (const cup of [1, 2, 3]) {
     const n = ROUND_PAIRS[Math.min(cupRoundOf(g, cup), 5)];
     const second = legPlayed(g, cup);
     for (let i = 0; i < n; i++) matches.push(playCupMatch(g, cup, 2 * i, second, seasonDayNow, rng, sim, zuschauer));
   }
-  const finals = afterCupDay(g, [1, 2, 3], seasonDayNow, rng);
-  return { matches, finals };
+  const gezogen: number[] = [];
+  const finals = afterCupDay(g, [1, 2, 3], seasonDayNow, rng, false, gezogen);
+  return { matches, finals, gezogen };
 }
 
 /**

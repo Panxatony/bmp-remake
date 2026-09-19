@@ -668,6 +668,12 @@ interface Room {
     startedAt: number | null;
     skipped: boolean;
     seen: string[];
+    /**
+     * Wettbewerbe, die nach diesem noch drankommen. Nach einem Pokaltag sind das genau die, die
+     * eben neu ausgelost wurden (GitLab #71); fehlt die Liste, gilt die alte Reihenfolge über
+     * alle Wettbewerbe mit Paarungen (Spielbeginn).
+     */
+    folge?: number[];
   };
   /** Protokollzeilen des zuletzt gespielten Tages (Ergebnisbildschirm) */
   lastDay: string[];
@@ -1292,6 +1298,18 @@ function nextCeremonyCup(g: GameState, cup: number): number | null {
  * seiner Übersichtsseite (0x17DBF setzt 0x57C8 auf 0, 0x18A71 lässt die Übersicht dann aus).
  */
 function advanceCeremony(r: Room, fromCup: number): void {
+  const folge = r.ceremony?.folge;
+  if (folge) {
+    const [naechster, ...rest] = folge;
+    if (naechster === undefined) {
+      r.ceremony = undefined;
+      r.log.push("Auslosung: fertig");
+      return;
+    }
+    r.ceremony = { cup: naechster, phase: "vote", ready: true, votes: {}, startedAt: null, skipped: false, seen: [], folge: rest };
+    r.log.push(`Auslosung: Abfrage für ${cupNames()[naechster]}`);
+    return;
+  }
   const next = nextCeremonyCup(r.game, fromCup);
   if (next === null) {
     r.ceremony = undefined;
@@ -1300,6 +1318,24 @@ function advanceCeremony(r: Room, fromCup: number): void {
   }
   r.ceremony = { cup: next, phase: "vote", ready: true, votes: {}, startedAt: null, skipped: false, seen: [] };
   r.log.push(`Auslosung: Abfrage für ${cupNames()[next]}`);
+}
+
+/**
+ * Zeremonie für frisch ausgeloste Wettbewerbe ansetzen. Im Original ruft die Auslosung der
+ * nächsten Runde (0x18FC2, aus dem Rundenabschluss 0x192FC) die Zeremonie gleich selbst auf
+ * (0x19039 -> 0x17C26) - nach jedem Pokaltag, im Europapokal erst nach dem Rückspiel, nach dem
+ * Finale nicht mehr. Läuft schon eine, kommen die neuen hinten an (GitLab #71).
+ */
+function zeremonieAnsetzen(r: Room, cups: number[]): void {
+  const neu = cups.filter((c) => cupView(r.game, c).pairs.length > 0);
+  if (neu.length === 0) return;
+  if (r.ceremony) {
+    r.ceremony.folge = [...(r.ceremony.folge ?? []), ...neu.filter((c) => c !== r.ceremony!.cup)];
+    return;
+  }
+  const [erster, ...rest] = neu;
+  r.ceremony = { cup: erster, phase: "vote", ready: true, votes: {}, startedAt: null, skipped: false, seen: [], folge: rest };
+  r.log.push(`Auslosung: Abfrage für ${cupNames()[erster]}`);
 }
 
 function listedCountOf(r: Room, manager: number): number {
@@ -1521,6 +1557,7 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
   if (flag & 8) {
     const played = playCupDay(g, r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`));
     logCupMatches(r, "DFB-Pokal", played, played.finals ?? [], live?.scorers);
+    zeremonieAnsetzen(r, played.gezogen ?? []);
   }
   // Tagesverteiler 0x1D8D1: genau Flag 0x10 ist die Relegation, sonst ein Europapokaltag
   if ((flag & 0x70) === 0x10) {
@@ -1530,8 +1567,9 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
     // Das Relegationsspiel läuft in der Konferenz wie jedes andere; Ergebnis und Ausgang stehen
     // danach im Spielplan und im Verlauf. Das Original meldet nichts (GitLab #54).
   } else if (flag & 0x70) {
-    const { matches, finals } = playEuropaDay(g, seasonDay(k), r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`));
+    const { matches, finals, gezogen } = playEuropaDay(g, seasonDay(k), r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`));
     logCupMatches(r, "Europapokal", matches, finals, live?.scorers);
+    zeremonieAnsetzen(r, gezogen);
   }
   const fromDay = seasonDay(k);
   if (k + 1 < CALENDAR_DAYS) setDayIndex(g, k + 1);
@@ -1597,6 +1635,9 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
       }
     }
     r.log.push(`Saisonwechsel: neue Saison ${g.date.year}/${g.date.year + 1}, Auf- und Abstieg, Ligaplätze gemischt, Pokale neu gelost, neue Sponsorenangebote`);
+    // Auch zu Saisonbeginn lost das Original mit Zeremonie aus (0x1EAD3 und 0x1EAEE rufen die
+    // Auslosung 0x18600 auf): erst den DfB-Pokal, dann die drei Europapokale (GitLab #71)
+    zeremonieAnsetzen(r, [0, 1, 2, 3]);
     // Abgelaufene Verträge: der Dialog des Originals folgt im ersten Zug der neuen Saison
     r.vertragsende = events.filter((ev) => ev.vertrag).map((ev) => ({ manager: ev.manager, playerIndex: ev.vertrag!.playerIndex, name: ev.vertrag!.name }));
     if (r.vertragsende.length) {
