@@ -52,12 +52,14 @@ Rückgabewert 1, solange es Funde gibt - er lässt sich also als Torwächter ben
 
 Mehrspieler-Server (hält den Spielstand, Anmeldung mit Benutzer und Passwort):
 
-    node packages/server/users.ts add NAME PASSWORT
+    node packages/server/users.ts add NAME PASSWORT      # der erste wird Präsident
     cd packages/web && npm run build
     node packages/server/server.ts --load SPIELSTAND.MAN --port 8765
 
-Danach `http://localhost:8765/` im Browser öffnen. Alle Schalter, die Benutzerverwaltung und
-der Betrieb hinter einem Reverse Proxy stehen in `docs/BETRIEB.md`.
+Danach `http://localhost:8765/` im Browser öffnen. Der Server hält bis zu vier Spielrunden
+gleichzeitig; wer Runden anlegen darf, regeln die Rollen Präsident, Trainer und Spieler. Alle
+Schalter, die Benutzerverwaltung und der Betrieb hinter einem Reverse Proxy stehen in
+`docs/BETRIEB.md`.
 
 Nur den Spielstand ansehen (Prototyp 0, ohne Server und Anmeldung):
 
