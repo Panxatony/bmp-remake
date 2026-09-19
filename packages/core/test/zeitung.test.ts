@@ -57,6 +57,27 @@ test("Zeitung: Spielbericht aus einem gespielten Spiel (Rückstand, Führung, To
   const noten = [...r.lineup.matchAll(/\((\d)\)/g)].map((m) => Number(m[1]));
   assert.equal(noten.length, 11);
   assert.ok(noten.every((n) => n >= 1 && n <= 6), r.lineup);
+  // Die Note muss auf die Spielbewertung hören. Vorher fand die Zeitung ihre eigene Rechnung
+  // nicht wieder und schrieb für jeden die 6 hin (#70) - das fiel hier nicht auf, weil die 6
+  // im erlaubten Bereich liegt. Also mit zwei ausgeprägten Bewertungen gegenprüfen.
+  const starter = g.squadOf(0).filter((l) => l.u8(10) >= 1 && l.u8(10) <= 11);
+  const mitWert = (wert: number) => {
+    const bewertungen = new Map(starter.map((l) => [l.playerIndex, wert] as [number, number]));
+    const rb = reportFromMatch(g, 0, { home: own, away: 3, result: { home: 2, away: 1, events }, scorers: [], attendance: 30000, bewertungen }, mulberryRng(1));
+    const n = [...rb.lineup.matchAll(/\((\d)\)/g)].map((m) => Number(m[1]));
+    assert.equal(n.length, 11, rb.lineup);
+    return n;
+  };
+  // Eine glänzende Bewertung muss bessere (kleinere) Noten geben als eine miserable
+  const gut = mitWert(36);
+  const schlecht = mitWert(-12);
+  const summe = (n: number[]) => n.reduce((a, b) => a + b, 0);
+  assert.ok(summe(gut) < summe(schlecht), `Bewertung ohne Wirkung: ${summe(gut)} gegen ${summe(schlecht)}`);
+  // Und eine gemischte Mannschaft bekommt nicht für jeden dieselbe Note
+  const gemischt = new Map(starter.map((l, i) => [l.playerIndex, i % 2 === 0 ? 36 : -12] as [number, number]));
+  const rm = reportFromMatch(g, 0, { home: own, away: 3, result: { home: 2, away: 1, events }, scorers: [], attendance: 30000, bewertungen: gemischt }, mulberryRng(1));
+  const noten2 = [...rm.lineup.matchAll(/\((\d)\)/g)].map((m) => Number(m[1]));
+  assert.ok(new Set(noten2).size > 1, `alle Noten gleich: ${rm.lineup}`);
   const z = composeZeitung(r, mulberryRng(9));
   assert.ok(z.headline.join(" ").length > 5);
 });

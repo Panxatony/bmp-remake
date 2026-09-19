@@ -8,7 +8,7 @@
  * 2 Spielklasse 1..4, 3 Ergebnis 1 Remis/2 Sieg/3 Niederlage, 4 Zufriedenheit, 5 Spielverlauf).
  * Siehe docs/SPIELMECHANIK.md, Abschnitt "Sportzeitung".
  */
-import type { GameState, Lineup } from "../records.ts";
+import type { GameState } from "../records.ts";
 import { texte, text as T } from "../data/texte.ts";
 import type { Rng, MatchEvent, TeamStrength } from "./match.ts";
 import { strength } from "./match.ts";
@@ -124,14 +124,16 @@ type Node = string | { sel: number; n: number; alts: Node[][] };
  * Positionswert hat), bekommt random(1,2) abgezogen, mindestens 1 (0x2F69D); der **erste**
  * Spieler unter -15 bekommt random(1,2) aufgeschlagen, höchstens 6 (0x2F6DB).
  */
-function spielnoten(g: GameState, manager: number, rng: Rng): Map<Lineup, number> {
-  const aus = new Map<Lineup, number>();
+function spielnoten(g: GameState, manager: number, rng: Rng, bewertungen?: Map<number, number>): Map<number, number> {
+  // Schlüssel ist die Spielernummer, nicht der Kaderplatz: `squadOf` baut bei jedem Aufruf neue
+  // Hüllen um dieselben Bytes, ein Map über diese Objekte fände später nichts wieder (#70).
+  const aus = new Map<number, number>();
   let schlechtester = false;
   for (const l of g.squadOf(manager)) {
     const nr = l.u8(10);
     if (nr < 1 || nr > 11) continue;
     const p = g.players.at(l.playerIndex);
-    const b = Math.max(-12, Math.min(36, (l.u8(21) << 24) >> 24));
+    const b = Math.max(-12, Math.min(36, bewertungen?.get(l.playerIndex) ?? (l.u8(21) << 24) >> 24));
     let wert = 2 * (div(l.u8(16) + l.u8(17), -33) - div(Math.abs(30 - l.u8(18)), 6) + 12);
     wert += 4 * (div(-(b + 12), 6) + 6);
     wert += div(l.u8(19), 33);
@@ -143,7 +145,7 @@ function spielnoten(g: GameState, manager: number, rng: Rng): Map<Lineup, number
       schlechtester = true;
       note = Math.min(6, note + rng(1, 2));
     }
-    aus.set(l, note);
+    aus.set(l.playerIndex, note);
   }
   return aus;
 }
@@ -342,6 +344,12 @@ export interface ReportSource {
   yellowNames?: string[];
   redNames?: string[];
   cards?: number;
+  /**
+   * Spielbewertung (Kaderbyte 21) je Spielernummer, am Ende des Spiels festgehalten. Ohne sie
+   * stünde hier nur noch die Null, die `afterMatch` hinterlässt - dann hätten alle dieselbe
+   * Note und es gäbe nie einen besten oder schwächsten Mann (GitLab #70).
+   */
+  bewertungen?: Map<number, number>;
 }
 
 /** Spielbericht eines Managers aus einem gespielten Spiel aufbauen (0x305DE je Ereignis). */
@@ -379,7 +387,7 @@ export function reportFromMatch(g: GameState, manager: number, m: ReportSource, 
     if (l.isEmpty) continue;
     const p = g.players.at(l.playerIndex);
     if (p.u8(31) === 0) continue;
-    const rating = (l.u8(21) << 24) >> 24;
+    const rating = m.bewertungen?.get(l.playerIndex) ?? (l.u8(21) << 24) >> 24;
     if (rating > 25) best = p.name;
     if (rating < -15 && worst === "") worst = p.name;
   }
@@ -391,10 +399,10 @@ export function reportFromMatch(g: GameState, manager: number, m: ReportSource, 
   const starters = g.squadOf(manager).filter((l) => !l.isEmpty && l.u8(10) >= 1 && l.u8(10) <= 11).sort((a, b) => a.u8(10) - b.u8(10));
   // Reihenfolge wie im Original: erst das Foto (0x2F3D3), dann die Noten (0x2F63C)
   const picture = rng(0, 29);
-  const noten = spielnoten(g, manager, rng);
+  const noten = spielnoten(g, manager, rng, m.bewertungen);
   // Im Original steht zwischen Name und Rückennummer ein Leerzeichen, und hinter dem Verein
   // nur eines: der Blocksatz der Zeitung füllt die Lücken hinter den Kommas selbst auf (#56)
-  const lineup = g.clubs.at(own).name + ": " + starters.map((l) => `${g.players.at(l.playerIndex).name} (${noten.get(l) ?? 6})`).join(", ");
+  const lineup = g.clubs.at(own).name + ": " + starters.map((l) => `${g.players.at(l.playerIndex).name} (${noten.get(l.playerIndex) ?? 6})`).join(", ");
   let hg = 0;
   let ag = 0;
   const goalTexts: string[] = [];

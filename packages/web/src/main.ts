@@ -831,6 +831,10 @@ class App {
       window.setTimeout(() => {
         this.lagerBis = 0;
         this.go("menu");
+        // go() zeichnet nicht selbst: es blendet nur über, und die Blende ist in der Vorgabe
+        // abgeschaltet. Ohne das render() hier blieb der Kasten mit dem Kopf stehen, bis
+        // irgendetwas anderes ein Neuzeichnen auslöste (GitLab #69).
+        this.render();
       }, 1200);
     });
   }
@@ -6614,15 +6618,7 @@ class App {
     const g = this.game!;
     const v = cupView(g, cup);
     const d = nextCupDate(g, cup);
-    // Am Original vermessen (GitLab #56): Tafel (5,34) 308x127, Titel mittig über 159 mit der
-    // obersten Zeile 36, darunter ein Strich auf y 44 von x 7 über 305 Punkte. Die Zeilen
-    // beginnen bei 49 im Abstand 7. Schatten: Titel und Namen in Palettenfarbe 3, Überschriften
-    // und "GEGEN" schwarz, das Ergebnis trägt gar keinen.
     const SCHATTEN = "#303051";
-    panel(ctx, 5, 34, 309, 128);
-    // Das Original zeigt hinter dem Titel den Spieltag ("1.Runde DfB-Pokal   26.8.")
-    f.drawCenter(ctx, toGame(`${v.round} ${v.name}${d ? `    ${d.day}.${d.month0 + 1}.` : ""}`), 159, 36, PLATE, SCHATTEN);
-    hline(ctx, 7, 44, 305, PLATE);
     // Hervorgehoben sind die Vereine **aller** Manager, nicht nur der eigene (im Original gesehen)
     const mine = new Set(g.activeManagers().map((m) => m.clubIndex));
     const rows: { head?: string; leer?: boolean; pair?: (typeof v.pairs)[number] }[] = [];
@@ -6638,9 +6634,32 @@ class App {
         for (const r of inGroup) rows.push({ pair: r });
       }
     } else for (const r of v.pairs) rows.push({ pair: r });
-    let y = 49;
+    /**
+     * Die Tafel wächst mit ihrem Inhalt (0x199EF bis 0x19A7A): das Original zählt die Paarungen
+     * und schlägt für jede **leere** Ligagruppe eine Zeile drauf (deren Strichzeile), rechnet
+     * Höhe = 7·Zeilen + 58 - die 58 fassen Titel, Strich und die sechs Überschriften - und setzt
+     * die Tafel senkrecht mittig: y = (233 - Höhe)/2 - 20, gezeichnet ab y+5 mit Höhe-8.
+     *
+     * Gegenprobe mit der Messung aus #56: elf Zeilen ergeben Höhe 135, also Tafel (5,34) 308x127
+     * - genau das war dort abgelesen. Vorher stand die Tafel fest auf diesem einen Fall, und ein
+     * volles Erstrundenfeld fiel unten heraus: bei sechzehn Paarungen fehlten vier Spiele
+     * Oberliga gegen Oberliga (GitLab #68).
+     *
+     * Für die Europapokale bleibt es beim festen Kasten: dort gibt es keine Überschriften, die
+     * Runde hat höchstens sechzehn Paarungen, und die passen hinein. Die Formel des Originals
+     * rechnet dort mit anderen Vorgaben, die hier nicht nachgemessen sind.
+     */
+    const leereGruppen = cup === 0 ? rows.filter((r) => r.leer).length : 0;
+    const hoehe = cup === 0 ? 7 * (v.pairs.length + 1 + leereGruppen) + 58 : 135;
+    const tafel = Math.trunc((233 - hoehe) / 2) - 20 + 5;
+    panel(ctx, 5, tafel, 309, hoehe - 7);
+    // Das Original zeigt hinter dem Titel den Spieltag ("1.Runde DfB-Pokal   26.8.")
+    f.drawCenter(ctx, toGame(`${v.round} ${v.name}${d ? `    ${d.day}.${d.month0 + 1}.` : ""}`), 159, tafel + 2, PLATE, SCHATTEN);
+    hline(ctx, 7, tafel + 10, 305, PLATE);
+    const unten = tafel + hoehe - 14;
+    let y = tafel + 15;
     for (const row of rows) {
-      if (y > 156) break;
+      if (y > unten) break;
       if (row.head) s.drawCenter(ctx, toGame(row.head), 149, y, "#8282a2");
       // Neun Striche ab x 118; das Original nimmt dafür '@', den langen Strich der Schrift
       else if (row.leer) s.draw(ctx, "@@@@@@@@@", 118, y, "#8282a2", SCHATTEN);
@@ -6656,7 +6675,7 @@ class App {
       }
       y += 7;
     }
-    if (v.pairs.length === 0) s.drawCenter(ctx, "KEINE PAARUNGEN", 160, 100, COLORS.textDim);
+    if (v.pairs.length === 0) s.drawCenter(ctx, "KEINE PAARUNGEN", 160, tafel + 66, COLORS.textDim);
   }
 
   /**

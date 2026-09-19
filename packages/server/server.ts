@@ -1484,6 +1484,8 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
           yellowNames: inc.filter((x) => x.kind === "yellow").map((x) => x.name),
           redNames: inc.filter((x) => x.kind === "red" || x.kind === "yellowred").map((x) => x.name),
           cards: (p.incidents ?? []).filter((x) => x.kind !== "injury").length,
+          // Die Bewertungen des Spiels; ohne sie stünde in der Zeitung für jeden dieselbe Note
+          bewertungen: new Map(p.bewertungen?.find((x) => x.manager === i)?.werte ?? []),
         }, r.rng);
         r.zeitung.set(i, composeZeitung(report, r.rng));
       });
