@@ -31,6 +31,12 @@ export interface PlayedMatch {
   forfeit?: number;
   /** Karten und Verletzungen der Managervereine */
   incidents?: Incident[];
+  /**
+   * Spielbewertung (Kaderbyte 21) der Starter je Managerverein, festgehalten **bevor**
+   * `afterMatch` sie löscht: die Sportzeitung braucht sie für die Spielnoten und für den
+   * besten und schwächsten Mann (GitLab #70). Schlüssel ist die Spielernummer.
+   */
+  bewertungen?: { manager: number; werte: [number, number][] }[];
 }
 
 /** Stärkematrix eines Vereins; Managervereine über den Spielweg aus der Aufstellung. */
@@ -143,6 +149,13 @@ function spieleEins(
       played.attendance = att;
       played.gate = bookGate(g, i, att);
       riotCheck(g, i, rng);
+    });
+    // Die Bewertungen festhalten, solange es sie noch gibt: afterMatch räumt Byte 21 gleich weg
+    g.activeManagers().forEach((mg, i) => {
+      if (mg.clubIndex !== home && mg.clubIndex !== away) return;
+      const werte: [number, number][] = [];
+      for (const l of g.squadOf(i)) if (!l.isEmpty) werte.push([l.playerIndex, (l.u8(21) << 24) >> 24]);
+      (played.bewertungen ??= []).push({ manager: i, werte });
     });
     g.activeManagers().forEach((mg, i) => {
       if (mg.clubIndex === home || mg.clubIndex === away) afterMatch(g, i, 0, rng);

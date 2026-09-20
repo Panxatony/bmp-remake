@@ -1,7 +1,11 @@
 /**
- * Mehrspieler-Server: hält einen Spielstand im Speicher, vergibt Sitzplätze je Manager,
- * sammelt "fertig"-Meldungen und schaltet den Tag weiter, sobald alle Manager fertig sind.
- * Clients bekommen Änderungen per Server-Sent Events und laden dann den Spielstand neu.
+ * Mehrspieler-Server: hält bis zu vier Spielrunden im Speicher, vergibt in jeder Sitzplätze je
+ * Manager, sammelt "fertig"-Meldungen und schaltet den Tag weiter, sobald alle Manager einer
+ * Runde fertig sind. Clients bekommen Änderungen per Server-Sent Events und laden dann den
+ * Spielstand neu; jede Runde hat ihren eigenen Ereignisstrom (GitLab #65).
+ *
+ * Ordner: BMP_DIR/runden/<kennung>/SERVER.MAN je Runde, BMP_DIR/runden.json als Verzeichnis.
+ * Gemeinsam bleiben MANA.DAT, die *.MAN zum Laden und Sichern und die Bestenliste HIGH.0x.
  *
  * Anmeldung: Benutzer mit Passwort-Hash (scrypt) in users.json, Sitzung per Cookie
  * (bmp_session), Sitzplätze sind an den angemeldeten Benutzer gebunden. Der Server ist für
@@ -9,14 +13,15 @@
  * bei X-Forwarded-Proto https, SSE ohne Pufferung).
  *
  *   node packages/server/server.ts [--load DATEI.MAN] [--port 8765] [--fresh]
+ *   --load legt ohne vorhandene Runde die erste daraus an, --fresh übergeht runden.json
  *   node packages/server/users.ts add NAME PASSWORT     (Benutzer anlegen, siehe users.ts)
  *   Umgebung: BMP_DIR (Ordner mit *.MAN), PORT, BMP_USERS (users.json), BMP_SESSIONS (sessions.json)
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile, writeFile, readdir, stat } from "node:fs/promises";
-import { existsSync, readFileSync, writeFileSync, statSync, readdirSync, mkdirSync } from "node:fs";
-import { join, extname, resolve } from "node:path";
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync, statSync, readdirSync, mkdirSync, copyFileSync, renameSync, chmodSync } from "node:fs";
+import { join, extname, resolve, sep } from "node:path";
+import { randomBytes, createHash } from "node:crypto";
 import {
   SaveFile,
   GameState,
@@ -184,6 +189,9 @@ import {
   texte,
 } from "../core/src/index.ts";
 import { ladeTexte } from "../core/src/data/texte-node.ts";
+import { smtpZugang, sendeMail } from "./mail.ts";
+import { hashPassword, verifyPassword, veraltet } from "./passwort.ts";
+import { einladungsPost, ruecksetzPost } from "./einladung.ts";
 import { startLive, tick, liveJson, results as liveResults, attendances as liveAttendances, incidentsOf, forfeitsOf, scorerLines, matchEvents, applySubstitutions, refreshStrength, setSceneFrames, HALFTIME, FULLTIME, type LiveState } from "./live.ts";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -261,32 +269,157 @@ try {
 
 // ---- Benutzer und Sitzungen ------------------------------------------------
 
-export function hashPassword(password: string, salt = randomBytes(16).toString("hex")): string {
-  return `scrypt$${salt}$${scryptSync(password, salt, 32).toString("hex")}`;
+/**
+ * Rollen (GitLab #65). "Manager" heißt im Spielstand schon der geführte Verein, darum heißt die
+ * oberste Rolle Präsident. Einträge ohne Rolle gelten als Spieler: eine users.json aus der Zeit
+ * davor bleibt lesbar und sperrt niemanden aus.
+ */
+type Rolle = "praesident" | "trainer" | "spieler";
+const ROLLEN: Rolle[] = ["praesident", "trainer", "spieler"];
+
+interface Benutzer {
+  name: string;
+  hash: string;
+  rolle: Rolle;
+  email?: string;
 }
 
-function verifyPassword(password: string, hash: string): boolean {
-  const parts = hash.split("$");
-  if (parts.length !== 3 || parts[0] !== "scrypt") return false;
-  const want = Buffer.from(parts[2], "hex");
-  const got = scryptSync(password, parts[1], want.length);
-  return want.length === got.length && timingSafeEqual(want, got);
-}
-
-function loadUsers(): Map<string, string> {
-  const out = new Map<string, string>();
+function loadUsers(): Map<string, Benutzer> {
+  const out = new Map<string, Benutzer>();
   try {
-    const data = JSON.parse(readFileSync(usersFile, "utf8")) as { users?: { name: string; hash: string }[] };
-    for (const u of data.users ?? []) if (u.name && u.hash) out.set(u.name, u.hash);
+    const data = JSON.parse(readFileSync(usersFile, "utf8")) as { users?: { name: string; hash: string; rolle?: string; email?: string }[] };
+    for (const u of data.users ?? []) {
+      if (!u.name) continue;
+      const rolle = ROLLEN.includes(u.rolle as Rolle) ? (u.rolle as Rolle) : "spieler";
+      // Ein Konto ohne Hash ist eingeladen, aber noch nicht freigeschaltet: anmelden kann es
+      // sich nicht (verifyPassword scheitert an der leeren Zeichenkette).
+      out.set(u.name, { name: u.name, hash: u.hash ?? "", rolle, email: u.email });
+    }
   } catch {
     /* keine Benutzerdatei: niemand kann sich anmelden */
   }
   return out;
 }
 
+function rolleVon(user: string): Rolle {
+  return loadUsers().get(user)?.rolle ?? "spieler";
+}
+
+/** Runden anlegen, laden und hochladen dürfen Präsident und Trainer. */
+function darfRunden(user: string): boolean {
+  const r = rolleVon(user);
+  return r === "praesident" || r === "trainer";
+}
+
+/** Benutzer verwalten und fremde Runden löschen darf nur der Präsident. */
+function darfVerwalten(user: string): boolean {
+  return rolleVon(user) === "praesident";
+}
+
+function saveUsers(liste: Benutzer[]): void {
+  const data = { users: liste.map((u) => ({ name: u.name, hash: u.hash, rolle: u.rolle, ...(u.email ? { email: u.email } : {}) })) };
+  writeFileSync(usersFile, JSON.stringify(data, null, 2) + "\n", { mode: 0o600 });
+  // Die Rechte gelten nur beim Anlegen; eine vorhandene Datei behielte ihre
+  chmodSync(usersFile, 0o600);
+}
+
+// ---- Einladung und Passwort zurücksetzen (GitLab #65) ----------------------
+
+/**
+ * Einmalige Marken für den Link in der Mail. Gespeichert wird nur ihr Hash: wer die Datei
+ * liest, kann damit kein Konto übernehmen. Eine Einladung gilt sieben Tage, ein Zurücksetzen
+ * eine Stunde; gebraucht wird jede Marke nur einmal.
+ */
+const tokensFile = process.env.BMP_TOKENS ?? join(savesDir, "tokens.json");
+const MARKE_EINLADUNG = 7 * 86400000;
+const MARKE_RESET = 3600000;
+
+interface Marke {
+  user: string;
+  art: "einladung" | "reset";
+  ablauf: number;
+}
+const marken = new Map<string, Marke>();
+
+function markeHash(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function ladeMarken(): void {
+  try {
+    const data = JSON.parse(readFileSync(tokensFile, "utf8")) as Record<string, Marke>;
+    for (const [hash, m] of Object.entries(data)) if (m.ablauf > Date.now()) marken.set(hash, m);
+  } catch {
+    /* noch keine Marken */
+  }
+}
+
+function sichereMarken(): void {
+  try {
+    for (const [hash, m] of [...marken]) if (m.ablauf <= Date.now()) marken.delete(hash);
+    writeFileSync(tokensFile, JSON.stringify(Object.fromEntries(marken)), { mode: 0o600 });
+    chmodSync(tokensFile, 0o600);
+  } catch (err) {
+    console.error("Marken nicht gesichert:", (err as Error).message);
+  }
+}
+
+function neueMarke(user: string, art: "einladung" | "reset"): string {
+  // Ältere Marken desselben Benutzers verfallen: zwei gültige Links nebeneinander braucht niemand
+  for (const [hash, m] of [...marken]) if (m.user === user) marken.delete(hash);
+  const token = randomBytes(24).toString("base64url");
+  marken.set(markeHash(token), { user, art, ablauf: Date.now() + (art === "einladung" ? MARKE_EINLADUNG : MARKE_RESET) });
+  sichereMarken();
+  return token;
+}
+
+/**
+ * Aussenadresse für die Links in den Mails. Sie **darf nicht** aus dem Host-Kopf der Anfrage
+ * kommen: den schreibt der Anfragende. Wer das Zurücksetzen für einen anderen anstößt und dabei
+ * einen fremden Host einträgt, bekommt sonst eine echte Mail mit einer gültigen Marke, die auf
+ * seinen eigenen Rechner zeigt - ein Klick des Opfers, und das Konto gehört ihm.
+ *
+ * Darum steht die Adresse in BMP_BASE_URL. Fehlt sie, wird der Host nur benutzt, wenn er in
+ * BMP_HOSTS steht (Liste mit Komma); sonst bleibt es bei localhost, und der Link taugt nur auf
+ * dem Rechner selbst - unbequem, aber nicht gefährlich.
+ */
+const baseUrl = (process.env.BMP_BASE_URL ?? "").replace(/\/+$/, "");
+const erlaubteHosts = new Set(
+  (process.env.BMP_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+function aussenAdresse(req: IncomingMessage): string {
+  if (baseUrl) return baseUrl;
+  const roh = vomProxy(req) ? (req.headers["x-forwarded-host"] ?? req.headers.host) : req.headers.host;
+  const host = String(roh ?? "").split(",")[0].trim().toLowerCase();
+  if (host && erlaubteHosts.has(host)) return `${isHttps(req) ? "https" : "http"}://${host}`;
+  if (host && !erlaubteHosts.size && /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host)) return `http://${host}`;
+  return `http://localhost:${port}`;
+}
+
+/**
+ * Einladung oder Rücksetzung verschicken. Ohne SMTP-Umgebung wandert der Link ins Protokoll -
+ * so lässt sich auf dem eigenen Rechner ohne Postfach entwickeln.
+ */
+async function schickeLink(req: IncomingMessage, u: Benutzer, art: "einladung" | "reset"): Promise<void> {
+  const link = `${aussenAdresse(req)}/einladung?t=${neueMarke(u.name, art)}`;
+  const zugang = smtpZugang();
+  const post = art === "einladung" ? einladungsPost(u.name, u.rolle, link) : ruecksetzPost(u.name, link);
+  if (!zugang || !u.email) {
+    console.log(`Kein Mailversand eingerichtet - Link für ${u.name}: ${link}`);
+    return;
+  }
+  await sendeMail(zugang, u.email, post.betreff, post.text);
+}
+
 interface Session {
   user: string;
   created: number;
+  /** Runde, in der dieser Benutzer sitzt (GitLab #65); fehlt sie, steht er in der Lobby. */
+  room?: string;
 }
 const sessions = new Map<string, Session>();
 
@@ -294,7 +427,13 @@ function loadSessions(): void {
   try {
     const data = JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, Session>;
     const limit = Date.now() - SESSION_DAYS * 86400000;
-    for (const [token, s] of Object.entries(data)) if (s.user && s.created > limit) sessions.set(token, s);
+    // Schluessel sind die Hashes der Marken. Eine Datei aus der Zeit davor enthaelt die Marken
+    // selbst; die passen zu keinem Cookie mehr, jeder meldet sich einmal neu an.
+    for (const [token, s] of Object.entries(data)) {
+      if (!s.user || s.created <= limit) continue;
+      sessions.set(token, s);
+      if (s.room != null) activeRoom.set(s.user, s.room);
+    }
   } catch {
     /* keine gespeicherten Sitzungen */
   }
@@ -303,9 +442,19 @@ function loadSessions(): void {
 function saveSessions(): void {
   try {
     writeFileSync(sessionsFile, JSON.stringify(Object.fromEntries(sessions)), { mode: 0o600 });
+    chmodSync(sessionsFile, 0o600);
   } catch (err) {
     console.error("Sitzungen sichern fehlgeschlagen:", (err as Error).message);
   }
+}
+
+/**
+ * Sitzungen liegen unter dem Hash ihrer Marke, nicht unter der Marke selbst: wer sessions.json
+ * in die Hand bekommt, hat damit noch keine gueltige Anmeldung. Die Marke hat 192 Bit aus dem
+ * Zufallsgenerator, ein schnelles Verfahren reicht also.
+ */
+function sessionHash(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 function cookieToken(req: IncomingMessage): string | undefined {
@@ -320,12 +469,32 @@ function cookieToken(req: IncomingMessage): string | undefined {
 function sessionUser(req: IncomingMessage): string | undefined {
   const token = cookieToken(req);
   if (!token) return undefined;
-  const s = sessions.get(token);
+  const s = sessions.get(sessionHash(token));
   if (!s || s.created < Date.now() - SESSION_DAYS * 86400000) return undefined;
   return s.user;
 }
 
+/**
+ * Köpfe eines vorgeschalteten Proxys (X-Forwarded-*) darf man nur glauben, wenn die Anfrage auch
+ * wirklich von ihm kommt: sonst schreibt sie der Anfragende selbst. In BMP_PROXY_IPS stehen die
+ * Adressen der eigenen Proxys (Liste mit Komma); von allen anderen zählt allein, was die
+ * Verbindung selbst hergibt. Ist der Dienst auch direkt erreichbar - im Heimnetz etwa -, hilft
+ * ein bloßer Schalter "hinter mir steht ein Proxy" nämlich nicht.
+ */
+const proxyIps = new Set(
+  (process.env.BMP_PROXY_IPS ?? "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean),
+);
+
+function vomProxy(req: IncomingMessage): boolean {
+  const adr = req.socket.remoteAddress ?? "";
+  return proxyIps.has(adr) || proxyIps.has(adr.replace(/^::ffff:/, ""));
+}
+
 function isHttps(req: IncomingMessage): boolean {
+  if (!vomProxy(req)) return false;
   const proto = String(req.headers["x-forwarded-proto"] ?? "").split(",")[0].trim();
   return proto === "https";
 }
@@ -337,9 +506,37 @@ function setSessionCookie(req: IncomingMessage, res: ServerResponse, token: stri
 
 /** Fehlversuche je Adresse: nach fünf Fehlern in zehn Minuten wird abgewiesen. */
 const failures = new Map<string, number[]>();
+
+/**
+ * Adresse des Anfragenden. Hinter einem Proxy steht die echte Adresse **hinten** in
+ * X-Forwarded-For (nginx haengt sie mit $proxy_add_x_forwarded_for an) - der vordere Teil kommt
+ * vom Anfragenden selbst und laesst sich frei erfinden. Wer den ersten Eintrag nimmt, hat keine
+ * Bremse mehr, sondern nur noch deren Anschein.
+ */
 function clientAddress(req: IncomingMessage): string {
-  const fwd = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim();
-  return fwd || req.socket.remoteAddress || "?";
+  if (vomProxy(req)) {
+    const kette = String(req.headers["x-forwarded-for"] ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+    if (kette.length) return kette[kette.length - 1];
+  }
+  return req.socket.remoteAddress || "?";
+}
+
+/**
+ * Fehlversuche je Konto. Die Bremse je Adresse allein reicht nicht: wer ueber viele Adressen
+ * kommt, probiert sonst ungezaehlt weiter. Gesperrt wird nichts - das koennte ein Fremder
+ * benutzen, um jemanden auszusperren -, es wird nur langsam: je Fehlversuch der letzten zehn
+ * Minuten kommt Wartezeit dazu, bis zu fuenf Sekunden.
+ */
+const kontoFehler = new Map<string, number[]>();
+function kontoBremse(name: string): number {
+  const jetzt = Date.now();
+  const liste = (kontoFehler.get(name.toLowerCase()) ?? []).filter((t) => t > jetzt - 600000);
+  kontoFehler.set(name.toLowerCase(), liste);
+  return Math.min(5000, 250 * 2 ** Math.max(0, liste.length - 2));
+}
+function kontoFehlversuch(name: string): void {
+  const k = name.toLowerCase();
+  kontoFehler.set(k, [...(kontoFehler.get(k) ?? []), Date.now()]);
 }
 function tooManyFailures(addr: string): boolean {
   const now = Date.now();
@@ -351,6 +548,18 @@ function tooManyFailures(addr: string): boolean {
 // ---- Spielraum -------------------------------------------------------------
 
 interface Room {
+  /** Kennung der Runde; zugleich der Ordnername unter BMP_DIR/runden (GitLab #65) */
+  id: string;
+  /** Anzeigename in der Lobby */
+  name: string;
+  /** Wer die Runde angelegt hat: er darf sie ersetzen und löschen */
+  creator: string;
+  /** Angelegt am (ms seit 1970) */
+  created: number;
+  /** Geschlossene Runde: hinein kommt nur, wer eingeladen ist (GitLab #66) */
+  privat: boolean;
+  /** Eingeladene Benutzer; der Ersteller und der Präsident brauchen keinen Eintrag */
+  gaeste: string[];
   file: string;
   save: SaveFile;
   game: GameState;
@@ -459,9 +668,17 @@ interface Room {
     startedAt: number | null;
     skipped: boolean;
     seen: string[];
+    /**
+     * Wettbewerbe, die nach diesem noch drankommen. Nach einem Pokaltag sind das genau die, die
+     * eben neu ausgelost wurden (GitLab #71); fehlt die Liste, gilt die alte Reihenfolge über
+     * alle Wettbewerbe mit Paarungen (Spielbeginn).
+     */
+    folge?: number[];
   };
   /** Protokollzeilen des zuletzt gespielten Tages (Ergebnisbildschirm) */
   lastDay: string[];
+  /** Zeitgeber fürs Zwischenspeichern; je Runde einer, siehe schedulePersist */
+  persistTimer?: NodeJS.Timeout;
 }
 
 /** Spielgeschwindigkeit 1..9 in Millisekunden je Spielminute (Vorgabe aus BMP_TEMPO_MS). */
@@ -472,8 +689,86 @@ function tempoOf(ms: number): number {
   return Math.max(1, Math.min(9, Math.round((2000 - ms) / 180)));
 }
 
-let room: Room | undefined;
-const listeners = new Set<ServerResponse>();
+// ---- Räume: mehrere Spielrunden gleichzeitig (GitLab #65) ------------------
+
+/**
+ * Jede Runde hat einen eigenen Ordner BMP_DIR/runden/<id> mit ihrem SERVER.MAN; das Verzeichnis
+ * der Runden steht in BMP_DIR/runden.json. Gemeinsam bleiben die Installation (MANA.DAT), der
+ * Vorrat der *.MAN zum Laden und Sichern und die Bestenliste HIGH.0x - so hielt es auch das
+ * Original, dort gehören diese Dateien zur Installation und nicht zur Partie.
+ */
+const roundsDir = join(savesDir, "runden");
+const roundsIndex = join(savesDir, "runden.json");
+/** Höchstens vier Runden gleichzeitig (Entscheidung zu #65). */
+const MAX_ROOMS = 4;
+
+const rooms = new Map<string, Room>();
+/** Nächste Kennung; einmal vergebene werden nicht wiederverwendet, damit Ordner eindeutig bleiben. */
+let nextRoomId = 1;
+/** In welcher Runde ein Benutzer gerade sitzt; steht auch in seinen Sitzungen (siehe joinRoom). */
+const activeRoom = new Map<string, string>();
+/** Zuhörer des Ereignisstroms mit ihrem Benutzer - der Raum wechselt, der Zuhörer bleibt. */
+const listeners = new Map<ServerResponse, string>();
+
+interface RoomMeta {
+  id: string;
+  name: string;
+  creator: string;
+  created: number;
+  file: string;
+  privat: boolean;
+  gaeste: string[];
+}
+
+/**
+ * Darf der Benutzer diese Runde betreten? Eine offene Runde steht allen offen; in eine
+ * geschlossene kommt, wer sie angelegt hat, wer eingeladen ist, und der Präsident - er verwaltet
+ * ohnehin die Konten und kann sich den Zutritt sonst in zwei Schritten selbst verschaffen.
+ */
+function darfBetreten(user: string, r: Room): boolean {
+  // Kein Freibrief für herrenlose Runden: die aus der Zeit vor den Runden hat keinen Ersteller,
+  // und "wer keinen Besitzer hat, steht allen offen" hebelte das Schloss genau dort aus.
+  return !r.privat || r.creator === user || r.gaeste.includes(user) || darfVerwalten(user);
+}
+
+/** Wer die Runde einstellen darf: ihr Ersteller und der Präsident. */
+function darfRundeVerwalten(user: string, r: Room): boolean {
+  return r.creator === user || r.creator === "" || darfVerwalten(user);
+}
+
+function roomOf(user: string): Room | undefined {
+  const id = activeRoom.get(user);
+  return id ? rooms.get(id) : undefined;
+}
+
+/**
+ * Einen Benutzer in eine Runde setzen (oder mit undefined zurück in die Lobby). Die Lobby wird
+ * als leere Kennung vermerkt und nicht als fehlender Eintrag: "war noch nie in einer Runde" und
+ * "hat die Runde verlassen" sind zweierlei, solange die Übergangshilfe in api() den Einzelgänger
+ * in die einzige Runde setzt.
+ */
+function joinRoom(user: string, id: string | undefined): void {
+  activeRoom.set(user, id ?? "");
+  for (const s of sessions.values()) if (s.user === user) s.room = id ?? "";
+  saveSessions();
+}
+
+/** Verzeichnis der Runden schreiben; die Laufzeitdaten einer Runde stehen bewusst nicht darin. */
+function saveRounds(): void {
+  try {
+    const data = {
+      next: nextRoomId,
+      runden: [...rooms.values()].map((r) => ({ id: r.id, name: r.name, creator: r.creator, created: r.created, file: r.file, privat: r.privat, gaeste: r.gaeste })),
+    };
+    writeFileSync(roundsIndex, JSON.stringify(data, null, 2) + "\n");
+  } catch (err) {
+    console.error("runden.json nicht geschrieben:", (err as Error).message);
+  }
+}
+
+function neueRundenKennung(): string {
+  return `r${nextRoomId++}`;
+}
 
 const MONTHS = ["Januar", "Februar", "M{rz", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 
@@ -658,29 +953,65 @@ function wrap(text: string, width = 24): string[] {
   return out;
 }
 
-function broadcast(): void {
-  if (!room) return;
-  const data = `data: ${JSON.stringify({ version: room.version, build: buildStamp(), live: room.live ? liveJson(room.live, room.game) : null })}\n\n`;
-  for (const res of listeners) res.write(data);
-  schedulePersist();
+/** Ereignisse einer Runde gehen nur an die Zuhörer, die auch in dieser Runde sitzen (#65). */
+/** Das Protokoll einer Runde waechst sonst ueber Monate unbegrenzt mit. */
+function kuerzeLog(r: Room): void {
+  if (r.log.length > 2000) r.log.splice(0, r.log.length - 2000);
+}
+
+function broadcast(r: Room): void {
+  kuerzeLog(r);
+  const data = `data: ${JSON.stringify({ version: r.version, build: buildStamp(), live: r.live ? liveJson(r.live, r.game) : null })}\n\n`;
+  for (const [res, user] of listeners) if (activeRoom.get(user) === r.id) res.write(data);
+  schedulePersist(r);
+}
+
+/** In der Lobby hat sich etwas geändert: wer in keiner Runde sitzt, holt die Liste neu. */
+function broadcastLobby(): void {
+  const data = `data: ${JSON.stringify({ version: 0, build: buildStamp(), lobby: true })}\n\n`;
+  for (const [res, user] of listeners) if (!roomOf(user)) res.write(data);
 }
 
 /**
- * Zwischenspeichern: der Stand wandert einige Sekunden nach der letzten Änderung nach
- * SERVER.MAN, nicht erst beim Tageswechsel. Sonst wäre alles verloren, was seit dem letzten
+ * Zwischenspeichern: der Stand wandert einige Sekunden nach der letzten Änderung in das
+ * SERVER.MAN der Runde, nicht erst beim Tageswechsel. Sonst wäre alles verloren, was seit dem letzten
  * Tageswechsel passiert ist, wenn der Dienst neu startet.
  */
-let persistTimer: NodeJS.Timeout | undefined;
-function schedulePersist(): void {
-  if (persistTimer || !room) return;
-  persistTimer = setTimeout(() => {
-    persistTimer = undefined;
-    if (room) void persist(room);
+function schedulePersist(r: Room): void {
+  if (r.persistTimer) return;
+  r.persistTimer = setTimeout(() => {
+    r.persistTimer = undefined;
+    void persist(r);
   }, 3000);
-  persistTimer.unref?.();
+  r.persistTimer.unref?.();
 }
 
 /** Alle Manager sind fertig: der Tag läuft. Die Hinweise des Zuges sind damit vorbei (#31). */
+/**
+ * Aufstellung übernehmen (GitLab #66). Der Client schickt seinen ganzen Kaderblock, aber ändern
+ * darf er daran genau **eine** Sache: die Rückennummern, denn nur die vergibt er beim Tauschen
+ * zweier Zeilen (1 bis 11 steht in der Mannschaft, ab 12 auf der Bank). Alles andere - Stärken,
+ * Alter, Vertrag, Gehalt, welcher Spieler überhaupt im Kader steht - kommt aus dem Spielstand
+ * des Servers und wird aus der Einsendung gar nicht erst gelesen.
+ *
+ * Geprüft wird außerdem, dass die Nummern dieselben bleiben und nur anders verteilt sind: sonst
+ * setzte sich jemand elf Einsen in die Mannschaft. Rückgabe: Fehlertext oder "" bei Erfolg.
+ */
+function uebernimmNummern(g: GameState, manager: number, block: Buffer): string {
+  const plaetze = [...Array(25).keys()];
+  const zeilen = plaetze.map((i) => g.lineups.at(manager * 25 + i));
+  const belegt = plaetze.filter((i) => !zeilen[i].isEmpty);
+  const neu = plaetze.map((i) => block[i * 52 + 10]);
+  // Auf einen Wertebereich wird nicht geprüft: welche Nummern es gibt, sagt der Spielstand. Die
+  // Null kommt vor (im Prüfstand trug Platz 8 keine Nummer), und ein Bereich 1..25 hätte sie
+  // fälschlich abgewiesen. Es zählt allein, dass dieselben Nummern herauskommen wie vorher.
+  const vorher = belegt.map((i) => zeilen[i].number).sort((a, b) => a - b);
+  const nachher = belegt.map((i) => neu[i]).sort((a, b) => a - b);
+  if (vorher.join(",") !== nachher.join(",")) return "Rückennummern lassen sich nur untereinander tauschen - hat sich der Kader geändert?";
+  for (const i of belegt) zeilen[i].number = neu[i];
+  return "";
+}
+
 /** Kaderplatz eines Spielers; -1, wenn er nicht mehr im Kader steht (der Kader schiebt auf). */
 function platzVon(g: GameState, manager: number, playerIndex: number): number {
   for (let place = 0; place < 25; place++) {
@@ -793,12 +1124,12 @@ function startLiveDay(r: Room): void {
       nachTageswechsel(r);
       // Hat schon jeder bestätigt, verschwindet die Anzeige sofort
       if (!st2.paused) r.live = undefined;
-      broadcast();
+      broadcast(r);
       return;
     }
-    if (changed) broadcast();
+    if (changed) broadcast(r);
   }, 200);
-  broadcast();
+  broadcast(r);
 }
 
 /**
@@ -812,25 +1143,121 @@ function repariereKader(game: GameState): void {
   });
 }
 
-function roomFromSave(file: string, save: SaveFile): Room {
+function roomFromSave(meta: RoomMeta, save: SaveFile): Room {
   const game = new GameState(save);
   repariereKader(game);
-  const r: Room = { file, save, game, version: 1, seats: new Map(), done: new Set(), log: [], rng: mulberryRng(Date.now() >>> 0), balanceSums: game.activeManagers().map(() => ({ sum: 0 })), pending: [], offers: [], campOpen: CAMP_OPEN_START.slice(), msgFlags: [], sales: new Map(), purchases: new Map(), subsidies: new Map(), marketOffers: [], options: { tempo: tempoOf(TEMPO_MS), scenes: true, zeitung: true, flags: OPTION_DEFAULTS.slice() }, zeitung: new Map(), highscore: loadHighscore(game), lastDay: [], poachTried: new Set(), bauAbgelehnt: new Set(), bauTage: new Map(), auctions: new Map(), jugendFrisch: [], hinweise: [], abschluss: [], poachRequests: [], loanRequests: [], freeAgents: [], freeAgentsDay: -1, vertragsende: [] };
+  const r: Room = { ...meta, save, game, version: 1, seats: new Map(), done: new Set(), log: [], rng: mulberryRng(Date.now() >>> 0), balanceSums: game.activeManagers().map(() => ({ sum: 0 })), pending: [], offers: [], campOpen: CAMP_OPEN_START.slice(), msgFlags: [], sales: new Map(), purchases: new Map(), subsidies: new Map(), marketOffers: [], options: { tempo: tempoOf(TEMPO_MS), scenes: true, zeitung: true, flags: OPTION_DEFAULTS.slice() }, zeitung: new Map(), highscore: loadHighscore(game), lastDay: [], poachTried: new Set(), bauAbgelehnt: new Set(), bauTage: new Map(), auctions: new Map(), jugendFrisch: [], hinweise: [], abschluss: [], poachRequests: [], loanRequests: [], freeAgents: [], freeAgentsDay: -1, vertragsende: [] };
   return r;
 }
 
-async function loadRoom(file: string): Promise<Room> {
-  const data = new Uint8Array(await readFile(join(savesDir, file)));
-  const save = SaveFile.decode(data);
-  const game = new GameState(save);
-  repariereKader(game);
-  const r: Room = { file, save, game, version: 1, seats: new Map(), done: new Set(), log: [], rng: mulberryRng(Date.now() >>> 0), balanceSums: game.activeManagers().map(() => ({ sum: 0 })), pending: [], offers: [], campOpen: CAMP_OPEN_START.slice(), msgFlags: [], sales: new Map(), purchases: new Map(), subsidies: new Map(), marketOffers: [], options: { tempo: tempoOf(TEMPO_MS), scenes: true, zeitung: true, flags: OPTION_DEFAULTS.slice() }, zeitung: new Map(), highscore: loadHighscore(game), lastDay: [], poachTried: new Set(), bauAbgelehnt: new Set(), bauTage: new Map(), auctions: new Map(), jugendFrisch: [], hinweise: [], abschluss: [], poachRequests: [], loanRequests: [], freeAgents: [], freeAgentsDay: -1, vertragsende: [] };
-  r.log.push(`Spielstand ${file} geladen`);
+/** Einen Spielstand von der Platte in eine Runde laden (Pfad, weil Runden eigene Ordner haben). */
+async function loadRoom(meta: RoomMeta, path: string): Promise<Room> {
+  const save = SaveFile.decode(new Uint8Array(await readFile(path)));
+  const r = roomFromSave(meta, save);
+  r.log.push(`Spielstand ${meta.file} geladen`);
   repairMarketPrices(r);
   // Vom Rechner geführte Manager warten auf nichts. Ohne das hier bliebe der Tag nach dem Laden
   // eines Spielstands mit KI-Managern für immer stehen (beim Bildvergleich für #56 aufgefallen).
   for (const i of aiList(r.game)) r.done.add(i);
   return r;
+}
+
+/** Pfad des Spielstands einer Runde: BMP_DIR/runden/<id>/SERVER.MAN */
+function roomSavePath(id: string): string {
+  return join(roundsDir, id, SERVER_SAVE);
+}
+
+/**
+ * Kurzfassung einer Runde für die Lobby. Von einer geschlossenen Runde, in die der Fragende
+ * nicht darf, steht nur da, dass es sie gibt und wem sie gehört - nicht, wer mitspielt und wie
+ * weit sie ist. Ganz verschweigen wäre unfreundlich: sonst wundert man sich, warum kein Platz
+ * mehr frei ist.
+ */
+function roomInfo(r: Room, user: string) {
+  const k = dayIndex(r.game);
+  const offen = darfBetreten(user, r);
+  if (!offen) {
+    return { id: r.id, name: r.name, creator: r.creator, created: r.created, privat: true, zutritt: false, file: "", dayIndex: 0, date: { day: 0, month0: 0, year: 0 }, live: false, managers: [], anwesend: [] };
+  }
+  return {
+    id: r.id,
+    name: r.name,
+    creator: r.creator,
+    created: r.created,
+    privat: r.privat,
+    zutritt: true,
+    gaeste: darfRundeVerwalten(user, r) ? r.gaeste : undefined,
+    file: r.file,
+    date: dateOfSeasonDay(seasonDay(k), seasonStartYear(r.game)),
+    dayIndex: k,
+    live: Boolean(r.live),
+    managers: r.game.activeManagers().map((m, i) => ({
+      name: m.displayName,
+      club: r.game.clubs.at(m.clubIndex).displayName,
+      seat: r.seats.get(i) ?? null,
+      ki: isAi(r.game, i),
+    })),
+    /** Wer die Runde betreten hat, auch ohne auf einem Platz zu sitzen */
+    anwesend: [...activeRoom.entries()].filter(([, id]) => id === r.id).map(([u]) => u),
+  };
+}
+
+/** Einen Benutzer aus den Plätzen einer Runde nehmen; sein Verein bleibt unbesetzt. */
+function verlassen(r: Room, user: string): void {
+  for (const [m, who] of [...r.seats]) {
+    if (who !== user) continue;
+    r.seats.delete(m);
+    r.log.push(`${user} verlässt die Runde (${r.game.managers.at(m).displayName} ist wieder frei)`);
+  }
+}
+
+/**
+ * Runde aus der Lobby nehmen. Der Ordner wird **nicht** gelöscht, sondern auf <id>.geloescht
+ * umbenannt: ein Klick soll keinen Spielstand endgültig vernichten.
+ */
+function loescheRunde(r: Room): void {
+  if (r.liveTimer) clearInterval(r.liveTimer);
+  if (r.persistTimer) clearTimeout(r.persistTimer);
+  rooms.delete(r.id);
+  for (const [user, id] of [...activeRoom]) if (id === r.id) joinRoom(user, undefined);
+  // Wer in der gelöschten Runde saß, steht jetzt in der Lobby
+  try {
+    const alt = join(roundsDir, r.id);
+    if (existsSync(alt)) renameSync(alt, join(roundsDir, `${r.id}.geloescht`));
+  } catch (err) {
+    console.error(`Ordner der Runde ${r.id} nicht umbenannt:`, (err as Error).message);
+  }
+  saveRounds();
+}
+
+/**
+ * Ziel für "Neues Spiel", "Laden" und "Hochladen": entweder die eigene Runde, deren Inhalt
+ * damit ersetzt wird, oder eine neue. Ersetzen darf nur, wer die Runde angelegt hat - die aus
+ * der Zeit vor den Runden übernommene erste Partie hat keinen Ersteller und steht allen offen.
+ */
+function rundenZiel(user: string, ziel: Room | undefined, wunsch: string, file: string): RoomMeta | { error: string; code: number } {
+  if (!darfRunden(user)) return { error: "Als Spieler dürfen Sie keine Runde anlegen oder ersetzen", code: 403 };
+  const name = wunsch.replace(/[^\p{L}\p{N} .,:!?()-]/gu, "").trim().slice(0, 24);
+  if (ziel) {
+    if (ziel.creator && ziel.creator !== user && !darfVerwalten(user)) return { error: `Die Runde gehört ${ziel.creator}`, code: 403 };
+    return { id: ziel.id, name: name || ziel.name, creator: ziel.creator || user, created: ziel.created, file, privat: ziel.privat, gaeste: ziel.gaeste };
+  }
+  if (rooms.size >= MAX_ROOMS) return { error: `Es laufen schon ${MAX_ROOMS} Runden`, code: 409 };
+  return { id: neueRundenKennung(), name: name || `Runde ${rooms.size + 1}`, creator: user, created: Date.now(), file, privat: false, gaeste: [] };
+}
+
+/** Runde eintragen oder ihren Inhalt ersetzen und den Benutzer hineinsetzen. */
+function setRoom(user: string, r: Room): void {
+  const alt = rooms.get(r.id);
+  if (alt) {
+    // Der ersetzte Stand hat andere Manager: die Plätze werden neu vergeben, die Anwesenden
+    // bleiben aber in der Runde und wählen sich einen aus.
+    if (alt.liveTimer) clearInterval(alt.liveTimer);
+    if (alt.persistTimer) clearTimeout(alt.persistTimer);
+  }
+  rooms.set(r.id, r);
+  joinRoom(user, r.id);
+  saveRounds();
 }
 
 function managerInfo(r: Room) {
@@ -871,6 +1298,18 @@ function nextCeremonyCup(g: GameState, cup: number): number | null {
  * seiner Übersichtsseite (0x17DBF setzt 0x57C8 auf 0, 0x18A71 lässt die Übersicht dann aus).
  */
 function advanceCeremony(r: Room, fromCup: number): void {
+  const folge = r.ceremony?.folge;
+  if (folge) {
+    const [naechster, ...rest] = folge;
+    if (naechster === undefined) {
+      r.ceremony = undefined;
+      r.log.push("Auslosung: fertig");
+      return;
+    }
+    r.ceremony = { cup: naechster, phase: "vote", ready: true, votes: {}, startedAt: null, skipped: false, seen: [], folge: rest };
+    r.log.push(`Auslosung: Abfrage für ${cupNames()[naechster]}`);
+    return;
+  }
   const next = nextCeremonyCup(r.game, fromCup);
   if (next === null) {
     r.ceremony = undefined;
@@ -879,6 +1318,24 @@ function advanceCeremony(r: Room, fromCup: number): void {
   }
   r.ceremony = { cup: next, phase: "vote", ready: true, votes: {}, startedAt: null, skipped: false, seen: [] };
   r.log.push(`Auslosung: Abfrage für ${cupNames()[next]}`);
+}
+
+/**
+ * Zeremonie für frisch ausgeloste Wettbewerbe ansetzen. Im Original ruft die Auslosung der
+ * nächsten Runde (0x18FC2, aus dem Rundenabschluss 0x192FC) die Zeremonie gleich selbst auf
+ * (0x19039 -> 0x17C26) - nach jedem Pokaltag, im Europapokal erst nach dem Rückspiel, nach dem
+ * Finale nicht mehr. Läuft schon eine, kommen die neuen hinten an (GitLab #71).
+ */
+function zeremonieAnsetzen(r: Room, cups: number[]): void {
+  const neu = cups.filter((c) => cupView(r.game, c).pairs.length > 0);
+  if (neu.length === 0) return;
+  if (r.ceremony) {
+    r.ceremony.folge = [...(r.ceremony.folge ?? []), ...neu.filter((c) => c !== r.ceremony!.cup)];
+    return;
+  }
+  const [erster, ...rest] = neu;
+  r.ceremony = { cup: erster, phase: "vote", ready: true, votes: {}, startedAt: null, skipped: false, seen: [], folge: rest };
+  r.log.push(`Auslosung: Abfrage für ${cupNames()[erster]}`);
 }
 
 function listedCountOf(r: Room, manager: number): number {
@@ -901,6 +1358,8 @@ function stateJson(r: Room, user: string) {
     version: r.version,
     build: buildStamp(),
     user,
+    rolle: rolleVon(user),
+    runde: { id: r.id, name: r.name, creator: r.creator },
     file: r.file,
     dayIndex: k,
     flag: calendarFlag(r.game, k),
@@ -1061,6 +1520,8 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
           yellowNames: inc.filter((x) => x.kind === "yellow").map((x) => x.name),
           redNames: inc.filter((x) => x.kind === "red" || x.kind === "yellowred").map((x) => x.name),
           cards: (p.incidents ?? []).filter((x) => x.kind !== "injury").length,
+          // Die Bewertungen des Spiels; ohne sie stünde in der Zeitung für jeden dieselbe Note
+          bewertungen: new Map(p.bewertungen?.find((x) => x.manager === i)?.werte ?? []),
         }, r.rng);
         r.zeitung.set(i, composeZeitung(report, r.rng));
       });
@@ -1096,6 +1557,7 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
   if (flag & 8) {
     const played = playCupDay(g, r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`));
     logCupMatches(r, "DFB-Pokal", played, played.finals ?? [], live?.scorers);
+    zeremonieAnsetzen(r, played.gezogen ?? []);
   }
   // Tagesverteiler 0x1D8D1: genau Flag 0x10 ist die Relegation, sonst ein Europapokaltag
   if ((flag & 0x70) === 0x10) {
@@ -1105,8 +1567,9 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
     // Das Relegationsspiel läuft in der Konferenz wie jedes andere; Ergebnis und Ausgang stehen
     // danach im Spielplan und im Verlauf. Das Original meldet nichts (GitLab #54).
   } else if (flag & 0x70) {
-    const { matches, finals } = playEuropaDay(g, seasonDay(k), r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`));
+    const { matches, finals, gezogen } = playEuropaDay(g, seasonDay(k), r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`));
     logCupMatches(r, "Europapokal", matches, finals, live?.scorers);
+    zeremonieAnsetzen(r, gezogen);
   }
   const fromDay = seasonDay(k);
   if (k + 1 < CALENDAR_DAYS) setDayIndex(g, k + 1);
@@ -1172,6 +1635,9 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
       }
     }
     r.log.push(`Saisonwechsel: neue Saison ${g.date.year}/${g.date.year + 1}, Auf- und Abstieg, Ligaplätze gemischt, Pokale neu gelost, neue Sponsorenangebote`);
+    // Auch zu Saisonbeginn lost das Original mit Zeremonie aus (0x1EAD3 und 0x1EAEE rufen die
+    // Auslosung 0x18600 auf): erst den DfB-Pokal, dann die drei Europapokale (GitLab #71)
+    zeremonieAnsetzen(r, [0, 1, 2, 3]);
     // Abgelaufene Verträge: der Dialog des Originals folgt im ersten Zug der neuen Saison
     r.vertragsende = events.filter((ev) => ev.vertrag).map((ev) => ({ manager: ev.manager, playerIndex: ev.vertrag!.playerIndex, name: ev.vertrag!.name }));
     if (r.vertragsende.length) {
@@ -1428,7 +1894,8 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
 
 async function persist(r: Room): Promise<void> {
   try {
-    await writeFile(join(savesDir, SERVER_SAVE), r.save.withFreshHeader().encode());
+    mkdirSync(join(roundsDir, r.id), { recursive: true });
+    await writeFile(roomSavePath(r.id), r.save.withFreshHeader().encode());
   } catch (err) {
     r.log.push("Sichern fehlgeschlagen: " + String((err as Error).message));
   }
@@ -1453,17 +1920,38 @@ function json(res: ServerResponse, code: number, body: unknown): void {
 
 const types: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".png": "image/png", ".mp3": "audio/mpeg", ".wav": "audio/wav" };
 
+/**
+ * Liegt `datei` wirklich unterhalb von `ordner`? `join` rechnet ".." schon weg, eine Suche nach
+ * ".." im Ergebnis geht also ins Leere. Geprueft wird deshalb der aufgeloeste Pfad.
+ */
+function liegtIn(datei: string, ordner: string): boolean {
+  const ziel = resolve(datei);
+  const basis = resolve(ordner);
+  return ziel === basis || ziel.startsWith(basis + sep);
+}
+
+/**
+ * Spielstaende ohne Anmeldung ausliefern, wenn die Gegenstelle lokal aussieht, ist nur fuer den
+ * Prototypen gedacht - steht der Server einmal auf demselben Rechner wie sein Proxy, gilt jeder
+ * Fremde als lokal. Darum muss es ausdruecklich eingeschaltet werden.
+ */
+const lokalOhneAnmeldung = process.env.BMP_LOKAL_OHNE_ANMELDUNG === "1";
+
 async function serveStatic(pathname: string, res: ServerResponse, user: string | undefined, local = false, range?: string, ifNoneMatch?: string): Promise<void> {
   let file: string | null = null;
+  let ordner = web;
   if (pathname === "/" || pathname === "/index.html") file = join(web, "index.html");
   else if (pathname.startsWith("/dist/")) file = join(web, pathname);
-  else if (pathname.startsWith("/assets/")) file = join(root, pathname);
-  else if (pathname.startsWith("/saves/")) {
-    if (!user && !local) return json(res, 401, { error: "nicht angemeldet" });
+  else if (pathname.startsWith("/assets/")) {
+    file = join(root, pathname);
+    ordner = join(root, "assets");
+  } else if (pathname.startsWith("/saves/")) {
+    if (!user && !(local && lokalOhneAnmeldung)) return json(res, 401, { error: "nicht angemeldet" });
     file = join(savesDir, pathname.slice(7));
+    ordner = savesDir;
   }
   try {
-    if (!file || file.includes("..")) throw new Error("nicht gefunden");
+    if (!file || !liegtIn(file, ordner)) throw new Error("nicht gefunden");
     let data = await readFile(file);
     if (file.endsWith("index.html")) {
       // Versionsstempel, damit Browser nach jeder Auslieferung die Programmdatei neu laden
@@ -1516,13 +2004,94 @@ async function serveStatic(pathname: string, res: ServerResponse, user: string |
   }
 }
 
+/**
+ * Kommt die Anfrage von unserer eigenen Seite? Ein Formular auf einer fremden Seite kann das
+ * Sitzungs-Cookie zwar nicht mitschicken (SameSite=Lax), aber darauf allein soll es nicht
+ * ankommen. Browser setzen bei jedem POST einen Origin-Kopf; stimmt der nicht mit dem Host
+ * überein, ist die Anfrage von woanders. Fehlt er ganz, kommt sie nicht aus einem Browser
+ * (curl, Werkzeuge) - das bleibt erlaubt, sonst wäre der Server nicht mehr zu bedienen.
+ */
+function eigenerUrsprung(req: IncomingMessage): boolean {
+  const ursprung = req.headers.origin;
+  if (!ursprung) return true;
+  let her: string;
+  try {
+    her = new URL(String(ursprung)).host.toLowerCase();
+  } catch {
+    return false;
+  }
+  const hier = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "").split(",")[0].trim().toLowerCase();
+  if (her === hier) return true;
+  if (erlaubteHosts.has(her)) return true;
+  if (baseUrl) {
+    try {
+      return her === new URL(baseUrl).host.toLowerCase();
+    } catch {
+      /* unbrauchbare Angabe */
+    }
+  }
+  return false;
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Seite zum Passwort setzen (GitLab #65). Sie gehört nicht ins Spielbild: der Link aus der Mail
+ * wird geöffnet, bevor jemand angemeldet ist, und ein Formular auf der Leinwand wäre hier nur
+ * umständlich. Darum eine schlichte Seite im Stil des Anmeldefensters.
+ */
+function einladungsSeite(): string {
+  return `<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Passwort setzen</title>
+<style>
+  html, body { margin: 0; background: #202028; color: #ddd; font-family: sans-serif; height: 100%; }
+  body { display: flex; align-items: center; justify-content: center; }
+  form { background: #2e2e44; padding: 24px 28px; border: 2px solid #8a8ab8; display: flex; flex-direction: column; gap: 10px; min-width: 280px; }
+  h2 { margin: 0 0 6px; font-size: 18px; }
+  label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+  input { font-size: 15px; padding: 4px 6px; }
+  button { font-size: 15px; padding: 6px; margin-top: 4px; }
+  #fehler { color: #ff8080; font-size: 13px; min-height: 1em; }
+  #gut { color: #90ee90; font-size: 13px; }
+</style>
+</head>
+<body>
+<form id="f">
+  <h2>Bundesliga Manager Professional</h2>
+  <div>Bitte ein Passwort setzen (mindestens acht Zeichen).</div>
+  <label>Passwort <input name="a" type="password" autocomplete="new-password" required minlength="8"></label>
+  <label>Noch einmal <input name="b" type="password" autocomplete="new-password" required minlength="8"></label>
+  <button type="submit">Speichern</button>
+  <div id="fehler"></div>
+</form>
+<script>
+  const f = document.getElementById("f");
+  const fehler = document.getElementById("fehler");
+  f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const d = new FormData(f);
+    if (d.get("a") !== d.get("b")) { fehler.textContent = "Die beiden Eingaben sind nicht gleich."; return; }
+    const token = new URLSearchParams(location.search).get("t") ?? "";
+    const r = await fetch("api/passwort/setzen", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, password: d.get("a") }) });
+    const antwort = await r.json().catch(() => ({}));
+    if (!r.ok) { fehler.textContent = antwort.error ?? "Das hat nicht geklappt."; return; }
+    f.innerHTML = '<h2>Fertig</h2><div id="gut">Das Passwort steht. Sie k&ouml;nnen sich jetzt anmelden.</div><a href="./" style="color:#8ab">Zum Spiel</a>';
+  };
+</script>
+</body>
+</html>`;
+}
 
 async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise<void> {
   const p = url.pathname;
+  // Alles, was etwas ändert, läuft über POST. Deshalb reicht die Prüfung hier oben.
+  if (req.method === "POST" && !eigenerUrsprung(req)) return json(res, 403, { error: "Anfrage von einer fremden Seite" });
   const user = sessionUser(req);
   if (req.method === "GET" && p === "/api/me") {
-    return user ? json(res, 200, { user }) : json(res, 401, { error: "nicht angemeldet" });
+    return user ? json(res, 200, { user, rolle: rolleVon(user) }) : json(res, 401, { error: "nicht angemeldet" });
   }
   if (req.method === "POST" && p === "/api/login") {
     const addr = clientAddress(req);
@@ -1530,28 +2099,100 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const body = await readJson(req);
     const name = String(body.user ?? "").trim().slice(0, 20);
     const password = String(body.password ?? "");
-    const hash = loadUsers().get(name);
-    if (!hash || !verifyPassword(password, hash)) {
+    // Wartezeit aus den bisherigen Fehlversuchen dieses Kontos, vor der Pruefung geholt: sie
+    // gilt auch fuer den Treffer, damit sie nichts ueber die Richtigkeit verraet.
+    const warten = kontoBremse(name);
+    const konto = loadUsers().get(name);
+    if (!konto || !verifyPassword(password, konto.hash)) {
       failures.set(addr, [...(failures.get(addr) ?? []), Date.now()]);
-      await sleep(500);
+      kontoFehlversuch(name);
+      await sleep(500 + warten);
       return json(res, 401, { error: "Name oder Passwort falsch" });
     }
+    if (warten) await sleep(warten);
+    kontoFehler.delete(name.toLowerCase());
+    // Ein Hash nach dem alten Verfahren wird beim ersten richtigen Passwort stillschweigend
+    // erneuert - sonst bliebe er bis in alle Ewigkeit stehen.
+    if (veraltet(konto.hash)) {
+      const liste = [...loadUsers().values()];
+      const eintrag = liste.find((u) => u.name === konto.name);
+      if (eintrag) {
+        eintrag.hash = hashPassword(password);
+        saveUsers(liste);
+        console.log(`Passworthash von ${konto.name} erneuert`);
+      }
+    }
     const token = randomBytes(24).toString("base64url");
-    sessions.set(token, { user: name, created: Date.now() });
+    sessions.set(sessionHash(token), { user: name, created: Date.now() });
     saveSessions();
     setSessionCookie(req, res, token);
-    return json(res, 200, { user: name });
+    return json(res, 200, { user: name, rolle: konto.rolle });
+  }
+  if (req.method === "POST" && p === "/api/passwort/vergessen") {
+    // Ohne Anmeldung. Die Antwort verrät nie, ob es das Konto gibt - sonst ließe sich die
+    // Benutzerliste abfragen. Die Fehlerbremse der Anmeldung gilt hier mit.
+    const addr = clientAddress(req);
+    if (tooManyFailures(addr)) return json(res, 429, { error: "zu viele Versuche, bitte später erneut" });
+    failures.set(addr, [...(failures.get(addr) ?? []), Date.now()]);
+    const body = await readJson(req);
+    const wer = String(body.name ?? "").trim().slice(0, 40).toLowerCase();
+    const konto = [...loadUsers().values()].find((u) => u.name.toLowerCase() === wer || (u.email ?? "").toLowerCase() === wer);
+    if (konto) {
+      try {
+        await schickeLink(req, konto, "reset");
+      } catch (err) {
+        console.error(`Mail an ${konto.name} nicht verschickt:`, (err as Error).message);
+      }
+    }
+    await sleep(500);
+    return json(res, 200, { ok: true });
+  }
+  if (req.method === "POST" && p === "/api/passwort/setzen") {
+    const body = await readJson(req);
+    const token = String(body.token ?? "");
+    const marke = marken.get(markeHash(token));
+    if (!marke || marke.ablauf < Date.now()) return json(res, 400, { error: "Der Link ist abgelaufen oder schon benutzt" });
+    const passwort = String(body.password ?? "");
+    if (passwort.length < 8) return json(res, 400, { error: "Das Passwort braucht mindestens acht Zeichen" });
+    const liste = [...loadUsers().values()];
+    const konto = liste.find((u) => u.name === marke.user);
+    if (!konto) return json(res, 404, { error: "Das Konto gibt es nicht mehr" });
+    konto.hash = hashPassword(passwort);
+    saveUsers(liste);
+    marken.delete(markeHash(token));
+    sichereMarken();
+    // Alte Sitzungen dieses Kontos enden: ein neues Passwort soll fremde Fenster aussperren
+    for (const [t, sess] of [...sessions]) if (sess.user === konto.name) sessions.delete(t);
+    saveSessions();
+    console.log(`${konto.name} hat ein Passwort gesetzt`);
+    return json(res, 200, { ok: true, user: konto.name });
   }
   if (req.method === "POST" && p === "/api/logout") {
     const token = cookieToken(req);
-    if (token) sessions.delete(token);
+    if (token) sessions.delete(sessionHash(token));
     saveSessions();
     setSessionCookie(req, res, null);
     return json(res, 200, { ok: true });
   }
   if (!user) return json(res, 401, { error: "nicht angemeldet" });
+  /** Die Runde des Benutzers; ab hier meint `room` immer seine eigene (GitLab #65). */
+  const room = roomOf(user);
+  if (req.method === "GET" && p === "/api/users") {
+    if (!darfVerwalten(user)) return json(res, 403, { error: "Das darf nur der Präsident" });
+    const liste = [...loadUsers().values()].map((u) => ({ name: u.name, rolle: u.rolle, email: u.email ?? "", offen: !u.hash }));
+    return json(res, 200, { users: liste, versand: Boolean(smtpZugang()) });
+  }
+  if (req.method === "GET" && p === "/api/spieler") {
+    // Nur die Namen, und nur für die, die Runden anlegen dürfen: mehr braucht die Gästeliste
+    // nicht, und die Adressen gehen niemanden außer dem Präsidenten etwas an.
+    if (!darfRunden(user)) return json(res, 403, { error: "Das dürfen nur Präsident und Trainer" });
+    return json(res, 200, { namen: [...loadUsers().keys()] });
+  }
+  if (req.method === "GET" && p === "/api/rooms") {
+    return json(res, 200, { rooms: [...rooms.values()].map((r) => roomInfo(r, user)), active: room?.id ?? null, max: MAX_ROOMS, user, rolle: rolleVon(user) });
+  }
   if (req.method === "GET" && p === "/api/state") {
-    if (!room) return json(res, 200, { version: 0, user, managers: [], log: ["kein Spielstand geladen"] });
+    if (!room) return json(res, 200, { version: 0, user, managers: [], log: ["keine Runde betreten"], lobby: true });
     return json(res, 200, stateJson(room, user));
   }
   if (req.method === "GET" && p === "/api/live") {
@@ -1566,9 +2207,14 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     return json(res, 200, { files });
   }
   if (req.method === "GET" && p === "/api/events") {
+    // Eine offene Leitung je Fenster ist normal, ein Dutzend nicht: sonst haelt ein einzelner
+    // Anwender beliebig viele Verbindungen offen.
+    let offen = 0;
+    for (const wer of listeners.values()) if (wer === user) offen++;
+    if (offen >= 8) return json(res, 429, { error: "zu viele offene Verbindungen" });
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive", "x-accel-buffering": "no" });
     res.write(`data: ${JSON.stringify({ version: room?.version ?? 0, build: buildStamp() })}\n\n`);
-    listeners.add(res);
+    listeners.set(res, user);
     const ping = setInterval(() => res.write(": ping\n\n"), 20000);
     req.on("close", () => {
       clearInterval(ping);
@@ -1578,6 +2224,137 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   }
   if (req.method !== "POST") return json(res, 405, { error: "nur POST" });
   const body = await readJson(req);
+  if (p.startsWith("/api/users/")) {
+    if (!darfVerwalten(user)) return json(res, 403, { error: "Das darf nur der Präsident" });
+    const liste = [...loadUsers().values()];
+    const name = String(body.name ?? "").trim().slice(0, 20);
+    const konto = liste.find((u) => u.name === name);
+    if (p === "/api/users/add") {
+      if (!/^[A-Za-z0-9_.-]{2,20}$/.test(name)) return json(res, 400, { error: "Name: zwei bis zwanzig Zeichen, Buchstaben und Ziffern" });
+      if (konto) return json(res, 409, { error: `${name} gibt es schon` });
+      const email = String(body.email ?? "").trim().slice(0, 80);
+      if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(res, 400, { error: "Die Adresse sieht nicht wie eine Adresse aus" });
+      const rolle = ROLLEN.includes(body.rolle) ? (body.rolle as Rolle) : "spieler";
+      // Ohne Passwort angelegt: erst der Link aus der Einladung schaltet das Konto frei
+      const neu: Benutzer = { name, hash: "", rolle, email: email || undefined };
+      liste.push(neu);
+      saveUsers(liste);
+      let meldung = `${name} angelegt`;
+      if (email) {
+        try {
+          await schickeLink(req, neu, "einladung");
+          meldung = `${name} angelegt, Einladung an ${email}`;
+        } catch (err) {
+          meldung = `${name} angelegt, aber die Mail ging nicht raus: ${(err as Error).message}`;
+        }
+      }
+      console.log(meldung);
+      return json(res, 200, { ok: true, message: meldung });
+    }
+    if (!konto) return json(res, 404, { error: `${name} gibt es nicht` });
+    if (p === "/api/users/rolle") {
+      if (!ROLLEN.includes(body.rolle)) return json(res, 400, { error: "Rolle unbekannt" });
+      // Der letzte Präsident darf sich die Rolle nicht selbst nehmen, sonst kommt niemand mehr
+      // an die Verwaltung heran
+      if (konto.rolle === "praesident" && body.rolle !== "praesident" && liste.filter((u) => u.rolle === "praesident").length < 2)
+        return json(res, 409, { error: "Es muss ein Präsident übrig bleiben" });
+      konto.rolle = body.rolle as Rolle;
+      saveUsers(liste);
+      return json(res, 200, { ok: true, message: `${name}: ${konto.rolle}` });
+    }
+    if (p === "/api/users/email") {
+      const email = String(body.email ?? "").trim().slice(0, 80);
+      if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(res, 400, { error: "Die Adresse sieht nicht wie eine Adresse aus" });
+      konto.email = email || undefined;
+      saveUsers(liste);
+      return json(res, 200, { ok: true, message: `${name}: ${email || "keine Adresse"}` });
+    }
+    if (p === "/api/users/einladen") {
+      if (!konto.email) return json(res, 400, { error: `${name} hat keine Adresse` });
+      try {
+        await schickeLink(req, konto, konto.hash ? "reset" : "einladung");
+      } catch (err) {
+        return json(res, 502, { error: `Die Mail ging nicht raus: ${(err as Error).message}` });
+      }
+      return json(res, 200, { ok: true, message: `Link an ${konto.email}` });
+    }
+    if (p === "/api/users/entfernen") {
+      if (konto.name === user) return json(res, 409, { error: "Sich selbst entfernen geht nicht" });
+      if (konto.rolle === "praesident" && liste.filter((u) => u.rolle === "praesident").length < 2) return json(res, 409, { error: "Es muss ein Präsident übrig bleiben" });
+      saveUsers(liste.filter((u) => u.name !== name));
+      for (const [t, sess] of [...sessions]) if (sess.user === name) sessions.delete(t);
+      saveSessions();
+      activeRoom.delete(name);
+      for (const r of rooms.values()) verlassen(r, name);
+      broadcastLobby();
+      return json(res, 200, { ok: true, message: `${name} entfernt` });
+    }
+    return json(res, 404, { error: "unbekannt" });
+  }
+  if (p === "/api/rooms/join") {
+    const ziel = rooms.get(String(body.id ?? ""));
+    if (!ziel) return json(res, 404, { error: "Runde gibt es nicht" });
+    if (!darfBetreten(user, ziel)) return json(res, 403, { error: "Die Runde ist geschlossen - fragen Sie den, der sie angelegt hat" });
+    if (room && room !== ziel) verlassen(room, user);
+    joinRoom(user, ziel.id);
+    ziel.version++;
+    broadcast(ziel);
+    broadcastLobby();
+    return json(res, 200, { ok: true });
+  }
+  if (p === "/api/rooms/leave") {
+    if (room) {
+      verlassen(room, user);
+      room.version++;
+      broadcast(room);
+    }
+    joinRoom(user, undefined);
+    broadcastLobby();
+    return json(res, 200, { ok: true });
+  }
+  if (p === "/api/rooms/zutritt" || p === "/api/rooms/gast") {
+    const ziel = rooms.get(String(body.id ?? ""));
+    if (!ziel) return json(res, 404, { error: "Runde gibt es nicht" });
+    if (!darfRundeVerwalten(user, ziel)) return json(res, 403, { error: "Das darf nur, wer die Runde angelegt hat" });
+    if (p === "/api/rooms/zutritt") {
+      const zu = Boolean(body.privat);
+      // Wer schon drin sitzt, bleibt drin: beim Zuschließen werden die Anwesenden eingeladen,
+      // sonst stünde jemand mitten im Spiel plötzlich vor verschlossener Tür.
+      if (zu && !ziel.privat) {
+        for (const [wer, id] of activeRoom) if (id === ziel.id && wer !== ziel.creator && !ziel.gaeste.includes(wer)) ziel.gaeste.push(wer);
+        for (const wer of ziel.seats.values()) if (wer !== ziel.creator && !ziel.gaeste.includes(wer)) ziel.gaeste.push(wer);
+      }
+      ziel.privat = zu;
+      ziel.log.push(zu ? `${user} schließt die Runde` : `${user} öffnet die Runde für alle`);
+    } else {
+      const wen = String(body.name ?? "").trim().slice(0, 20);
+      if (!loadUsers().has(wen)) return json(res, 404, { error: `${wen} gibt es nicht` });
+      if (body.dazu) {
+        if (!ziel.gaeste.includes(wen)) ziel.gaeste.push(wen);
+      } else {
+        ziel.gaeste = ziel.gaeste.filter((g) => g !== wen);
+        // Ausgeladen heißt auch: draußen. Der Platz wird frei, der Spielstand bleibt.
+        if (ziel.privat && !darfBetreten(wen, ziel)) {
+          verlassen(ziel, wen);
+          if (activeRoom.get(wen) === ziel.id) joinRoom(wen, undefined);
+        }
+      }
+    }
+    ziel.version++;
+    saveRounds();
+    broadcast(ziel);
+    broadcastLobby();
+    return json(res, 200, { ok: true });
+  }
+  if (p === "/api/rooms/delete") {
+    const ziel = rooms.get(String(body.id ?? ""));
+    if (!ziel) return json(res, 404, { error: "Runde gibt es nicht" });
+    if (ziel.live) return json(res, 409, { error: "Die Konferenz läuft" });
+    if (ziel.creator !== user && !darfVerwalten(user)) return json(res, 403, { error: "Nur wer die Runde angelegt hat, darf sie löschen" });
+    loescheRunde(ziel);
+    broadcastLobby();
+    return json(res, 200, { ok: true });
+  }
   if (p === "/api/newgame") {
     if (!mana) return json(res, 409, { error: "MANA.DAT fehlt auf dem Server" });
     if (room?.live) return json(res, 409, { error: "Die Konferenz läuft" });
@@ -1588,14 +2365,21 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       level: 5 - Math.max(1, Math.min(4, Number(body.level) || 2)),
       rules: Number(body.rules) === 1 ? 1 : 0,
     };
-    const template = room?.save.plain ?? SaveFile.decode(new Uint8Array(await readFile(join(savesDir, argOf("--load") ?? "TEST4.MAN")))).plain;
+    const meta = rundenZiel(user, room, String(body.runde ?? ""), "NEU.MAN");
+    if ("error" in meta) return json(res, meta.code, { error: meta.error });
+    // Vorlage für das neue Spiel: die eigene Runde, sonst irgendeine laufende, sonst eine Datei.
+    // Seit der Lobby ist "neues Spiel" ohne eigene Runde der Normalfall (GitLab #65).
+    const vorlage = room ?? [...rooms.values()][0];
+    const template = vorlage?.save.plain ?? SaveFile.decode(new Uint8Array(await readFile(join(savesDir, argOf("--load") ?? "TEST4.MAN")))).plain;
     const save = createGame(template, mana, opts, mulberryRng(Date.now() >>> 0));
-    room = roomFromSave("NEU.MAN", save);
+    const neu = roomFromSave(meta, save);
     // Auslosung des DFB-Pokals als Zeremonie für alle (0x17C26), sobald alle Plätze besetzt sind
-    room.ceremony = { cup: 0, phase: "vote", ready: false, votes: {}, startedAt: null, skipped: false, seen: [] };
-    room.log.push(`Neues Spiel von ${user} (${opts.rules === 1 ? "Version 2026" : "Original"}): ${opts.managers.map((m: { name: string }) => m.name).join(", ")}`);
-    await persist(room);
-    broadcast();
+    neu.ceremony = { cup: 0, phase: "vote", ready: false, votes: {}, startedAt: null, skipped: false, seen: [] };
+    neu.log.push(`Neues Spiel von ${user} (${opts.rules === 1 ? "Version 2026" : "Original"}): ${opts.managers.map((m: { name: string }) => m.name).join(", ")}`);
+    setRoom(user, neu);
+    await persist(neu);
+    broadcast(neu);
+    broadcastLobby();
     return json(res, 200, { ok: true });
   }
   if (p === "/api/upload") {
@@ -1607,20 +2391,45 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       return json(res, 400, { error: "Kein gültiger Spielstand: " + String((err as Error).message) });
     }
     const name = String(body.name ?? "UPLOAD.MAN").replace(/[^A-Za-z0-9_.-]/g, "").toUpperCase() || "UPLOAD.MAN";
-    room = roomFromSave(name, save);
-    room.log.push(`Spielstand ${name} von ${user} hochgeladen`);
-    await persist(room);
-    broadcast();
+    const meta = rundenZiel(user, room, String(body.runde ?? ""), name);
+    if ("error" in meta) return json(res, meta.code, { error: meta.error });
+    // Prüfsummen und Länge sagen nichts über den Inhalt: ein passend gebauter Stand kann beim
+    // Aufbau der Runde stolpern. Das ist ein Fehler der Einsendung, kein Serverfehler.
+    let neu: Room;
+    try {
+      neu = roomFromSave(meta, save);
+    } catch (err) {
+      console.error("Hochgeladener Spielstand nicht brauchbar:", err);
+      return json(res, 400, { error: "Der Spielstand lässt sich nicht öffnen" });
+    }
+    neu.log.push(`Spielstand ${name} von ${user} hochgeladen`);
+    setRoom(user, neu);
+    await persist(neu);
+    broadcast(neu);
+    broadcastLobby();
     return json(res, 200, { ok: true });
   }
   if (p === "/api/load") {
-    const file = String(body.file ?? "").replace(/[^A-Za-z0-9_.-]/g, "");
-    room = await loadRoom(file);
-    room.log.push(`geladen von ${user}`);
-    broadcast();
+    const file = String(body.file ?? "").replace(/[^A-Za-z0-9_.-]/g, "").toUpperCase();
+    if (!file.endsWith(".MAN")) return json(res, 400, { error: "Nur Spielstände (*.MAN)" });
+    if (room?.live) return json(res, 409, { error: "Die Konferenz läuft" });
+    const meta = rundenZiel(user, room, String(body.runde ?? ""), file);
+    if ("error" in meta) return json(res, meta.code, { error: meta.error });
+    let neu: Room;
+    try {
+      neu = await loadRoom(meta, join(savesDir, file));
+    } catch (err) {
+      console.error(`${file} nicht ladbar:`, err);
+      return json(res, 404, { error: `${file} lässt sich nicht laden` });
+    }
+    neu.log.push(`geladen von ${user}`);
+    setRoom(user, neu);
+    await persist(neu);
+    broadcast(neu);
+    broadcastLobby();
     return json(res, 200, { ok: true });
   }
-  if (!room) return json(res, 409, { error: "kein Spielstand geladen" });
+  if (!room) return json(res, 409, { error: "keine Runde betreten" });
   const manager = Number(body.manager);
   const count = room.game.activeManagers().length;
   const validManager = manager >= 0 && manager < count;
@@ -1643,7 +2452,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       room.log.push("Auslosung: alle Plätze besetzt");
     }
     room.version++;
-    broadcast();
+    broadcast(room);
+    // Die Lobby zeigt die Besetzung: wer sich setzt, ändert sie
+    broadcastLobby();
     return json(res, 200, { ok: true });
   }
   if (p === "/api/ceremony") {
@@ -1677,7 +2488,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       if (!c.seen.includes(user)) c.seen.push(user);
       if (!seated.every((u) => c.seen.includes(u))) {
         room.version++;
-        broadcast();
+        broadcast(room);
         return json(res, 200, { ok: true });
       }
       if (c.phase === "draw") {
@@ -1688,7 +2499,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       } else advanceCeremony(room, c.cup);
     }
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/quit") {
@@ -1710,7 +2521,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     await persist(room);
     room.version++;
     if (room.done.size >= count) zugBeenden(room);
-    else broadcast();
+    else broadcast(room);
+    broadcastLobby();
     return json(res, 200, { ok: true });
   }
   if (p === "/api/done" || p === "/api/undone") {
@@ -1724,7 +2536,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     else room.done.delete(manager);
     room.version++;
     if (room.done.size >= count) zugBeenden(room);
-    else broadcast();
+    else broadcast(room);
     return json(res, 200, { ok: true, advanced: room.done.size === 0 });
   }
   if (p === "/api/live/pause" || p === "/api/live/resume") {
@@ -1759,7 +2571,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       st.verletzung = undefined;
       st.holdUntil = Date.now() + 500;
     }
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/newcontract") {
@@ -1781,7 +2593,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       if (!offen) l.setU8(24, room.rng(10, 18));
       room.log.push(`${room.game.managers.at(manager).displayName}: ${name} lehnt ${salary} DM für ${years} Jahre ab`);
       room.version++;
-      broadcast();
+      broadcast(room);
       return json(res, 200, { ok: false, message: `${name} ${texte("ui.keinInteresse").join(" ")}` });
     }
     l.setU8(11, years);
@@ -1795,7 +2607,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       room.hinweise.push({ manager, zeilen: [toDosText(name), ...texte("ui.vertragsende").slice(2)] });
     }
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true, message: `${name} unterschreibt.` });
   }
   if (p === "/api/vertragsende") {
@@ -1807,7 +2619,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!offen) return json(res, 404, { error: "keine offene Verhandlung" });
     vertragsendeFreigeben(room, manager, offen.playerIndex);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/contract") {
@@ -1827,7 +2639,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
         rejectOffer(room.game, offer, room.rng);
         room.log.push(`${room.game.managers.at(manager).displayName}: ${offer.name} lehnt ${salary} DM für ${years} Jahre ab`);
         room.version++;
-        broadcast();
+        broadcast(room);
         return json(res, 200, { ok: false, message: `${offer.name} ${texte("ui.keinInteresse").join(" ")}` });
       }
       offer.yearsTo = years;
@@ -1839,7 +2651,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       room.log.push(`${room.game.managers.at(manager).displayName}: Vertrag mit ${offer.name} bis ${offer.yearsTo} Jahre verlängert (${offer.salary} DM)`);
     } else declineOffer(room.game, offer);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/options") {
@@ -1860,7 +2672,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       room.live.scenesOn = room.options.scenes;
     }
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true, options: room.options });
   }
   if (p === "/api/abschluss") {
@@ -1869,7 +2681,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const idx = room.abschluss.findIndex((a) => a.manager === manager);
     if (idx >= 0) room.abschluss.splice(idx, 1);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/hinweis") {
@@ -1878,7 +2690,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const idx = room.hinweise.findIndex((h) => h.manager === manager);
     if (idx >= 0) room.hinweise.splice(idx, 1);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/jugend") {
@@ -1891,7 +2703,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
         jugendAnlegen(room.game, room.rng);
         room.log.push("Jugendmannschaften angelegt");
         room.version++;
-        broadcast();
+        broadcast(room);
       }
       return json(res, 200, { ok: true });
     }
@@ -1906,7 +2718,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       );
       if (!erg.ok) return json(res, 400, { error: erg.error });
       room.version++;
-      broadcast();
+      broadcast(room);
       return json(res, 200, { ok: true });
     }
     if (was === "aufruecken") {
@@ -1923,7 +2735,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       });
       flushMessages(room);
       room.version++;
-      broadcast();
+      broadcast(room);
       return json(res, 200, { ok: true, place: erg.place, name: erg.name });
     }
     if (was === "abwerben") {
@@ -1946,7 +2758,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       }
       flushMessages(room);
       room.version++;
-      broadcast();
+      broadcast(room);
       return json(res, 200, { ok: true, agreed: erg.agreed, amount: erg.amount, chance: erg.chance });
     }
     return json(res, 400, { error: "Unbekannter Auftrag" });
@@ -1979,6 +2791,13 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       const b = body.beschreibung as Parameters<typeof baueSzene>[0];
       if (!b || typeof b !== "object") return json(res, 400, { error: "Keine Beschreibung" });
       b.name = String(b.name ?? "").replace(/[^a-z0-9_-]/gi, "") || "szene";
+      // Sonst füllt eine Schleife im Browser die Platte mit Szenendateien
+      try {
+        const vorhanden = readdirSync(quelle).filter((f) => f.endsWith(".json"));
+        if (vorhanden.length >= 200 && !vorhanden.includes(`${b.name}.json`)) return json(res, 409, { error: "200 eigene Torszenen sind genug" });
+      } catch {
+        /* noch keine eigenen Szenen */
+      }
       const fehler = pruefeBeschreibung(b);
       if (fehler.length) return json(res, 400, { error: fehler[0] });
       mkdirSync(quelle, { recursive: true });
@@ -2008,7 +2827,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const erg = medSet(room.game, manager, Math.trunc(Number(body.place)), Math.trunc(Number(body.level)));
     if (!erg.ok) return json(res, 400, { error: erg.error });
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/doping") {
@@ -2021,7 +2840,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const l = room.game.lineups.at(manager * 25 + place);
     room.log.push(`${room.game.managers.at(manager).displayName}: ${room.game.players.at(l.playerIndex).displayName} ${an ? "beginnt eine Dopingkur" : "beendet die Dopingkur"}`);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true, rows: dopingRows(room.game, manager) });
   }
   if (p === "/api/market/list") {
@@ -2030,7 +2849,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!result.ok) return json(res, 400, { error: result.error });
     room.log.push(`${room.game.managers.at(manager).displayName}: Spieler auf den Transfermarkt gesetzt`);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/market/takeback") {
@@ -2038,7 +2857,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const result = takeBack(room.game, manager, Number(body.slot));
     if (!result.ok) return json(res, 400, { error: result.error });
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/market/offer") {
@@ -2048,7 +2867,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!offer) return json(res, 404, { error: "Kein Angebot" });
     room.sales.set(manager, offer);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true, offer });
   }
   if (p === "/api/market/decide") {
@@ -2060,7 +2879,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!result.ok) return json(res, 400, { error: result.error });
     if (body.sell) room.log.push(`${room.game.managers.at(manager).displayName}: ${offer.name} für ${offer.fee} DM an ${room.game.clubs.at(offer.club).displayName} verkauft`);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/market/buy") {
@@ -2090,14 +2909,14 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       });
       flushMessages(room);
       room.version++;
-      broadcast();
+      broadcast(room);
       return json(res, 200, { ok: true, auction: true, message: `Gebot ${dmText(amount)} für ${entry.name} steht bis zum Tageswechsel` });
     }
     const result = buyOffer(room.game, manager, slot, amount, loan, room.rng);
     const name = room.game.managers.at(manager).displayName;
     if (!result.ok) {
       room.version++;
-      broadcast();
+      broadcast(room);
       return json(res, 400, { error: result.error });
     }
     if (result.state === "contract") room.purchases.set(manager, { slot, playerIndex: entry.playerIndex, name: entry.name, amount, demands: result.demands });
@@ -2107,7 +2926,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       room.log.push(`${name} bietet ${room.game.managers.at(entry.owner).displayName} ${amount} DM für ${entry.name}${loan ? " (Leihe)" : ""}`);
     } else room.log.push(`${name}: ${entry.name} für ${amount} DM ausgeliehen`);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true, result });
   }
   if (p === "/api/market/contract") {
@@ -2131,7 +2950,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
         cancelPurchase(room.game, manager, pu.slot);
         room.log.push(`${room.game.managers.at(manager).displayName}: ${pu.name} lehnt ${salary} DM für ${years} Jahre ab`);
         room.version++;
-        broadcast();
+        broadcast(room);
         return json(res, 200, { ok: false, message: `${pu.name} ${texte("ui.keinInteresse").join(" ")}` });
       }
       pu.demands[years - 1] = salary;
@@ -2140,7 +2959,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!body.accept || !(years >= 1 && years <= 4)) {
       cancelPurchase(room.game, manager, pu.slot);
       room.version++;
-      broadcast();
+      broadcast(room);
       return json(res, 200, { ok: true, cancelled: true });
     }
     const salary = pu.demands[years - 1];
@@ -2152,7 +2971,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const subsidy = sponsorSubsidy(pu.amount, room.rng);
     if (subsidy > 0) room.subsidies.set(manager, subsidy);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/system") {
@@ -2175,7 +2994,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     }
     room.log.push(`${room.game.managers.at(manager).displayName}: Aufstellung ${SYSTEM_NAMES[system - 1]}`);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/market/subsidy") {
@@ -2188,7 +3007,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       room.log.push(`${room.game.managers.at(manager).displayName}: Sponsor-Zuschuss ${amount} DM angenommen`);
     }
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/market/answer") {
@@ -2225,7 +3044,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       room.log.push(`${owner} verkauft ${offer.name} für ${offer.amount} DM an ${buyerName}${offer.loan ? " (Leihe)" : ""}`);
     }
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/stadium/decline") {
@@ -2233,7 +3052,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
     room.bauAbgelehnt.add(`${manager}:${Math.trunc(Number(body.kind))}`);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/stadium/bauzeit") {
@@ -2260,7 +3079,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!result.ok) return json(res, 400, { error: result.error });
     room.log.push(`${room.game.managers.at(manager).displayName}: ${stadiumKinds()[Number(body.kind) - 1].name} (${result.cost} DM, ca. ${buildWeeks(result.days)} Wochen)`);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true, result });
   }
   if (p === "/api/position") {
@@ -2282,7 +3101,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     l.setU8(25, col);
     l.setU8(26, row);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/einsatz") {
@@ -2293,7 +3112,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const v = Math.max(0, Math.min(34, Number(body.value) | 0));
     room.game.managers.at(manager).setU8(305, v);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/ticket") {
@@ -2301,7 +3120,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const err = setTicketPrice(room.game, manager, Number(body.price));
     if (err) return json(res, 400, { error: err });
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/loan") {
@@ -2324,7 +3143,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       pushMessage(room, lender, [`${wer} bittet Sie`, "um einen Kredit von", dmText(amount)]);
       flushMessages(room);
       room.version++;
-      broadcast();
+      broadcast(room);
       return json(res, 200, { ok: true, pending: true, message: `Anfrage über ${dmText(amount)} gestellt` });
     }
     const err = takeLoan(room.game, manager, Number(body.amount), months, rate, { day: d.day, month0: d.month - 1, year: d.year }, lender);
@@ -2332,7 +3151,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const von = lender === BANK ? "der Bank" : room.game.managers.at(lender).displayName;
     room.log.push(`${room.game.managers.at(manager).displayName}: Kredit von ${von} über ${Number(body.amount)} DM, ${months} Mon. zu ${rate} %`);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/poach") {
@@ -2361,14 +3180,14 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       pushMessage(room, owner, [`${wer} will Ihnen`, `${name} abwerben.`, "Wehren Sie sich!"]);
       flushMessages(room);
       room.version++;
-      broadcast();
+      broadcast(room);
       return json(res, 200, { ok: true, pending: true, amount: pruef.amount, message: `${name} überlegt - ${room.game.managers.at(owner).displayName} darf sich wehren` });
     }
     const r = poachAusfuehren(room, { poacher: manager, owner, place, bonus, playerIndex: l.playerIndex, name }, 0);
     if (!r) return json(res, 400, { error: "Der Wechsel findet nicht statt" });
     await persist(room);
     room.version++;
-    broadcast();
+    broadcast(room);
     const besitzer = room.game.managers.at(owner).displayName;
     const message = r.agreed ? `${name} wechselt zu Ihnen (${dmText(r.amount)})` : `${name} bleibt bei ${besitzer} (Zustimmung ${r.chance} %)`;
     return json(res, 200, { ok: true, agreed: r.agreed, amount: r.amount, chance: r.chance, name, message });
@@ -2390,7 +3209,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!r) return json(res, 400, { error: "Der Wechsel findet nicht statt" });
     await persist(room);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true, agreed: r.agreed, chance: r.chance, message: r.agreed ? `${q.name} wechselt trotzdem` : `${q.name} bleibt bei Ihnen` });
   }
   if (p === "/api/derby") {
@@ -2399,7 +3218,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!is2026(room.game)) return json(res, 400, { error: "Nur in der Version 2026" });
     setStakeLevel(room.game, manager, Number(body.level) | 0);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/free/bid") {
@@ -2414,7 +3233,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (salary > 0) agent.bids.push({ manager, salary });
     room.log.push(`${room.game.managers.at(manager).displayName} bietet ${agent.name} ${dmText(salary)} Monatsgehalt`);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true, message: `Angebot ${dmText(salary)} für ${agent.name}` });
   }
   if (p === "/api/loan/answer") {
@@ -2432,7 +3251,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       pushMessage(room, borrower, [`${wer} gibt Ihnen`, "kein Geld."]);
       flushMessages(room);
       room.version++;
-      broadcast();
+      broadcast(room);
       return json(res, 200, { ok: true, message: `Anfrage von ${bittsteller} abgelehnt` });
     }
     const d2 = room.game.date;
@@ -2446,7 +3265,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     flushMessages(room);
     await persist(room);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true, message: `${bittsteller} bekommt ${dmText(q.amount)}` });
   }
   if (p === "/api/training") {
@@ -2455,7 +3274,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const err = setTraining(room.game, manager, { balls: (st?.balls ?? []).map(Number), intensityBalls: Number(st?.intensityBalls), positions: (st?.positions ?? []).map(Number), slider: Number(st?.slider) });
     if (err) return json(res, 400, { error: err });
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/camp") {
@@ -2468,7 +3287,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (typeof result === "string") return json(res, 400, { error: result });
     room.log.push(`${room.game.managers.at(manager).displayName}: Trainingslager ${camps()[camp].name} (${result.cost} DM), Frische ${result.freshness}, St{rken ${result.strength.join("/")}`);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true, result });
   }
   if (p === "/api/werbebudget") {
@@ -2483,7 +3302,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (v < 2500) v = 50000;
     for (let i = 0; i < 4; i++) plain[off + i] = (v >>> (8 * i)) & 0xff;
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true, value: v });
   }
   if (p === "/api/werbung") {
@@ -2493,7 +3312,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!result.ok) return json(res, 400, { error: result.error });
     room.log.push(`${room.game.managers.at(manager).displayName}: ${body.kind === "board" ? `Bandenwerbung Platz ${Number(body.slot) + 1}` : "Trikotwerbung"} mit Sponsor ${sponsor + 1} abgeschlossen`);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/messages/clear") {
@@ -2501,7 +3320,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     room.save = room.save.clearMessages(manager);
     room.game = new GameState(room.save);
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/squad") {
@@ -2510,7 +3329,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (bytes.length !== SQUAD_BYTES) return json(res, 400, { error: "Kaderblock hat falsche Länge" });
     if (room.live && !room.live.paused) return json(res, 409, { error: "Erst das Spiel unterbrechen" });
     const before = room.game.save.plain.slice(SQUAD_OFFSET + manager * SQUAD_BYTES, SQUAD_OFFSET + (manager + 1) * SQUAD_BYTES);
-    room.game.save.plain.set(bytes, SQUAD_OFFSET + manager * SQUAD_BYTES);
+    const fehler = uebernimmNummern(room.game, manager, bytes);
+    if (fehler) return json(res, 400, { error: fehler });
     // Handänderung schaltet das System auf manuell (0x20226)
     setSystem(room.game, manager, SYSTEM_MANUAL);
     if (room.live) {
@@ -2522,12 +3342,18 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       room.log.push(`${room.game.managers.at(manager).displayName}: Auswechslung in der ${room.live.minute}. Minute`);
     }
     room.version++;
-    broadcast();
+    broadcast(room);
     return json(res, 200, { ok: true });
   }
   if (p === "/api/save") {
     const file = String(body.file ?? room.file).replace(/[^A-Za-z0-9_.-]/g, "").toUpperCase();
     if (!file.endsWith(".MAN")) return json(res, 400, { error: "Dateiname" });
+    // SERVER.MAN gehört dem Dienst: dort lag der Stand vor den Runden, und ein Neustart würde
+    // eine so überschriebene Datei zur ersten Runde machen.
+    if (file === SERVER_SAVE) return json(res, 409, { error: `${SERVER_SAVE} gehört dem Server - bitte einen anderen Namen` });
+    // Der Vorrat der Spielstände ist allen gemeinsam. Eine fremde Datei still zu überschreiben
+    // wäre die eine Art, wie ein Mitspieler einem anderen etwas kaputt machen kann - also fragen.
+    if (!body.ueberschreiben && existsSync(join(savesDir, file))) return json(res, 409, { error: `${file} gibt es schon`, vorhanden: true });
     await writeFile(join(savesDir, file), room.save.withFreshHeader().encode());
     room.log.push(`gespeichert als ${file} (${user})`);
     return json(res, 200, { ok: true, file });
@@ -2535,13 +3361,65 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   return json(res, 404, { error: "unbekannt" });
 }
 
+/**
+ * Runden von der Platte holen. Gibt es noch kein Verzeichnis, aber ein SERVER.MAN aus der Zeit
+ * vor den Runden, wird daraus die erste Runde: die laufende Partie geht weiter (GitLab #65).
+ * Die alte Datei bleibt liegen, damit nichts unwiederbringlich verschoben wird.
+ */
+async function ladeRunden(): Promise<void> {
+  mkdirSync(roundsDir, { recursive: true });
+  let index: { next?: number; runden?: RoomMeta[] } | undefined;
+  if (!args.includes("--fresh")) {
+    try {
+      index = JSON.parse(readFileSync(roundsIndex, "utf8")) as { next?: number; runden?: RoomMeta[] };
+    } catch {
+      /* noch kein Verzeichnis */
+    }
+    if (!index && existsSync(join(savesDir, SERVER_SAVE))) {
+      const alt = join(savesDir, SERVER_SAVE);
+      mkdirSync(join(roundsDir, "r1"), { recursive: true });
+      copyFileSync(alt, roomSavePath("r1"));
+      index = { next: 2, runden: [{ id: "r1", name: "Runde 1", creator: "", created: statSync(alt).mtimeMs, file: SERVER_SAVE, privat: false, gaeste: [] }] };
+      console.log(`${SERVER_SAVE} übernommen als erste Runde (r1)`);
+    }
+  }
+  nextRoomId = index?.next ?? 1;
+  for (const roh of index?.runden ?? []) {
+    // Ein Verzeichnis aus der Zeit vor den geschlossenen Runden kennt die beiden Felder nicht
+    const meta: RoomMeta = { ...roh, privat: Boolean(roh.privat), gaeste: Array.isArray(roh.gaeste) ? roh.gaeste : [] };
+    try {
+      rooms.set(meta.id, await loadRoom(meta, roomSavePath(meta.id)));
+    } catch (err) {
+      // Eine beschädigte Runde darf den Dienst nicht in eine Neustartschleife schicken
+      console.error(`Runde ${meta.id} (${meta.name}) nicht lesbar: ${String((err as Error).message)}`);
+    }
+    const n = Number(meta.id.replace(/^r/, ""));
+    if (n >= nextRoomId) nextRoomId = n + 1;
+  }
+  // Ohne jede Runde, aber mit --load DATEI: daraus die erste Runde machen (Entwicklung, Tests)
+  const start = argOf("--load");
+  if (rooms.size === 0 && start) {
+    const meta: RoomMeta = { id: neueRundenKennung(), name: start.replace(/\.MAN$/i, ""), creator: "", created: Date.now(), file: start, privat: false, gaeste: [] };
+    try {
+      rooms.set(meta.id, await loadRoom(meta, join(savesDir, start)));
+    } catch (err) {
+      console.error(`${start} nicht lesbar: ${String((err as Error).message)}`);
+    }
+  }
+  if (!args.includes("--fresh")) saveRounds();
+  // Sitzungen können auf eine Runde zeigen, die es nicht mehr gibt
+  for (const [user, id] of [...activeRoom]) if (id && !rooms.has(id)) joinRoom(user, undefined);
+}
+
 loadSessions();
-// Beim Beenden (auch beim Neustart des Dienstes) den laufenden Stand noch sichern
+ladeMarken();
+// Beim Beenden (auch beim Neustart des Dienstes) die laufenden Stände noch sichern
 for (const sig of ["SIGTERM", "SIGINT"] as const) {
   process.on(sig, () => {
-    if (room) {
+    for (const r of rooms.values()) {
       try {
-        writeFileSync(join(savesDir, SERVER_SAVE), room.save.withFreshHeader().encode());
+        mkdirSync(join(roundsDir, r.id), { recursive: true });
+        writeFileSync(roomSavePath(r.id), r.save.withFreshHeader().encode());
       } catch {
         // beim Beenden nicht weiter stören
       }
@@ -2553,27 +3431,22 @@ createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://x");
   try {
     if (url.pathname.startsWith("/api/")) await api(req, url, res);
+    else if (url.pathname === "/einladung") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      res.end(einladungsSeite());
+    }
     else await serveStatic(url.pathname, res, sessionUser(req), ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? ""), req.headers.range, req.headers["if-none-match"]);
   } catch (err) {
-    json(res, 500, { error: String((err as Error).message) });
+    // Die Einzelheiten bleiben im Protokoll: sie nennen Pfade und innere Zustaende
+    console.error(`${req.method} ${url.pathname}:`, err);
+    json(res, 500, { error: "Serverfehler" });
   }
 }).listen(port, async () => {
-  let file = argOf("--load");
-  if (existsSync(join(savesDir, SERVER_SAVE)) && !args.includes("--fresh")) file = SERVER_SAVE;
-  if (file) {
-    try {
-      room = await loadRoom(file);
-    } catch (err) {
-      // Ein beschädigter Serverstand darf den Dienst nicht in eine Neustartschleife schicken
-      console.error(`${file} nicht lesbar: ${String((err as Error).message)}`);
-      const fallback = argOf("--load");
-      if (fallback && fallback !== file) {
-        console.error(`lade stattdessen ${fallback}`);
-        room = await loadRoom(fallback);
-        file = fallback;
-      } else file = undefined;
-    }
-  }
+  await ladeRunden();
   const users = loadUsers();
-  console.log(`Bundesliga Manager Server: http://localhost:${port}/ ${file ? "(" + file + ")" : ""} Benutzer: ${users.size ? [...users.keys()].join(", ") : "keine (users.json fehlt)"}`);
+  const liste = [...rooms.values()].map((r) => `${r.id} ${r.name}`).join(", ");
+  const leute = [...users.values()].map((u) => `${u.name} (${u.rolle})`).join(", ");
+  console.log(`Bundesliga Manager Server: http://localhost:${port}/ Runden: ${liste || "keine"} Benutzer: ${leute || "keine (users.json fehlt)"}`);
+  if (users.size && ![...users.values()].some((u) => u.rolle === "praesident"))
+    console.warn("Kein Präsident angelegt: 'node packages/server/users.ts rolle NAME praesident'");
 });

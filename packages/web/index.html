@@ -20,6 +20,7 @@
   #login input { font-size: 15px; padding: 4px 6px; }
   #login button { font-size: 15px; padding: 6px; margin-top: 4px; }
   #loginError { color: #ff8080; font-size: 13px; min-height: 1em; }
+  #vergessen { font-size: 13px; padding: 4px; background: none; color: #8ab; border: none; text-decoration: underline; cursor: pointer; margin: 0; }
 </style>
 </head>
 <body>
@@ -29,6 +30,7 @@
     <label>Name <input name="user" autocomplete="username" required></label>
     <label>Passwort <input name="password" type="password" autocomplete="current-password" required></label>
     <button type="submit">Anmelden</button>
+    <button type="button" id="vergessen">Passwort vergessen</button>
     <div id="loginError"></div>
   </form>
 </div>

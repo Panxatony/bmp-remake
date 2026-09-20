@@ -44,7 +44,7 @@ const leagueOfClub = (club: number): number => (club < 18 ? 0 : club < 38 ? 1 : 
 const LEAGUE_CAPS = ["BUNDESLIGA", "ZWEITE LIGA", "AM.-OBERLIGA"];
 const LEAGUE_GROUPS: [number, number][] = [[0, 0], [0, 1], [0, 2], [1, 1], [1, 2], [2, 2]];
 
-type Screen = "start" | "menu" | "squad" | "table" | "stadium" | "messages" | "seat" | "results" | "werbung" | "verlauf" | "live" | "start-online" | "newgame" | "training" | "camp" | "bank" | "market" | "spiele" | "staerken" | "bestenliste" | "pokal" | "statistik" | "ewige" | "optionen" | "zeitung" | "highscore" | "auslosung" | "abwerben" | "medizin" | "toreditor" | "jugend" | "extra2026";
+type Screen = "start" | "lobby" | "verwaltung" | "zutritt" | "menu" | "squad" | "table" | "stadium" | "messages" | "seat" | "results" | "werbung" | "verlauf" | "live" | "start-online" | "newgame" | "training" | "camp" | "bank" | "market" | "spiele" | "staerken" | "bestenliste" | "pokal" | "statistik" | "ewige" | "optionen" | "zeitung" | "highscore" | "auslosung" | "abwerben" | "medizin" | "toreditor" | "jugend" | "extra2026";
 
 interface ServerManager {
   index: number;
@@ -172,10 +172,34 @@ interface LiveState {
   verletzung?: { manager: number; name: string } | null;
 }
 
+/** Eine Spielrunde in der Lobby (GitLab #65) */
+interface RoomInfo {
+  id: string;
+  name: string;
+  creator: string;
+  created: number;
+  /** Geschlossene Runde: hinein kommt nur, wer eingeladen ist (GitLab #66) */
+  privat: boolean;
+  /** Ob der Fragende hinein darf; sonst stehen Datum und Besetzung nicht drin */
+  zutritt: boolean;
+  /** Eingeladene - nur für den, der die Runde einstellen darf */
+  gaeste?: string[];
+  file: string;
+  date: { day: number; month0: number; year: number };
+  dayIndex: number;
+  live: boolean;
+  managers: { name: string; club: string; seat: string | null; ki: boolean }[];
+  anwesend: string[];
+}
+
 interface ServerState {
   version: number;
   build?: number;
   user?: string;
+  /** Der Benutzer sitzt in keiner Runde: die Lobby ist dran */
+  lobby?: boolean;
+  rolle?: string;
+  runde?: { id: string; name: string; creator: string };
   live?: LiveState | null;
   file?: string;
   dayIndex?: number;
@@ -346,6 +370,19 @@ class App {
   // Mehrspieler: Zustand vom Server
   online = false;
   server: ServerState = { version: 0, managers: [], log: [] };
+  /** Lobby: die laufenden Runden, die eigene und die eigene Rolle (GitLab #65) */
+  rooms: RoomInfo[] = [];
+  aktiveRunde: string | null = null;
+  rolle = "spieler";
+  /** Name, den eine neu angelegte Runde bekommen soll (leer: der Server vergibt einen) */
+  rundenName = "";
+  /** Benutzerverwaltung (nur Präsident): Liste, ob Mailversand eingerichtet ist, Seite */
+  benutzer: { name: string; rolle: string; email: string; offen: boolean }[] = [];
+  versand = false;
+  benutzerSeite = 0;
+  /** Zutrittsbildschirm: welche Runde, und die Namen aller Konten für die Gästeliste */
+  zutrittRunde: RoomInfo | null = null;
+  namen: string[] = [];
   player = "";
   lastMatchday = -1;
   /** Werbebildschirm: 0 Trikot, 1 Banden */
@@ -379,7 +416,7 @@ class App {
   hinweis: string[] | null = null;
   /** OKAY auf einen Serverhinweis ist abgeschickt, die Antwort steht noch aus */
   hinweisQuittiert = -1;
-  eingabe: { titel: string; felder: { label: string; wert: string; max: number; text?: boolean }[]; feld: number; imKasten: boolean; okLabel?: string; ok: (werte: number[], texte: string[]) => void; gehaltFuer?: (jahre: number) => number } | null = null;
+  eingabe: { titel: string; felder: { label: string; wert: string; max: number; text?: boolean; roh?: boolean }[]; feld: number; imKasten: boolean; okLabel?: string; ok: (werte: number[], texte: string[]) => void; gehaltFuer?: (jahre: number) => number } | null = null;
   /** Programmstand des Servers beim Laden (dist/app.js) */
   buildId = 0;
   scenes = new Scenes();
@@ -464,6 +501,19 @@ class App {
       await this.connect();
       this.render();
     };
+    // Passwort vergessen: der Server schickt einen Link an die hinterlegte Adresse und verrät
+    // dabei nicht, ob es das Konto überhaupt gibt (GitLab #65)
+    const vergessen = document.getElementById("vergessen") as HTMLButtonElement | null;
+    if (vergessen)
+      vergessen.onclick = async () => {
+        const name = (form.elements.namedItem("user") as HTMLInputElement).value.trim();
+        if (!name) {
+          err.textContent = "Bitte erst den Namen oder die Adresse eintragen.";
+          return;
+        }
+        await fetch("api/passwort/vergessen", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) });
+        err.textContent = "Ist die Adresse bekannt, liegt gleich eine Mail im Postfach.";
+      };
     (form.elements.namedItem("user") as HTMLInputElement).focus();
   }
 
@@ -474,12 +524,14 @@ class App {
       return;
     }
     if (!me.ok) return;
-    this.player = ((await me.json()) as { user: string }).user;
+    const konto = (await me.json()) as { user: string; rolle?: string };
+    this.player = konto.user;
+    this.rolle = konto.rolle ?? "spieler";
     await this.fetchState();
     this.online = true;
     const es = new EventSource("api/events");
     es.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data) as { version: number; build?: number; live?: LiveState | null };
+      const msg = JSON.parse(ev.data) as { version: number; build?: number; live?: LiveState | null; lobby?: boolean };
       // Neuer Programmstand auf dem Server: Seite neu laden. Das muss hier stehen und nicht nur
       // in fetchState(), sonst erfährt ein offenes Fenster nie davon, solange niemand am Spiel
       // etwas ändert - der Datenstrom meldet sich nach einem Neustart mit derselben Version.
@@ -488,11 +540,52 @@ class App {
         return;
       }
       if (msg.build) this.buildId = msg.build;
+      // In der Lobby hat sich etwas getan: die Liste der Runden neu holen
+      if (msg.lobby) {
+        void this.fetchRooms().then(() => this.render());
+        return;
+      }
       this.onLive(msg.live ?? null);
       if (msg.version !== this.server.version) void this.fetchState().then(() => this.render());
       else this.render();
     };
-    this.screen = this.server.version === 0 ? "start-online" : "seat";
+    await this.fetchRooms();
+    this.screen = !this.aktiveRunde ? "lobby" : this.server.version === 0 ? "start-online" : "seat";
+  }
+
+  /** Die laufenden Runden vom Server holen (Lobby, GitLab #65). */
+  async fetchRooms(): Promise<void> {
+    const r = await fetch("api/rooms", { cache: "no-store" });
+    if (!r.ok) return;
+    const d = (await r.json()) as { rooms: RoomInfo[]; active: string | null; rolle?: string };
+    this.rooms = d.rooms;
+    this.aktiveRunde = d.active;
+    this.rolle = d.rolle ?? this.rolle;
+  }
+
+  /** Einer Runde beitreten; danach steht die Managerwahl an. */
+  async beitreten(id: string): Promise<void> {
+    if (!(await this.post("api/rooms/join", { id })).ok) return;
+    await this.fetchRooms();
+    this.go(this.server.version > 0 ? "seat" : "start-online");
+    this.render();
+  }
+
+  /** Zurück in die Lobby: der Platz in der Runde wird frei. */
+  async zurueckZurLobby(): Promise<void> {
+    if (this.aktiveRunde) await this.post("api/rooms/leave", {});
+    await this.fetchRooms();
+    this.go("lobby");
+    this.render();
+  }
+
+  /** Eine neue Runde anlegen heißt: die eigene verlassen und ein Spiel beginnen oder hochladen. */
+  async neueRunde(): Promise<void> {
+    if (this.aktiveRunde) await this.post("api/rooms/leave", {});
+    await this.fetchRooms();
+    this.rundenName = "";
+    this.go("start-online");
+    this.render();
   }
 
   /** Gesicherten Spielstand (*.MAN) auf den Server laden; er ersetzt das laufende Spiel. */
@@ -500,7 +593,8 @@ class App {
     // Rückfragen stellt das Spiel in seinem eigenen Kasten, nicht der Browser (GitLab #36)
     await new Promise<void>((weiter) => this.fragJaNein([toGame(f.name.toUpperCase()), "HOCHLADEN?", "DAS LAUFENDE SPIEL", "WIRD ERSETZT."], () => weiter()));
     const data = btoa(String.fromCharCode(...new Uint8Array(await f.arrayBuffer())));
-    await this.post("api/upload", { name: f.name, data });
+    await this.post("api/upload", { name: f.name, data, runde: this.rundenName });
+    await this.fetchRooms();
     if (this.server.version > 0) this.go("seat");
     this.render();
   }
@@ -524,7 +618,8 @@ class App {
       return;
     }
     const starten = () =>
-      void this.post("api/newgame", { managers, level: this.setup.level, rules: this.setup.regeln }).then(() => {
+      void this.post("api/newgame", { managers, level: this.setup.level, rules: this.setup.regeln, runde: this.rundenName }).then(() => {
+        void this.fetchRooms();
         if (this.server.version > 0) this.go("seat");
         this.render();
       });
@@ -736,7 +831,241 @@ class App {
       window.setTimeout(() => {
         this.lagerBis = 0;
         this.go("menu");
+        // go() zeichnet nicht selbst: es blendet nur über, und die Blende ist in der Vorgabe
+        // abgeschaltet. Ohne das render() hier blieb der Kasten mit dem Kopf stehen, bis
+        // irgendetwas anderes ein Neuzeichnen auslöste (GitLab #69).
+        this.render();
       }, 1200);
+    });
+  }
+
+  /**
+   * Lobby (GitLab #65): welche Spielrunden laufen, wer sitzt darin, wo ist noch Platz. Der
+   * Server hält höchstens vier; ein freier Platz in der Liste ist zugleich der Weg zu einer
+   * neuen Runde - anlegen dürfen das Präsident und Trainer.
+   */
+  drawLobby(): void {
+    const ctx = this.ctx;
+    const f = this.assets.font;
+    const s = this.assets.micro;
+    // Das Titelbild sitzt drei Zeilen über dem Bildschirmrand (im Original nachgemessen)
+    const title = this.assets.img("4.VGA");
+    if (title) ctx.drawImage(title, 0, -3);
+    panel(ctx, 8, 46, 304, 178);
+    f.drawCenter(ctx, toGame("Spielrunden"), 160, 52, COLORS.white);
+    const darfNeu = this.rolle === "praesident" || this.rolle === "trainer";
+    for (let i = 0; i < 4; i++) {
+      const r = this.rooms[i];
+      const y = 66 + 33 * i;
+      bevel(ctx, 16, y, 288, 30);
+      if (!r) {
+        s.drawCenter(ctx, toGame(darfNeu ? "frei - hier eine neue Runde anlegen" : "frei"), 160, y + 12, COLORS.white, false);
+        if (darfNeu) this.hit(16, y, 288, 30, () => void this.neueRunde());
+        continue;
+      }
+      const drin = r.id === this.aktiveRunde;
+      const meins = r.creator === this.player || this.rolle === "praesident";
+      // Der Name links, Datum rechts; die Breite ist knapp, also wird gekürzt
+      f.draw(ctx, this.kuerzen(f, toGame(r.name), meins ? 130 : 160), 22, y + 3, drin ? COLORS.white : undefined, false);
+      if (r.zutritt) f.drawRight(ctx, toGame(`${r.date.day}.${r.date.month0 + 1}.${r.date.year}`), meins ? 246 : 298, y + 3, COLORS.text, false);
+      // Zweite Zeile: wer auf welchem Verein sitzt - bei einer verschlossenen Runde steht dort
+      // nur, dass sie zu ist und wem sie gehört
+      const plaetze = r.managers.map((m) => (m.seat ? toGame(m.seat) : m.ki ? "RECHNER" : "FREI")).join("  ");
+      const zeile = !r.zutritt ? `geschlossen - ${r.creator ? r.creator + " lädt ein" : "nicht eingeladen"}` : r.live ? "Konferenz läuft - " + plaetze : r.privat ? "geschlossen - " + plaetze : plaetze;
+      s.draw(ctx, this.kuerzen(s, toGame(zeile), meins ? 220 : 272), 22, y + 18, !r.zutritt ? COLORS.panelDark : r.live ? COLORS.red : COLORS.white, false);
+      this.hit(16, y, meins ? 232 : 288, 30, () =>
+        r.zutritt ? void this.beitreten(r.id) : (this.hinweis = this.umbrechen(toGame("DIESE RUNDE IST GESCHLOSSEN."), 176, 3)),
+      );
+      if (meins) {
+        button(ctx, f, r.privat ? "ZU" : "AUF", 250, y + 7, 26, r.privat);
+        this.hit(248, y, 30, 30, () => void this.zutrittOeffnen(r));
+        button(ctx, f, "X", 282, y + 7, 16);
+        this.hit(280, y, 24, 30, () => this.rundeLoeschen(r));
+      }
+    }
+    const wer = `${this.player ?? ""} (${{ praesident: "Präsident", trainer: "Trainer" }[this.rolle] ?? "Spieler"})`;
+    s.drawCenter(ctx, this.kuerzen(s, toGame("Angemeldet als " + wer), 290), 160, 206, COLORS.textDim, false);
+    if (this.rolle === "praesident") {
+      button(ctx, f, "BENUTZER", 8, 224, 76);
+      this.hit(8, 224, 76, 16, () =>
+        void this.ladeBenutzer().then(() => {
+          this.go("verwaltung");
+          this.render();
+        }),
+      );
+    }
+  }
+
+  /**
+   * Benutzerverwaltung (GitLab #65), nur für den Präsidenten. Angelegt wird ohne Passwort: erst
+   * der Link aus der Einladung schaltet ein Konto frei. Ohne eingerichteten Mailversand steht
+   * der Link im Protokoll des Servers - dann trägt man ihn von Hand weiter.
+   */
+  drawVerwaltung(): void {
+    const ctx = this.ctx;
+    const f = this.assets.font;
+    const s = this.assets.micro;
+    // Das Titelbild sitzt drei Zeilen über dem Bildschirmrand (im Original nachgemessen)
+    const title = this.assets.img("4.VGA");
+    if (title) ctx.drawImage(title, 0, -3);
+    panel(ctx, 8, 46, 304, 178);
+    f.drawCenter(ctx, toGame("Benutzer"), 160, 52, COLORS.white);
+    const proSeite = 7;
+    const seiten = Math.max(1, Math.ceil(this.benutzer.length / proSeite));
+    this.benutzerSeite = Math.min(this.benutzerSeite, seiten - 1);
+    const sichtbar = this.benutzer.slice(this.benutzerSeite * proSeite, this.benutzerSeite * proSeite + proSeite);
+    const kurz: Record<string, string> = { praesident: "PR[SIDENT", trainer: "TRAINER", spieler: "SPIELER" };
+    sichtbar.forEach((u, i) => {
+      const y = 64 + 20 * i;
+      bevel(ctx, 16, y, 288, 18);
+      s.draw(ctx, this.kuerzen(s, toGame(u.name), 66), 20, y + 6, COLORS.white, false);
+      // Rolle anklicken schaltet weiter; der Server lässt den letzten Präsidenten nicht fallen
+      s.draw(ctx, kurz[u.rolle] ?? "SPIELER", 90, y + 6, u.rolle === "praesident" ? COLORS.red : COLORS.text, false);
+      this.hit(88, y, 56, 18, () => this.rolleWeiter(u));
+      s.draw(ctx, this.kuerzen(s, toGame(u.email || (u.offen ? "keine Adresse" : "-")), 106), 146, y + 6, COLORS.panelDark, false);
+      this.hit(144, y, 108, 18, () =>
+        this.fragText("ADRESSE", "EMAIL", u.email, 40, (e) => void this.post("api/users/email", { name: u.name, email: e }).then(() => this.ladeBenutzer()).then(() => this.render()), true),
+      );
+      // Einladen verschickt den Link neu: bei einem offenen Konto die Einladung, sonst ein
+      // Zurücksetzen des Passworts
+      button(ctx, f, u.offen ? "!" : "M", 258, y + 1, 16, u.offen);
+      this.hit(256, y, 20, 18, () => void this.post("api/users/einladen", { name: u.name }).then(() => this.ladeBenutzer()).then(() => this.render()));
+      button(ctx, f, "X", 282, y + 1, 16);
+      this.hit(280, y, 22, 18, () =>
+        this.fragJaNein([this.kuerzen(f, toGame(u.name.toUpperCase()), 176), toGame("ENTFERNEN?")], () => void this.post("api/users/entfernen", { name: u.name }).then(() => this.ladeBenutzer()).then(() => this.render())),
+      );
+    });
+    if (seiten > 1) {
+      button(ctx, f, "<", 16, 206, 16);
+      button(ctx, f, ">", 36, 206, 16);
+      this.hit(16, 206, 16, 16, () => (this.benutzerSeite = Math.max(0, this.benutzerSeite - 1)));
+      this.hit(36, 206, 16, 16, () => (this.benutzerSeite = Math.min(seiten - 1, this.benutzerSeite + 1)));
+      s.draw(ctx, `${this.benutzerSeite + 1}/${seiten}`, 58, 211, COLORS.textDim, false);
+    }
+    if (!this.versand) s.drawCenter(ctx, toGame("Kein Mailversand eingerichtet - die Links stehen im Protokoll"), 160, 211, COLORS.textDim, false);
+    button(ctx, f, "NEUER BENUTZER", 8, 224, 110);
+    this.hit(8, 224, 110, 16, () => this.neuerBenutzer());
+    button(ctx, f, "LOBBY", 246, 224, 60);
+    this.hit(246, 224, 60, 16, () => {
+      this.go("lobby");
+      this.render();
+    });
+  }
+
+  /** Rolle weiterschalten: Spieler, Trainer, Präsident. */
+  rolleWeiter(u: { name: string; rolle: string }): void {
+    const folge = ["spieler", "trainer", "praesident"];
+    const naechste = folge[(folge.indexOf(u.rolle) + 1) % folge.length];
+    void this.post("api/users/rolle", { name: u.name, rolle: naechste })
+      .then(() => this.ladeBenutzer())
+      .then(() => this.render());
+  }
+
+  /** Neuen Benutzer anlegen: Name, dann Adresse; mit Adresse geht die Einladung gleich raus. */
+  neuerBenutzer(): void {
+    this.fragText("NEUER BENUTZER", "NAME", "", 20, (name) => {
+      if (!name.trim()) return;
+      this.fragText(
+        "EINLADUNG AN",
+        "EMAIL",
+        "",
+        40,
+        (email) => {
+          void this.post("api/users/add", { name: name.trim().toLowerCase(), email: email.trim(), rolle: "spieler" })
+            .then(() => this.ladeBenutzer())
+            .then(() => this.render());
+        },
+        true,
+      );
+    });
+  }
+
+  async ladeBenutzer(): Promise<void> {
+    const r = await fetch("api/users", { cache: "no-store" });
+    if (!r.ok) return;
+    const d = (await r.json()) as { users: typeof this.benutzer; versand: boolean };
+    this.benutzer = d.users;
+    this.versand = d.versand;
+  }
+
+  /**
+   * Zutritt zu einer Runde (GitLab #66): offen für alle oder nur für Eingeladene. Die Gästeliste
+   * steht dem offen, der die Runde angelegt hat, und dem Präsidenten.
+   */
+  drawZutritt(): void {
+    const ctx = this.ctx;
+    const f = this.assets.font;
+    const s = this.assets.micro;
+    const r = this.zutrittRunde;
+    if (!r) {
+      this.go("lobby");
+      return;
+    }
+    // Das Titelbild sitzt drei Zeilen über dem Bildschirmrand (im Original nachgemessen)
+    const title = this.assets.img("4.VGA");
+    if (title) ctx.drawImage(title, 0, -3);
+    panel(ctx, 8, 46, 304, 178);
+    f.drawCenter(ctx, this.kuerzen(f, toGame(`Zutritt: ${r.name}`), 290), 160, 52, COLORS.white);
+    // Der Schalter: offen für alle oder nur für Eingeladene
+    bevel(ctx, 16, 64, 288, 20);
+    s.draw(ctx, toGame(r.privat ? "Nur wer eingeladen ist, kommt herein." : "Offen: jeder darf beitreten."), 22, 71, COLORS.white, false);
+    button(ctx, f, toGame(r.privat ? "ÖFFNEN" : "SCHLIESSEN"), 218, 66, 80);
+    this.hit(218, 66, 80, 18, () => void this.zutrittSchalten(r, !r.privat));
+    const gaeste = r.gaeste ?? [];
+    // Der Ersteller steht immer drin und braucht keine Einladung
+    const liste = this.namen.filter((n) => n !== r.creator);
+    liste.slice(0, 6).forEach((n, i) => {
+      const y = 90 + 20 * i;
+      const drin = gaeste.includes(n);
+      bevel(ctx, 16, y, 288, 18);
+      // Die Leiste ist hell: Weiß für die Eingeladenen, Dunkelblau für die anderen. Das blasse
+      // Braun der Statuszeilen verschwand darauf fast (vom Anwender gemeldet).
+      s.draw(ctx, this.kuerzen(s, toGame(n), 150), 22, y + 6, drin ? COLORS.white : COLORS.panelDark, false);
+      s.draw(ctx, toGame(drin ? "eingeladen" : "nicht eingeladen"), 176, y + 6, drin ? COLORS.white : COLORS.panelDark, false);
+      button(ctx, f, drin ? "-" : "+", 282, y + 1, 16, drin);
+      this.hit(16, y, 288, 18, () => void this.gastSchalten(r, n, !drin));
+    });
+    if (liste.length > 6) s.drawCenter(ctx, toGame(`und ${liste.length - 6} weitere - die Liste zeigt sechs`), 160, 214, COLORS.textDim, false);
+    else s.drawCenter(ctx, this.kuerzen(s, toGame(`${r.creator || "niemand"} hat die Runde angelegt und ist immer dabei`), 290), 160, 214, COLORS.textDim, false);
+    button(ctx, f, "LOBBY", 246, 224, 60);
+    this.hit(246, 224, 60, 16, () => {
+      this.go("lobby");
+      this.render();
+    });
+  }
+
+  /** Zutrittsbildschirm öffnen; dazu die Namen der Konten holen. */
+  async zutrittOeffnen(r: RoomInfo): Promise<void> {
+    const antwort = await fetch("api/spieler", { cache: "no-store" });
+    this.namen = antwort.ok ? ((await antwort.json()) as { namen: string[] }).namen : [];
+    this.zutrittRunde = r;
+    this.go("zutritt");
+    this.render();
+  }
+
+  /** Nach jeder Änderung die Runden neu holen, damit der Bildschirm den Stand des Servers zeigt. */
+  private async zutrittAuffrischen(id: string): Promise<void> {
+    await this.fetchRooms();
+    this.zutrittRunde = this.rooms.find((x) => x.id === id) ?? null;
+    this.render();
+  }
+
+  async zutrittSchalten(r: RoomInfo, privat: boolean): Promise<void> {
+    if (!(await this.post("api/rooms/zutritt", { id: r.id, privat })).ok) return;
+    await this.zutrittAuffrischen(r.id);
+  }
+
+  async gastSchalten(r: RoomInfo, name: string, dazu: boolean): Promise<void> {
+    if (!(await this.post("api/rooms/gast", { id: r.id, name, dazu })).ok) return;
+    await this.zutrittAuffrischen(r.id);
+  }
+
+  /** Runde löschen: der Spielstand wird auf dem Server nur beiseitegelegt, nicht weggeworfen. */
+  rundeLoeschen(r: RoomInfo): void {
+    this.fragJaNein([this.kuerzen(this.assets.font, toGame(r.name.toUpperCase()), 176), toGame("RUNDE LÖSCHEN?"), toGame("DER SPIELSTAND WIRD"), toGame("BEISEITE GELEGT.")], () => {
+      void this.post("api/rooms/delete", { id: r.id })
+        .then(() => this.fetchRooms())
+        .then(() => this.render());
     });
   }
 
@@ -762,7 +1091,18 @@ class App {
     // Der Kasten ist innen 236 breit; in einer Zeile lief der Hinweis darüber hinaus
     f.drawCenter(ctx, toGame("Spielstand hochladen:"), 160, y + 4);
     f.drawCenter(ctx, toGame("Datei unten wählen"), 160, y + 16);
+    // Name der Runde: leer heißt, der Server vergibt einen (GitLab #65)
+    const s = this.assets.micro;
+    s.drawCenter(ctx, this.kuerzen(s, toGame(`Runde: ${this.rundenName || "(Name vom Server)"} - zum Ändern klicken`), 230), 160, 188, COLORS.white, false);
+    this.hit(60, 184, 200, 12, () =>
+      this.fragText("NAME DER RUNDE", "NAME", this.rundenName, 24, (n) => {
+        this.rundenName = n;
+        this.render();
+      }),
+    );
     f.drawCenter(ctx, toGame("Angemeldet als " + this.player), 160, 200);
+    button(ctx, f, "LOBBY", 246, 224, 60);
+    this.hit(246, 224, 60, 16, () => void this.zurueckZurLobby());
   }
 
   drawNewGame(): void {
@@ -861,6 +1201,12 @@ class App {
     this.server = st;
     this.hinweisQuittiert = -1;
     this.onLive(st.live ?? null);
+    // Die eigene Runde ist weg (gelöscht oder verlassen): zurück in die Lobby
+    if (st.lobby && this.online && !["lobby", "verwaltung", "zutritt", "start-online", "newgame"].includes(this.screen)) {
+      await this.fetchRooms();
+      this.go("lobby");
+      return;
+    }
     if (!st.data) return;
     const bytes = Uint8Array.from(atob(st.data), (c) => c.charCodeAt(0));
     this.save = SaveFile.decode(bytes);
@@ -884,8 +1230,10 @@ class App {
       this.go("squad");
       this.vertragOeffnen(offen[0].place);
     }
-    // Zeremonie: hinein, solange sie offen ist, hinaus, wenn alle bestätigt haben
-    if (this.ceremonyPending()) {
+    // Zeremonie: hinein, solange sie offen ist, hinaus, wenn alle bestätigt haben. Nach einem
+    // Pokaltag steht sie schon an, während die Konferenz noch ihre Schlusstafeln zeigt - erst
+    // wenn die weggeklickt sind, ist die Auslosung dran, wie im Original nach dem Spieltag (#71)
+    if (this.ceremonyPending() && !this.live) {
       if (this.screen !== "auslosung") {
         this.cup = this.server.ceremony!.cup;
         this.go("auslosung");
@@ -1703,6 +2051,8 @@ class App {
     } else f.drawCenter(ctx, toGame("Klick auf einen Manager"), mitte, y + 2);
     button(ctx, f, "NEU / LADEN", 220, 200, 76);
     this.hit(220, 200, 76, 16, () => this.go("start-online"));
+    button(ctx, f, "LOBBY", 24, 200, 60);
+    this.hit(24, 200, 60, 16, () => void this.zurueckZurLobby());
   }
 
   /**
@@ -2114,12 +2464,26 @@ class App {
     const name = await new Promise<string>((fertig) => this.fragText("SPIELSTAND SPEICHERN", "DATEI", vorgabe.replace(/\.MAN$/, ""), 8, fertig));
     if (!name) return;
     const file = name.toUpperCase().endsWith(".MAN") ? name.toUpperCase() : name.toUpperCase() + ".MAN";
-    const r = await fetch("api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file }) });
+    await this.spielstandSchreiben(file, false);
+  }
+
+  /**
+   * Spielstand auf dem Server ablegen. Der Vorrat der *.MAN ist allen Runden gemeinsam; gibt es
+   * die Datei schon, fragt der Server zurueck, statt sie stillschweigend zu ueberschreiben - die
+   * Rueckfrage stellt das Spiel in seinem eigenen Kasten (GitLab #36).
+   */
+  async spielstandSchreiben(file: string, ueberschreiben: boolean): Promise<void> {
+    const r = await fetch("api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ file, ueberschreiben }) });
     if (r.status === 401) {
       this.showLogin();
       return;
     }
-    const antwort = (await r.json().catch(() => ({}))) as { error?: string; file?: string };
+    const antwort = (await r.json().catch(() => ({}))) as { error?: string; file?: string; vorhanden?: boolean };
+    if (antwort.vorhanden) {
+      this.fragJaNein([toGame(file), toGame("GIBT ES SCHON."), toGame("ÜBERSCHREIBEN?")], () => void this.spielstandSchreiben(file, true));
+      this.render();
+      return;
+    }
     this.status = r.ok ? "Gespeichert als " + (antwort.file ?? file) : "Server: " + antwort.error;
     this.statusUntil = Date.now() + 6000;
     this.render();
@@ -2488,6 +2852,15 @@ class App {
         break;
       case "live":
         this.drawLive();
+        break;
+      case "lobby":
+        this.drawLobby();
+        break;
+      case "verwaltung":
+        this.drawVerwaltung();
+        break;
+      case "zutritt":
+        this.drawZutritt();
         break;
       case "start-online":
         this.drawStartOnline();
@@ -5723,8 +6096,10 @@ class App {
     const f = ein.felder[ein.feld];
     if (e.key >= "0" && e.key <= "9") {
       if (f.wert.length < f.max) f.wert += e.key;
-    } else if (f.text && e.key.length === 1 && /[A-Za-z0-9 ._-]/.test(e.key)) {
-      if (f.wert.length < f.max) f.wert += e.key.toUpperCase();
+    } else if (f.text && e.key.length === 1 && (f.roh ? /[A-Za-z0-9._@+-]/ : /[A-Za-z0-9 ._-]/).test(e.key)) {
+      // Adressen kommen unverändert ins Feld: das Original kennt nur Großbuchstaben, ein
+      // Postfach nicht (GitLab #65)
+      if (f.wert.length < f.max) f.wert += f.roh ? e.key : e.key.toUpperCase();
     } else if (e.key === "Backspace") f.wert = f.wert.slice(0, -1);
     else if (e.key === "Tab" || e.key === "ArrowDown") ein.feld = (ein.feld + 1) % ein.felder.length;
     else if (e.key === "ArrowUp") ein.feld = (ein.feld + ein.felder.length - 1) % ein.felder.length;
@@ -5786,10 +6161,10 @@ class App {
   }
 
   /** Texteingabe im Kasten des Spiels (Managername, Dateiname) - keine Browserfenster. */
-  fragText(titel: string, label: string, wert: string, max: number, ok: (text: string) => void): void {
+  fragText(titel: string, label: string, wert: string, max: number, ok: (text: string) => void, roh = false): void {
     this.eingabe = {
       titel,
-      felder: [{ label, wert: wert.toUpperCase(), max, text: true }],
+      felder: [{ label, wert: roh ? wert : wert.toUpperCase(), max, text: true, roh }],
       feld: 0,
       imKasten: false,
       okLabel: "OKAY",
@@ -6245,15 +6620,7 @@ class App {
     const g = this.game!;
     const v = cupView(g, cup);
     const d = nextCupDate(g, cup);
-    // Am Original vermessen (GitLab #56): Tafel (5,34) 308x127, Titel mittig über 159 mit der
-    // obersten Zeile 36, darunter ein Strich auf y 44 von x 7 über 305 Punkte. Die Zeilen
-    // beginnen bei 49 im Abstand 7. Schatten: Titel und Namen in Palettenfarbe 3, Überschriften
-    // und "GEGEN" schwarz, das Ergebnis trägt gar keinen.
     const SCHATTEN = "#303051";
-    panel(ctx, 5, 34, 309, 128);
-    // Das Original zeigt hinter dem Titel den Spieltag ("1.Runde DfB-Pokal   26.8.")
-    f.drawCenter(ctx, toGame(`${v.round} ${v.name}${d ? `    ${d.day}.${d.month0 + 1}.` : ""}`), 159, 36, PLATE, SCHATTEN);
-    hline(ctx, 7, 44, 305, PLATE);
     // Hervorgehoben sind die Vereine **aller** Manager, nicht nur der eigene (im Original gesehen)
     const mine = new Set(g.activeManagers().map((m) => m.clubIndex));
     const rows: { head?: string; leer?: boolean; pair?: (typeof v.pairs)[number] }[] = [];
@@ -6269,9 +6636,32 @@ class App {
         for (const r of inGroup) rows.push({ pair: r });
       }
     } else for (const r of v.pairs) rows.push({ pair: r });
-    let y = 49;
+    /**
+     * Die Tafel wächst mit ihrem Inhalt (0x199EF bis 0x19A7A): das Original zählt die Paarungen
+     * und schlägt für jede **leere** Ligagruppe eine Zeile drauf (deren Strichzeile), rechnet
+     * Höhe = 7·Zeilen + 58 - die 58 fassen Titel, Strich und die sechs Überschriften - und setzt
+     * die Tafel senkrecht mittig: y = (233 - Höhe)/2 - 20, gezeichnet ab y+5 mit Höhe-8.
+     *
+     * Gegenprobe mit der Messung aus #56: elf Zeilen ergeben Höhe 135, also Tafel (5,34) 308x127
+     * - genau das war dort abgelesen. Vorher stand die Tafel fest auf diesem einen Fall, und ein
+     * volles Erstrundenfeld fiel unten heraus: bei sechzehn Paarungen fehlten vier Spiele
+     * Oberliga gegen Oberliga (GitLab #68).
+     *
+     * Für die Europapokale bleibt es beim festen Kasten: dort gibt es keine Überschriften, die
+     * Runde hat höchstens sechzehn Paarungen, und die passen hinein. Die Formel des Originals
+     * rechnet dort mit anderen Vorgaben, die hier nicht nachgemessen sind.
+     */
+    const leereGruppen = cup === 0 ? rows.filter((r) => r.leer).length : 0;
+    const hoehe = cup === 0 ? 7 * (v.pairs.length + 1 + leereGruppen) + 58 : 135;
+    const tafel = Math.trunc((233 - hoehe) / 2) - 20 + 5;
+    panel(ctx, 5, tafel, 309, hoehe - 7);
+    // Das Original zeigt hinter dem Titel den Spieltag ("1.Runde DfB-Pokal   26.8.")
+    f.drawCenter(ctx, toGame(`${v.round} ${v.name}${d ? `    ${d.day}.${d.month0 + 1}.` : ""}`), 159, tafel + 2, PLATE, SCHATTEN);
+    hline(ctx, 7, tafel + 10, 305, PLATE);
+    const unten = tafel + hoehe - 14;
+    let y = tafel + 15;
     for (const row of rows) {
-      if (y > 156) break;
+      if (y > unten) break;
       if (row.head) s.drawCenter(ctx, toGame(row.head), 149, y, "#8282a2");
       // Neun Striche ab x 118; das Original nimmt dafür '@', den langen Strich der Schrift
       else if (row.leer) s.draw(ctx, "@@@@@@@@@", 118, y, "#8282a2", SCHATTEN);
@@ -6287,7 +6677,7 @@ class App {
       }
       y += 7;
     }
-    if (v.pairs.length === 0) s.drawCenter(ctx, "KEINE PAARUNGEN", 160, 100, COLORS.textDim);
+    if (v.pairs.length === 0) s.drawCenter(ctx, "KEINE PAARUNGEN", 160, tafel + 66, COLORS.textDim);
   }
 
   /**
