@@ -163,10 +163,26 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
     const paar = fixtures(e.league, e.matchday)[e.match];
     if (paar) add("league", paar[0], paar[1], { league: e.league, nachhol: true, spieltag: e.matchday + 1 });
   }
+  if (flag & 8) for (const [home, away] of currentPairs(g, 0)) add("cup", home, away, { cup: 0 });
+  if ((flag & 0x70) === 0x10) {
+    const second = g.save.plain[LEG_FLAG] !== 0;
+    const bl16 = orderList(g, 0)[15];
+    const third = orderList(g, 1)[2];
+    add("playoff", second ? bl16 : third, second ? third : bl16, { cup: 1 });
+  } else if (flag & 0x70) {
+    for (const cup of [1, 2, 3]) {
+      void cupRoundOf(g, cup);
+      void legPlayed(g, cup);
+      for (const [home, away] of currentPairs(g, cup)) add("cup", home, away, { cup });
+    }
+  }
+  // Eingerichtet wird erst, wenn **alle** Spiele des Tages in der Liste stehen - auch Pokal und
+  // Relegation, die oben erst danach dazukommen. Stand diese Schleife davor, gingen den
+  // Pokalspielen die Zuschauerzahl, die Karten und Verletzungen und die 0:2-Wertung verloren:
+  // im Heimspiel stand in der Tafel "(AUSW.)" (GitLab #74).
   for (const e of entries) {
-    // Zuschauer auch für Pokalspiele: der Kern rechnet sie ohnehin (0x10BB0 mit Pokalkapazität),
-    // in der Konferenz stand bisher nur bei Ligaspielen eine Zahl. Gebucht wird genau diese
-    // (server.ts gibt sie an playCupDay/playEuropaDay weiter).
+    // Zuschauer auch für Pokalspiele: der Kern rechnet sie ohnehin (0x10BB0 mit
+    // Pokalkapazität). Gebucht wird genau diese Zahl (server.ts reicht sie weiter).
     if (e.managerHome !== undefined) {
       const pokal = e.kind !== "league";
       const importance = !pokal ? undefined : e.cup === 0 ? 1 : g.save.plain[CUP_ROUND + 1] > 4 ? 3 : 2;
@@ -182,19 +198,6 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
     } else {
       if (e.managerHome !== undefined) e.incidentHome = newIncidentState();
       if (e.managerAway !== undefined) e.incidentAway = newIncidentState();
-    }
-  }
-  if (flag & 8) for (const [home, away] of currentPairs(g, 0)) add("cup", home, away, { cup: 0 });
-  if ((flag & 0x70) === 0x10) {
-    const second = g.save.plain[LEG_FLAG] !== 0;
-    const bl16 = orderList(g, 0)[15];
-    const third = orderList(g, 1)[2];
-    add("playoff", second ? bl16 : third, second ? third : bl16, { cup: 1 });
-  } else if (flag & 0x70) {
-    for (const cup of [1, 2, 3]) {
-      void cupRoundOf(g, cup);
-      void legPlayed(g, cup);
-      for (const [home, away] of currentPairs(g, cup)) add("cup", home, away, { cup });
     }
   }
   const now = Date.now();
