@@ -28,7 +28,7 @@ import { attendance, bookAttendance, bookGate, ERSATZ_PREIS, ligaBand } from "./
 import { riotCheck } from "./finance.ts";
 import type { MatchSim } from "./live.ts";
 
-const defaultSim: MatchSim = (_h, _a, hs, as, r) => simulateMatch(hs, as, r);
+const defaultSim: MatchSim = (_h, _a, hs, as, r) => simulateMatch(hs, as, r, true);
 
 export const CUP_TABLE = 28009;
 export const CUP_ROUND = 28233;
@@ -242,8 +242,8 @@ export function extraTime(home: TeamStrength, away: TeamStrength, r: MatchResult
   ] as const) {
     const n = chanceCounts(home, away, from, to, rng);
     const list: { minute: number; side: "home" | "away" }[] = [];
-    for (const m of chanceMinutes(n.home, from, to, rng)) list.push({ minute: m, side: "home" });
-    for (const m of chanceMinutes(n.away, from, to, rng)) list.push({ minute: m, side: "away" });
+    for (const m of chanceMinutes(n.home, from, to, rng, false)) list.push({ minute: m, side: "home" });
+    for (const m of chanceMinutes(n.away, from, to, rng, false)) list.push({ minute: m, side: "away" });
     list.sort((a, b) => a.minute - b.minute || (a.side === "home" ? -1 : 1));
     for (const c of list) {
       const goal = goalDice(home, away, c.side, c.minute, r.home + 10, r.away, rng);

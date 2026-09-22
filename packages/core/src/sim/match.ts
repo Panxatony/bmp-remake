@@ -112,13 +112,17 @@ export function chanceCounts(home: TeamStrength, away: TeamStrength, from: numbe
   return { home: h, away: g };
 }
 
-/** Verschiedene Chancenminuten im Fenster (0x043FF), höchstens 8. */
-export function chanceMinutes(count: number, from: number, to: number, rng: Rng): number[] {
+/**
+ * Chancenminuten im Fenster (0x043FF), höchstens 8. In der Liga verschieden (bis zu 100 Würfe);
+ * im Pokal (Wettbewerb 10 und darüber: DFB-Pokal, Europapokal, Relegation) prüft das Original
+ * keine Doppelten - dort gibt es auch zwei Chancen in derselben Minute.
+ */
+export function chanceMinutes(count: number, from: number, to: number, rng: Rng, verschieden = true): number[] {
   const out: number[] = [];
   const n = Math.min(count, 8);
   for (let i = 0; i < n; i++) {
     let m = rng(from, to);
-    for (let tries = 0; tries < 100 && out.includes(m); tries++) m = rng(from, to);
+    for (let tries = 0; verschieden && tries < 100 && out.includes(m); tries++) m = rng(from, to);
     out.push(m);
   }
   return out;
@@ -160,7 +164,7 @@ export interface MatchResult {
 }
 
 /** Ein Spiel über zwei Halbzeiten; das Original ruft die Live-Schleife mit 1..45 und 46..90 auf. */
-export function simulateMatch(home: TeamStrength, away: TeamStrength, rng: Rng): MatchResult {
+export function simulateMatch(home: TeamStrength, away: TeamStrength, rng: Rng, pokal = false): MatchResult {
   const events: MatchEvent[] = [];
   let hg = 0;
   let ag = 0;
@@ -170,8 +174,8 @@ export function simulateMatch(home: TeamStrength, away: TeamStrength, rng: Rng):
   ] as const) {
     const n = chanceCounts(home, away, from, to, rng);
     const list: { minute: number; side: "home" | "away" }[] = [];
-    for (const m of chanceMinutes(n.home, from, to, rng)) list.push({ minute: m, side: "home" });
-    for (const m of chanceMinutes(n.away, from, to, rng)) list.push({ minute: m, side: "away" });
+    for (const m of chanceMinutes(n.home, from, to, rng, !pokal)) list.push({ minute: m, side: "home" });
+    for (const m of chanceMinutes(n.away, from, to, rng, !pokal)) list.push({ minute: m, side: "away" });
     list.sort((a, b) => a.minute - b.minute || (a.side === "home" ? -1 : 1));
     for (const c of list) {
       const goal = goalDice(home, away, c.side, c.minute, hg, ag, rng);
