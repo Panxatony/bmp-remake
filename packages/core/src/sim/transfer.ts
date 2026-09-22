@@ -509,7 +509,8 @@ export function completeLoan(g: GameState, manager: number, slot: number, amount
   const market = slotBytes(g, 100 + slot);
   const p = g.players.at(l.playerIndex);
   const club = p.u8(36);
-  const place = addToSquad(g, manager, l.playerIndex, 1, rng);
+  // Leihe: das Gehalt kommt mit dem Abschlag des Originals (Modus 3, ein Drittel)
+  const place = addToSquad(g, manager, l.playerIndex, 1, rng, true);
   if (place < 0) return -1;
   const idx = manager * 25 + place;
   const salary = g.lineups.at(idx).i32(40);

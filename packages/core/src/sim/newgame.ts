@@ -88,8 +88,16 @@ function manaListOf(g: GameState, mana: ManaData, club: number): string[] | unde
   return k >= 0 ? mana.players[k] : undefined;
 }
 
-/** 0x224A8 mit 0x2277A: Spieler auf den ersten freien Kaderplatz eines Managers (0..23 bzw. Markt 100..111). */
-export function addToSquad(g: GameState, manager: number, playerIdx: number, years: number, rng: Rng): number {
+/**
+ * 0x224A8 mit 0x2277A: Spieler auf den ersten freien Kaderplatz eines Managers (0..23 bzw.
+ * Markt 100..111).
+ *
+ * `leihe` entspricht dem Argument, das das Original bei 0x23E79 als 99 übergibt, wenn der
+ * Schalter auf LEIHEN steht: dann rechnet es das Gehalt bei 0x226FA mit Modus **3** statt 1,
+ * also mit dem Leihabschlag (ein Drittel). Ohne das zahlte ein geliehener Spieler bei uns das
+ * volle Gehalt (GitLab #79).
+ */
+export function addToSquad(g: GameState, manager: number, playerIdx: number, years: number, rng: Rng, leihe = false): number {
   const base = manager === 4 ? 100 : manager * 25;
   const limit = manager === 4 ? 12 : 24;
   let slot = 0;
@@ -107,7 +115,7 @@ export function addToSquad(g: GameState, manager: number, playerIdx: number, yea
   l.setU8(16, pl.u8(28));
   l.setU8(17, pl.u8(29));
   l.setU8(18, pl.u8(30));
-  const salary = playerValue(g, manager === 4 ? 4 : manager, slot, 1, rng);
+  const salary = playerValue(g, manager === 4 ? 4 : manager, slot, leihe ? 3 : 1, rng);
   writeI32(g.save.plain, TABLES.lineups.offset + (base + slot) * 52 + 40, salary);
   if (manager !== 4) {
     const club = g.managers.at(manager).clubIndex;
