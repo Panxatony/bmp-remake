@@ -149,16 +149,30 @@ jeweils laufenden Spieltag stimmt es in CLAUDE4, TEST1 und RIED-4TE mit dem Paar
 (4238:4B5E) überein, und im Original füllt 0x2B4F3 genau diesen Block aus denselben
 Buchstabentabellen mit `Verein = Ligabasis + Buchstabe`.
 
-## Nachbereitung nach dem Spiel (0x1C632, Kaderteil ab 0x1CC4A)
+## Spielvorbereitung (0x1C632, Kaderteil ab 0x1CBB9; Zweigbuch docs/abgleich/1C632.md)
 
-Portiert als `afterMatch` in packages/core/src/sim/matchday.ts und an TEST1 -> TEST2
-(Pokalspiel) geprüft. Je Kaderplatz des Managers: bei Ligaspielen zählt eine Sperre
-(Byte 13) herunter, wenn Flag-Bit 0 von Byte 9 gesetzt ist; Byte 21 wird gelöscht und
-im Livespiel als vorzeichenbehaftete Spielbewertung neu gesetzt (TEST2: -14, -4, +16,
-+1; Bedeutung offen). Starter: Frische += 6 + random(2,4) - [Spieler-Kondition >
-Spieler-Technik]; Liga: Spieler Byte 35 ++; Liga/Pokal: Kaderplatz Byte 6/7 ++ und
-16-Bit-Zähler bei 28/30 ++. Danach Frische auf 50..150 begrenzt. Die Einwechselroutine
-(0x20DBC) gibt dem Eingewechselten Frische += 4 + random(2,4) und einen Einsatz.
+Läuft im Original **vor** dem Anpfiff (Spieltagstreiber 0x46DB ruft sie bei 0x4914 für die
+Liga und 0x4A33 für die Pokalbereiche, danach erst die Live-Schleife); die Anfangsstärke steht
+da schon fest (Tagesablauf 0x1D7BA). Portiert als `afterMatch` (matchday.ts) nach dem Spiel,
+die Einnahmen in `bookGate`/`bookAttendance`/`pokalZuschlag` (attendance.ts). Je Paarung geht
+sie die Manager der Reihe nach durch:
+
+- **0:2-Prüfung** (Byte 317 = 100, weniger als acht einsatzfähige Starter): außer ab dem
+  10. Juni Strafe 200.000 DM (0x1C5D1) und **sofortige Rückkehr** - der Manager selbst und alle
+  nach ihm bekommen keine Einnahmen und keinen Kaderteil. In der Liga wertet der Treiber das
+  Spiel 0:2; bei Pokalspielen wirft er den Rückgabewert weg (0x4A33).
+- **Einnahmen:** Liga siehe "Zuschauer"; Pokal siehe "Einnahmen im Pokal". Zuschauerhistorie
+  (330 + Zähler 314), Summe 484 und Rekorde 488/492 nur im Ligaheimspiel; die gleiche Zahl
+  löst einen Rekord ab (TEST4 -> RUNA0: 24000, Gegner 0 -> 3).
+- **Kaderteil:** in der Liga zählen gesperrte eigene Spieler auf den Marktplätzen 0..11 ihre
+  Sperre herunter. Je Kaderplatz: Liga-Sperre (Flag-Bit 0, Byte 13) herunter; Byte 21
+  (Spielbewertung) gelöscht; Starter: Frische += 6 + random(2,4) - [Kondition > Technik],
+  Liga Spieler Byte 35 ++, Einsatz in Byte 6/7/8 und 16-Bit-Zähler 28/30/32 für
+  Liga/DFB-Pokal/Europapokal und Relegation; Frische auf 50..150. Danach je Manager
+  Foulbudget 4238:0178 = 6 und Platzverweis 0179 = 1 **nur im Ligaspiel mit mindestens sechs
+  Kaderspielern**, sonst beide 0; Auswechselzähler 5396/5397 = 1/2; Gelbliste 1D1C geleert;
+  beim Heimmanager die Randale (siehe Finanzen). Die Einwechselroutine (0x20DBC) gibt dem
+  Eingewechselten Frische += 4 + random(2,4) und einen Einsatz.
 
 ## Training je Kalendertag (0x0DF0D; portiert als dailyTraining, sim/training.ts)
 
@@ -365,10 +379,15 @@ Sieger nach vorn, Manager Byte 306 + Pokal = Runde + 1, Verlierer bleiben auf 30
 Finale: DFB-Pokalsieger + 1 nach 2340 und Finalist + 1 nach 2344, Europapokalsieger + 1
 (nur deutsche Vereine, sonst 0) nach 2341..2343 als Titelverteidiger. Zuschauer im eigenen
 Stadion mit Bedeutung 1 (DFB) bzw. 2 (Europapokal, 3 im Finale); Torschützen und Einsätze
-zählen im DFB-Pokal als Pokal (Byte 4/7), im Europapokal nicht.
+zählen im DFB-Pokal als Pokal (Byte 4/7), im Europapokal und in der Relegation in Byte 5/8
+(Karrieresummen Wort 38/32).
 
 Einnahmen im Pokal (Buchungsschleife 0x1C632 über alle Manager, Teiler 2 ab 0x1C655 nur für
-Pokalspiele): der Heimverein bekommt Kulisse · eigener Preis (Byte 266) / 2 bei 0x1C93A, der
+Pokalspiele). **DFB-Pokalfinale** (Rundenbyte 28233 > 4, 0x1CB65): Kulisse fest 76.000
+(4cb3:2256), statt Eintritt bekommt jeder beteiligte Manager 532.000 DM (0x1C8F5, 0x1CAA2).
+**Pokalzuschlag** im Heimspiel eines Managers gegen einen höherklassigen Gast (0x1C858):
+d = Liga des Managers (Byte 312) - Ligaband des Gastes > 0: Kulisse += random(Kulisse/(8-3d),
+Kulisse) mit 16-Bit-Grenzen, höchstens bis zur Stadiongröße (350 + 358). Sonst: der Heimverein bekommt Kulisse · eigener Preis (Byte 266) / 2 bei 0x1C93A, der
 Gast dieselbe Kulisse · den Preis **des Heimvereins** / 2 bei 0x1C9DC (Satzindex -0x1e). In
 der Liga entfällt der Gastanteil, weil der Teiler dort 1 ist (0x1C9AD). Gehört der
 Heimverein dem Rechner, würfelt 0x1CA12 einen Ersatz aus: Preis = 16/14/10/8 je Ligaband
