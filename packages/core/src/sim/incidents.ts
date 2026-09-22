@@ -13,7 +13,7 @@
  *                 Sperre Byte 13 = random(1, 7) Spiele (Gelb-Rot: 1), Bewertung Byte 21 - 10
  *   Gelbe Karte:  Byte 1 + 1; die zweite Gelbe im selben Spiel ist Gelb-Rot
  *   Verletzung:   wie im Training (0x17B0F): Form - random(12,19), Art random(0,17), Wochen
- *   0:2-Wertung:  weniger als acht einsatzfähige Starter (0x0F9D2 setzt Byte 317 = 100):
+ *   0:2-Wertung:  weniger als acht Spieler mit Nummer 1..11 (0x0F9D2 setzt Byte 317 = 100):
  *                 Spiel verloren 0:2, 200.000 DM Strafe (0x1C5D1)
  */
 import type { GameState } from "../records.ts";
@@ -75,9 +75,14 @@ export function fitStarters(g: GameState, manager: number): number {
   return g.squadOf(manager).filter((l) => l.number >= 1 && l.number <= 11 && (l.u8(9) & 3) === 0).length;
 }
 
-/** 0:2-Wertung, wenn weniger als acht Starter einsatzfähig sind (0x0F9D2 Byte 317 = 100, 0x1C5D1). */
+/**
+ * 0:2-Wertung, wenn weniger als acht Spieler eine Nummer 1..11 tragen (0x0F9D2 zählt bei
+ * 0x0FBCB nur die Nummer und setzt dann Byte 317 = 100; 0x1C5D1). Ob sie gesperrt oder
+ * verletzt sind, fragt das Original dort nicht - die Aufstellungsautomatik darf im Notfall
+ * auch Gesperrte aufstellen.
+ */
 export function isForfeit(g: GameState, manager: number): boolean {
-  return fitStarters(g, manager) < 8;
+  return g.squadOf(manager).filter((l) => l.number >= 1 && l.number <= 11).length < 8;
 }
 
 export function bookForfeit(g: GameState, manager: number): void {

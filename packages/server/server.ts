@@ -578,6 +578,11 @@ interface Room {
   offers: ContractOffer[];
   /** Laufende Live-Konferenz */
   live?: LiveState;
+  /**
+   * Wechselzähler des letzten Spiels (4238:90C6, Laufzeitdaten wie im Original): gehen in die
+   * Anfangsstärke des nächsten Spiels ein und beginnen nach einem Neustart bei 0.
+   */
+  letzteWechsel?: LiveState["subs"];
   liveTimer?: NodeJS.Timeout;
   /**
    * Öffnungszeiten der acht Trainingslager (4cb3:0620). Wie im Original nur Laufzeitdaten: sie
@@ -1091,7 +1096,9 @@ function nachTageswechsel(r: Room): void {
 function startLiveDay(r: Room): void {
   const k = dayIndex(r.game);
   const flag = calendarFlag(r.game, k);
-  const st = startLive(r.game, r.rng, k, flag, tempoMs(r.options.tempo));
+  const st = startLive(r.game, r.rng, k, flag, tempoMs(r.options.tempo), r.letzteWechsel);
+  // Ab jetzt zählt das laufende Spiel (0x1D838 setzt nach der Stärkerechnung zurück)
+  r.letzteWechsel = st.subs;
   st.scenesOn = r.options.scenes;
   if (st.entries.length === 0) {
     advanceDay(r, { results: new Map(), postponed: st.postponed });

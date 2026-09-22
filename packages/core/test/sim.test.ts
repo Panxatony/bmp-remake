@@ -76,3 +76,20 @@ test("Verlegungen: keine außerhalb des Winters, im Winter bis zu 8", () => {
   for (let i = 0; i < 2000; i++) sum += postponementCount(32, rng);
   assert.ok(sum / 2000 > 1.5 && sum / 2000 < 3, `Mittel ${sum / 2000}`);
 });
+
+test("Stärke 0x0F9D2: Moral aus Kondition minus Technik, Wechsel heben die Technik (#92)", async () => {
+  const { teamStrength, strengthInput } = await import("../src/index.ts");
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+  const inp = strengthInput(g, 0);
+  // Moral = Einsatzregler + max(0, Σ(KO - TE)/9 auf -4..4): mit Kondition über Technik steigt sie
+  for (const { squad } of inp.starters) { squad.setU8(16, 80); squad.setU8(17, 40); }
+  assert.equal(teamStrength(inp, mulberryRng(1)).moralNeu, inp.einsatz + 4);
+  for (const { squad } of inp.starters) { squad.setU8(16, 40); squad.setU8(17, 80); }
+  assert.equal(teamStrength(inp, mulberryRng(1)).moralNeu, inp.einsatz);
+  // Auswechslungen (4238:90C6): +30 Technik je Linie und Wechsel, aber erst ab Stufe-Byte < 4
+  const ohne = teamStrength({ ...inp, stufe: 2, wechsel: 0 }, mulberryRng(3));
+  const mit = teamStrength({ ...inp, stufe: 2, wechsel: 2 }, mulberryRng(3));
+  for (let l = 0; l < 3; l++) if (ohne.te[l] > 0) assert.ok(mit.te[l] > ohne.te[l], `Linie ${l}: ${mit.te[l]} > ${ohne.te[l]}`);
+  const leicht = [teamStrength({ ...inp, stufe: 4, wechsel: 0 }, mulberryRng(3)), teamStrength({ ...inp, stufe: 4, wechsel: 2 }, mulberryRng(3))];
+  assert.deepEqual(leicht[0].te, leicht[1].te, "Stufe-Byte 4 (Level 1): ohne Wirkung");
+});

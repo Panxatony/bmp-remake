@@ -184,13 +184,24 @@ export function pickScene(rng: Rng, goal: boolean, available: Set<string>): { id
   return { id: available.has(name) ? name : `10.${suffix}`, elfmeter };
 }
 
-export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempoMs: number): LiveState {
+/** Auswechslungen eines Managers im Spiel (4238:90C6). */
+export function wechselZahl(subs: LiveState["subs"] | undefined, manager: number): number {
+  const u = subs?.[manager];
+  return u ? u.goalkeeper + u.field : 0;
+}
+
+/**
+ * `wechselVorher`: die Wechselzähler des vorigen Spiels. Das Original setzt 4238:90C6 erst nach
+ * der Stärkerechnung vor dem Anpfiff zurück (0x1D838), die Anfangsstärke rechnet also noch mit
+ * ihnen (0x0FEEF, ab Stufe-Byte < 4).
+ */
+export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempoMs: number, wechselVorher?: LiveState["subs"]): LiveState {
   const managers = g.activeManagers();
   const managerOf = new Map<number, number>();
   managers.forEach((m, i) => managerOf.set(m.clubIndex, i));
   const entries: LiveEntry[] = [];
   const add = (kind: LiveEntry["kind"], home: number, away: number, extra: Partial<LiveEntry>) => {
-    entries.push({ key: `${home}-${away}`, kind, home, away, match: new LiveMatch(matrixFor(g, home, rng), matrixFor(g, away, rng), rng, undefined, kind !== "league"), managerHome: managerOf.get(home), managerAway: managerOf.get(away), scorers: [], ...extra });
+    entries.push({ key: `${home}-${away}`, kind, home, away, match: new LiveMatch(matrixFor(g, home, rng, (m) => wechselZahl(wechselVorher, m)), matrixFor(g, away, rng, (m) => wechselZahl(wechselVorher, m)), rng, undefined, kind !== "league"), managerHome: managerOf.get(home), managerAway: managerOf.get(away), scorers: [], ...extra });
   };
   const postponed: number[][] = [[], [], []];
   for (let league = 0; league < 3; league++) {
@@ -327,8 +338,8 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
       if (fresh.length === 0) continue;
       state.news.push(...fresh);
       if (fresh.some((i) => i.kind !== "yellow")) {
-        if (side === "home") e.match.home = matchStrength(g, manager, rng);
-        else e.match.away = matchStrength(g, manager, rng);
+        if (side === "home") e.match.home = matchStrength(g, manager, rng, wechselZahl(state.subs, manager));
+        else e.match.away = matchStrength(g, manager, rng, wechselZahl(state.subs, manager));
       }
       if (fresh.some((i) => i.kind === "red" || i.kind === "injury")) neuAuslosen = Math.max(neuAuslosen ?? -1, manager);
     }
@@ -578,7 +589,7 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
 export function refreshStrength(state: LiveState, g: GameState, manager: number, rng: Rng): void {
   const club = g.managers.at(manager).clubIndex;
   for (const e of state.entries) {
-    if (e.home === club) e.match.home = matchStrength(g, manager, rng);
-    if (e.away === club) e.match.away = matchStrength(g, manager, rng);
+    if (e.home === club) e.match.home = matchStrength(g, manager, rng, wechselZahl(state.subs, manager));
+    if (e.away === club) e.match.away = matchStrength(g, manager, rng, wechselZahl(state.subs, manager));
   }
 }

@@ -48,17 +48,22 @@ export interface PlayedMatch {
  * (0x05FE5 über 40 - Byte 317). Steht dort die 100 der 0:2-Wertung, bleibt sie stehen.
  * Bis GitLab #73 blieb der Wert liegen, und die Ereignisse rechneten mit dem falschen Byte.
  */
-export function matchStrength(g: GameState, manager: number, rng: Rng): TeamStrength {
+export function matchStrength(g: GameState, manager: number, rng: Rng, wechsel = 0): TeamStrength {
   const m = g.managers.at(manager);
-  const s = teamStrength(strengthInput(g, manager), rng, true);
+  const inp = strengthInput(g, manager, wechsel);
+  // Weniger als acht Spieler mit Nummer 1..11: Byte 317 = 100, sonst 0 (0x0FCFE) - in jeder
+  // Rechnung, also auch mitten im Spiel nach Platzverweis und Verletzungen
+  m.setU8(317, inp.starters.length < 8 ? 100 : 0);
+  const s = teamStrength(inp, rng, true);
   if (m.u8(317) !== 100) m.setU8(317, s.moralNeu);
   return s;
 }
 
-export function matrixFor(g: GameState, club: number, rng: Rng): TeamStrength {
+/** Stärke eines Vereins vor dem Spiel; `wechselOf` liefert die Auswechslungen je Manager (4238:90C6). */
+export function matrixFor(g: GameState, club: number, rng: Rng, wechselOf?: (manager: number) => number): TeamStrength {
   const managers = g.activeManagers();
   for (let i = 0; i < managers.length; i++) {
-    if (managers[i].clubIndex === club) return matchStrength(g, i, rng);
+    if (managers[i].clubIndex === club) return matchStrength(g, i, rng, wechselOf?.(i) ?? 0);
   }
   return g.clubs.at(club).strengthMatrix;
 }

@@ -33,9 +33,15 @@ export interface StrengthInput {
   moral: number;
   /** Vereinsbyte 23 */
   base: number;
+  /**
+   * Auswechslungen des Managers (4238:90C6, nur zur Laufzeit): jeder Wechsel zählt hoch
+   * (0x20E86), zurückgesetzt wird erst **nach** der Stärkerechnung vor dem Spiel (0x1D838).
+   * Vor dem Anpfiff gelten also die Wechsel des vorigen Spiels, danach die des laufenden.
+   */
+  wechsel?: number;
 }
 
-export function strengthInput(g: GameState, manager: number): StrengthInput {
+export function strengthInput(g: GameState, manager: number, wechsel = 0): StrengthInput {
   const m = g.managers.at(manager);
   const starters = g
     .squadOf(manager)
@@ -47,6 +53,7 @@ export function strengthInput(g: GameState, manager: number): StrengthInput {
     einsatz: m.u8(305),
     moral: m.u8(317),
     base: g.clubs.at(m.clubIndex).u8(23),
+    wechsel,
   };
 }
 
@@ -70,9 +77,9 @@ export function teamStrength(inp: StrengthInput, rng: Rng, forMatch = true): Tea
   const count = [0, 0, 0];
   const malus = [0, 0, 0];
   const plus = [-9, -8, -5]; // Besetzung Abwehr, Mittelfeld, Angriff
-  let teMinusKo = 0;
+  // Summe Kondition - Technik der Starter (-0x26, 0x0FB1F); daraus die Moral
+  let koMinusTe = 0;
   let torwartModus = 1;
-  let tw = 0;
   let starters = 0;
 
   for (const { squad, player } of inp.starters) {
@@ -93,8 +100,6 @@ export function teamStrength(inp: StrengthInput, rng: Rng, forMatch = true): Tea
       count[grp] += 1;
       continue;
     }
-    if (role === 1 || role === 5) tw += 1;
-    if (role === 0 || role === 6) tw += 2;
     if (line >= 3) {
       if (line === 3) {
         plus[0] += 1;
@@ -112,7 +117,7 @@ export function teamStrength(inp: StrengthInput, rng: Rng, forMatch = true): Tea
     }
     if (positionFit > 2) malus[grp] += rng(2, 6);
     if (lineDist > 25) malus[grp] += rng(2, 6);
-    teMinusKo += te - ko;
+    koMinusTe += ko - te;
     sumKo[grp] += ko + div(squad.leagueApps, 6) - div(squad.freshness, 20) + 3;
     sumTe[grp] += te + squad.leagueGoals - 1;
     sumFo[grp] += fo;
@@ -124,33 +129,38 @@ export function teamStrength(inp: StrengthInput, rng: Rng, forMatch = true): Tea
   // fehlende Starter zählen reihum
   for (let i = starters, l = 0; i < 11; i++, l = (l + 1) % 3) count[l]++;
   if (!forMatch) return finish(inp, sumKo, sumTe, sumFo, count, inp.einsatz);
-  if (inp.stufe === 0 && tw > 8) sumTe[2] += -100 * teMinusKo; // Torwart-Sonderfall (0xFD40), Bedeutung offen
+  // Sonderfall Stufe-Byte 0 und mehr als 8 Punkte aus den Rollen (Rolle 1/5 zählt 1, 0/6 zählt
+  // 2; 0x0FD40): das Original addiert auf die Angriffstechnik -100 mal das Wort -0x2A(%bp), das
+  // die Routine nie beschreibt - es steht dort, was vorher auf dem Stapel lag. Nicht
+  // nachbildbar, entfällt.
   if (torwartModus > 0) {
     const k = torwartModus - 1;
     sumTe[0] = Math.trunc((sumTe[0] * rng(10 * k + 5, 20 * k + 5)) / 100);
     sumTe[1] = Math.trunc((sumTe[1] * rng(10, 40)) / 100);
     sumKo[0] = Math.trunc((sumKo[0] * rng(5 * (k + 2), 30 * k + 20)) / 100);
   }
-  for (let l = 0; l < 3; l++) {
-    sumTe[l] = clamp(sumTe[l], 0, 32000);
-    sumKo[l] = clamp(sumKo[l], 0, 32000);
+  // Geklemmt werden nur die drei Summen, die der Torwartfall verändert (0x0FDEE..0x0FE16)
+  sumTe[0] = clamp(sumTe[0], 0, 32000);
+  sumTe[1] = clamp(sumTe[1], 0, 32000);
+  sumKo[0] = clamp(sumKo[0], 0, 32000);
+  // Beide Korrekturen nur ohne Mittelfeldbesetzung (0x0FE1E)
+  if (plus[1] < 1) {
+    if (plus[0] > 0) plus[2] += plus[1] - 1;
+    if (plus[2] > 0) plus[0] += plus[1] - 1;
   }
-  if (plus[1] < 1 && plus[0] > 0) plus[2] += plus[1] - 1;
-  if (plus[2] > 0) plus[0] += plus[1] - 1;
   if (plus[0] < -1 && rng(7, 10) > plus[0] + 10) plus[1] -= rng(3, 5);
   for (let l = 0; l < 3; l++) {
     sumTe[l] += inp.stufe;
     if (sumKo[l] !== 0) sumKo[l] += inp.einsatz - 16;
     if (sumTe[l] !== 0 && inp.stufe < 4) {
       const t = plus[l] * count[l];
-      // Tabelle 4238:90C6[manager] liegt außerhalb des Spielstands (nur Laufzeit), hier 0
-      sumTe[l] += (t + 3 * 0) * 10;
+      sumTe[l] += (t + 3 * (inp.wechsel ?? 0)) * 10;
       sumKo[l] += 5 * t;
     }
     if (sumTe[l] < 0) sumTe[l] = 0;
     if (sumKo[l] < 0) sumKo[l] = 0;
   }
-  let z = clamp(div(teMinusKo, 9), -4, 4);
+  let z = clamp(div(koMinusTe, 9), -4, 4);
   if (z < 0) z = 0;
   return finish(inp, sumKo, sumTe, sumFo, count, clamp(z + inp.einsatz, 0, 40));
 }

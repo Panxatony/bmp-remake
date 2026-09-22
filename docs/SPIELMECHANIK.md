@@ -1089,10 +1089,11 @@ Verletzte und Spieler (11 minus Rote und Verletzte) der eigenen Mannschaft; ohne
 werden die Ereignisse nach dem Spiel in derselben Häufigkeit gewürfelt.
 
 0:2-Wertung: die Stärkeberechnung 0x0F9D2 setzt Managerbyte 317 = 100, wenn weniger als
-acht Starter einsatzfähig sind; die Spielvorbereitung wertet das Spiel dann 0:2 und zieht
+acht Spieler eine Nummer 1..11 tragen (Sperre und Verletzung zählen dort nicht); die Spielvorbereitung wertet das Spiel dann 0:2 und zieht
 200.000 DM Strafe ab ("Ihr Spiel wird mit 0:2 gewertet. Sie zahlen 200.000 DM Strafe"). In der
 Konferenz zählt der Stand beim Anpfiff, Karten und Verletzungen im Spiel lösen keine Wertung
-mehr aus. Ausnahme des Originals (Monat 5, Tag < 10) ist nicht übernommen.
+mehr aus. Ausnahme des Originals: ab dem 10. Juni (Monat 5, Tag >= 10, also in der Relegation)
+keine Wertung; nicht übernommen, Prüfung im Original in GitLab #90.
 
 ## KI-Vereine: Torschützen, Grundzuschlag und Matrixschwankung (0x160A2/0x15F14, 0x2C3FC, 0x10067; sim/ai.ts)
 
