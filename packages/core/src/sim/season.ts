@@ -47,9 +47,11 @@ export function swapClubs(g: GameState, a: number, b: number): void {
     if (o === a) pl.setU8(36, b);
     else if (o === b) pl.setU8(36, a);
   }
+  // Über den Setzer, damit die Liga (Byte 312) mitwandert - beim Auf- und Abstieg wechselt hier
+  // das Ligaband des Vereins (GitLab #76)
   g.activeManagers().forEach((m) => {
-    if (m.clubIndex === a) m.setU8(30, b);
-    else if (m.clubIndex === b) m.setU8(30, a);
+    if (m.clubIndex === a) m.clubIndex = b;
+    else if (m.clubIndex === b) m.clubIndex = a;
   });
   remapCupClubs(g, a, b);
 }

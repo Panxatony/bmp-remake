@@ -335,8 +335,15 @@ export class Manager extends Record {
   get attendanceLow(): { value: number; opponent: number } {
     return { value: this.i32(492), opponent: this.i32(504) };
   }
+  /**
+   * Verein des Managers. Seine Liga (Byte 312) hängt daran und wird mitgezogen: in allen 41
+   * vorhandenen Spielständen des Originals stimmt sie mit dem Ligaband des Vereinsindex
+   * überein, und beim Saisonwechsel zieht das Original sie nach (0x1E3A4). Bis GitLab #76
+   * blieb sie im Remake stehen - ein Aufsteiger wäre dauerhaft Zweitligist geblieben.
+   */
   set clubIndex(v: number) {
     this.setU8(30, v);
+    this.setU8(312, v < 18 ? 0 : v < 38 ? 1 : 2);
   }
   get isEmpty(): boolean {
     return this.buf[this.base] === 0;
