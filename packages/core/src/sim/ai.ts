@@ -71,8 +71,9 @@ function bandOf(club: number): [number, number] {
  * Schwankung der Vereinsmatrix (0x10067) für alle Vereine 0..63. mode 1 an jedem Kalendertag,
  * mode 10 zu Spiel- und Saisonbeginn; bei mode ≠ 1 gilt ab dem zweiten Verein mode 3
  * (Eigenheit des Originals) und die Werte werden auf das Band der Ligaklasse begrenzt,
- * sonst auf 1..99. Je Linie i: a = random(0, 2·mode), k = 2i + 1 + a,
- * Kondition += random(0, 2k) - (2i + 1) - mode; Technik ebenso, bei mode 1 nur mit 1/3;
+ * sonst auf 1..99. Je Verein a = random(0, 2·mode), dazu k = 3 bei mode 3, sonst 1 - für alle
+ * drei Linien gleich (0x1007B setzt k ohne Linienzähler; bis #99 stand hier 2i + 1).
+ * Kondition += random(0, 2(k + a)) - k - mode; Technik ebenso, bei mode 1 nur mit 1/3;
  * Form = Form + random(0,6) - 3, begrenzt auf 45..55.
  */
 export function driftClubs(g: GameState, mode: number, rng: Rng): void {
@@ -85,17 +86,14 @@ export function driftClubs(g: GameState, mode: number, rng: Rng): void {
       m = 3;
     }
     const band = m === 3 ? bandOf(club) : [1, 99];
+    const k = m === 3 ? 3 : 1;
     for (let i = 0; i < 3; i++) {
-      const k = 2 * i + 1 + a;
-      const ko = c.u8(24 + i) + rng(0, 2 * k) - (2 * i + 1) - m;
+      const ko = c.u8(24 + i) + rng(0, 2 * (k + a)) - k - m;
       c.setU8(24 + i, clamp(ko, band[0], band[1]));
     }
     for (let i = 0; i < 3; i++) {
       let te = c.u8(27 + i);
-      if (rng(0, 2) === 0 || m === 3) {
-        const k = 2 * i + 1 + a;
-        te += rng(0, 2 * k) - m - (2 * i + 1);
-      }
+      if (rng(0, 2) === 0 || m === 3) te += rng(0, 2 * (k + a)) - m - k;
       c.setU8(27 + i, clamp(te, band[0], band[1]));
     }
     for (let i = 0; i < 3; i++) c.setU8(30 + i, clamp(c.u8(30 + i) + rng(0, 6) - 3, 45, 55));

@@ -28,7 +28,7 @@ Vereinsbyte 23 liegt bei 47..53 und wirkt als Grundzuschlag.
 ```
 chancen(heim, gast, von, bis):
     TAB = [1,2,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4]
-    pick(a, b) = (random(0,1) != 0 und a < b) ? a : b
+    pick(a, b) = (random(0,1) != 0 und b < a) ? a : b     // also das Größere (0x043D3)
     h = random(0,1) ; g = 0
     sh = staerke(heim, 1, von) ; sg = staerke(gast, 1, von)
     d = sh/3 - sg/3

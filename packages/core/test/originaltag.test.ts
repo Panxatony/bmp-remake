@@ -1,11 +1,12 @@
 /**
  * Bytegenauer Vergleich (GitLab #99): der Tageslauf in Originalreihenfolge würfelt Wurf für Wurf
- * wie ein präpariertes Original (tools/seed-patch.py "zug" + tools/kontrollpunkte.py), das
- * TEST4 einen Tag weitergespielt hat (tools/dosbox/KP-TEST4.MAN).
+ * wie ein präpariertes Original (tools/seed-patch.py "tag" + tools/kontrollpunkte.py), das
+ * TEST4 einen Tag weitergespielt hat (tools/dosbox/KP-TEST4.MAN). Einträge der random-Spur
+ * (Kennung 0x8000) tragen keinen Zustand und bleiben außen vor.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { SaveFile, GameState, originalRng, originaltag, TABLES } from "../src/index.ts";
 
@@ -17,6 +18,7 @@ function protokoll(plain: Uint8Array): { punkt: number; wurf: number }[] {
   const w = (i: number) => plain[o + i] | (plain[o + i + 1] << 8);
   const out: { punkt: number; wurf: number }[] = [];
   for (let i = 0; i < w(0); i++) {
+    if (w(2 + 8 * i) === 0x8000) continue;
     const z = (w(4 + 8 * i) | (w(6 + 8 * i) << 16)) >>> 0;
     let s = 0x1234;
     let n = 0;
@@ -29,10 +31,11 @@ function protokoll(plain: Uint8Array): { punkt: number; wurf: number }[] {
   return out;
 }
 
-test("Originaltag TEST4: die Würfe stimmen an jedem erreichten Kontrollpunkt", () => {
+// Die Vorlage ist ein Spielstand des Originals und liegt nur lokal vor (.gitignore)
+test("Originaltag TEST4: die Würfe stimmen an jedem erreichten Kontrollpunkt", { skip: !existsSync(KP) || !existsSync(join(BMP_DIR, "TEST4.MAN")) }, () => {
   const orig = protokoll(SaveFile.decode(new Uint8Array(readFileSync(KP))).plain);
   const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
   const lauf = originaltag(g, originalRng(0x1234));
-  assert.ok(lauf.punkte.length >= 31, `nur ${lauf.punkte.length} Kontrollpunkte`);
+  assert.ok(lauf.punkte.length >= 71, `nur ${lauf.punkte.length} Kontrollpunkte`);
   lauf.punkte.forEach((p, i) => assert.deepEqual(p, orig[i], `Kontrollpunkt ${i + 1}`));
 });

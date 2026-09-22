@@ -1698,9 +1698,9 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
       // Die tägliche Finanzroutine läuft je Manager; darin würfelt das Original mit 1/61 die
       // Zinstabelle der Bank neu (0x11DA2 -> 0x112AA) und zählt die Öffnungszeiten der
       // Trainingslager weiter (0x11D2D). Beides hing bei uns am Monatsende bzw. lief nur
-      // einmal je Tag (GitLab #34).
-      if (r.rng(0, 60) === 0) driftInterest(g, r.rng);
+      // einmal je Tag (GitLab #34). Erst die Lager, dann die Bank (0x11D2D vor 0x11DA2, #99).
       advanceCampOpen(r.campOpen, r.rng);
+      if (r.rng(0, 60) === 0) driftInterest(g, r.rng);
       for (const kind of dailyConstruction(g, i)) {
         // Der Betreff steht im Original je Bauwerk fest (0x4EAEA); Flutlicht, Anzeigetafel und
         // Komfort tragen ihr Stichwort in einer zweiten Zeile (0x4FD40)

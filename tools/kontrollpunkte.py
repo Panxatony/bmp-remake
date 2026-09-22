@@ -29,10 +29,12 @@ import tempfile
 HDR = 512
 CAVE_ADDR = 0x3260C           # lineare Adresse im Abbild
 CAVE_SEG, CAVE_OFF = 0x322B, 0x035C
-CAVE_LEN = 1100
+CAVE_LEN = 0x32AAE - 0x3260C  # bis zum lret der Routine
 DGROUP, DATA = 0x4CB3, 0x4238
 LOG = 0x8686                  # 4238:8686 = Kaderplatz 75
 MAX_EINTRAEGE = 160
+SPUR_AB = 12                  # ab diesem Kontrollpunkt bis zum nächsten jeden random-Aufruf notieren
+RANDOM_CHKSTK = 0x837C        # lcall chkstk in random (0x08377)
 
 # Kennung, lineare Adresse des Fernaufrufs, Zielsegment, Zieloffset
 PUNKTE = [
@@ -45,6 +47,10 @@ PUNKTE = [
     (7, 0x1D757, 0x112A, 0x0A6D),  # Finanzen am Tagesbeginn 0x11D0D
     (8, 0x1DAFA, 0x112A, 0x0A6D),  # Finanzen je Saisontag 0x11D0D
     (9, 0x1DBFE, 0x0CB5, 0x13BD),  # Tagesroutine 0x0DF0D
+    (10, 0x1E0F6, 0x076B, 0x0CC7), # Zug: random(0, Manager + 3)
+    (11, 0x1E101, 0x2277, 0x1E38), # Markterneuerung 0x245A8
+    (12, 0x1E10F, 0x08BC, 0x0B5F), # Hauptmenü eines Zugs 0x0971F
+    (13, 0x1D7FF, 0x0F9D, 0x0002), # Spielstärke Flag 1 je Manager 0x0F9D2
 ]
 
 
@@ -117,6 +123,11 @@ protokoll:
   add ax, {(DATA - CAVE_SEG) & 0xFFFF:#x}
   mov es, ax
   mov ax, word ptr cs:[si+4]
+  mov byte ptr cs:[spur], 0
+  cmp ax, {SPUR_AB}
+  jne 1f
+  mov byte ptr cs:[spur], 1
+1:
   mov si, word ptr es:[{LOG:#x}]
   cmp si, {MAX_EINTRAEGE}
   jae voll
@@ -138,6 +149,46 @@ voll:
   jmp dword ptr cs:[ziel]
 ziel:
   .word 0, 0
+spur:
+  .byte 0
+"""
+
+
+def quelltext_spur(spur: int) -> str:
+    """Anfang von random (0x08377): statt chkstk hierher. Ist die Spur an, kommt der Aufruf mit
+    seiner Rücksprungadresse ins Protokoll: Kennung 0x8000, dann Offset und Segment (zur
+    Laufzeit, also mit Ladesegment) - ohne Zustand, die Reihenfolge genügt. chkstk selbst
+    entfällt: random ruft es mit AX = 0, es prüft dann nur den Stapel."""
+    return f""".code16
+.intel_syntax noprefix
+.set spur, {spur:#x}
+.text
+  cmp byte ptr cs:[spur], 0
+  je weiter
+  push ax
+  push si
+  push es
+  mov ax, cs
+  add ax, {(DATA - CAVE_SEG) & 0xFFFF:#x}
+  mov es, ax
+  mov si, word ptr es:[{LOG:#x}]
+  cmp si, {MAX_EINTRAEGE}
+  jae voll
+  inc word ptr es:[{LOG:#x}]
+  shl si, 1
+  shl si, 1
+  shl si, 1
+  mov word ptr es:[si+{LOG + 2:#x}], 0x8000
+  mov ax, word ptr [bp+2]
+  mov word ptr es:[si+{LOG + 4:#x}], ax
+  mov ax, word ptr [bp+4]
+  mov word ptr es:[si+{LOG + 6:#x}], ax
+voll:
+  pop es
+  pop si
+  pop ax
+weiter:
+  retf
 """
 
 
@@ -176,6 +227,22 @@ def main() -> None:
             break
         s_start = p_start + p_len
     s_org = CAVE_OFF + (s_start - CAVE_ADDR)
+    belegt |= set(range(s_start - 1, s_start + s_len))
+    spur = p_org + p_len - 1
+    r_len = len(asm(quelltext_spur(spur), CAVE_OFF))
+    r_start = CAVE_ADDR
+    while True:
+        r_start = luecke(rel, r_start, ende, r_len)
+        if not belegt & set(range(r_start, r_start + r_len)):
+            break
+        r_start += 1
+    r_org = CAVE_OFF + (r_start - CAVE_ADDR)
+    r_code = asm(quelltext_spur(spur), r_org)
+    b[HDR + r_start:HDR + r_start + len(r_code)] = r_code
+    o = HDR + RANDOM_CHKSTK
+    if bytes(b[o:o + 5]) != bytes.fromhex("9ac602013a") or RANDOM_CHKSTK + 3 not in rel:
+        raise SystemExit("random sieht anders aus")
+    b[o:o + 5] = bytes([0x9A]) + r_org.to_bytes(2, "little") + CAVE_SEG.to_bytes(2, "little")
     s_code = asm(quelltext_stummel(p_org), s_org)
     stummel = {}
     for k, _, seg, off in PUNKTE:
@@ -195,7 +262,7 @@ def main() -> None:
             raise SystemExit(f"unerwartete Bytes bei {addr:#x}: {b[o:o + 5].hex()}")
         b[o:o + 5] = bytes([0x9A]) + stummel[k].to_bytes(2, "little") + CAVE_SEG.to_bytes(2, "little")
     open(pfad, "wb").write(b)
-    print(f"{pfad}: {len(PUNKTE)} Kontrollpunkte, Protokollierer {len(p_code)} Bytes bei {CAVE_SEG:04x}:{p_org:04x}, Stummel {len(s_code)} Bytes bei {CAVE_SEG:04x}:{s_org:04x}")
+    print(f"{pfad}: {len(PUNKTE)} Kontrollpunkte, Protokollierer {len(p_code)} Bytes bei {CAVE_SEG:04x}:{p_org:04x}, Stummel {len(s_code)} Bytes bei {CAVE_SEG:04x}:{s_org:04x}, Spur {len(r_code)} Bytes bei {CAVE_SEG:04x}:{r_org:04x}")
 
 
 if __name__ == "__main__":
