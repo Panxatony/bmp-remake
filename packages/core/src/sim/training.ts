@@ -309,7 +309,7 @@ export function advanceCampOpen(open: number[], rng: Rng): void {
   }
 }
 
-/** Sperre nach einem Lager: Managerbyte 313 zählt je Kalendertag herunter (0x11DEE). */
+/** Sperre nach einem Lager: Managerbyte 313 zählt je Saisontag herunter (0x11DEE in 0x11D0D). */
 export function campCountdown(g: GameState, manager: number): void {
   const m = g.managers.at(manager);
   if (m.u8(313) !== 0) m.setU8(313, m.u8(313) - 1);
