@@ -12,12 +12,16 @@
  */
 import type { GameState } from "../records.ts";
 import type { Rng } from "./match.ts";
-import { chanceCounts, chanceMinutes } from "./match.ts";
+import { LiveMatch } from "./live.ts";
+import { bookEvents } from "./matchday.ts";
+import { minuteIncidents, newIncidentState, type IncidentState } from "./incidents.ts";
 import { matchStrength } from "./matchday.ts";
 import { kaderVorbereitung } from "./matchday.ts";
 import { attendance, bookAttendance, bookGate } from "./attendance.ts";
 import { riotCheck } from "./finance.ts";
 import { isForfeit } from "./incidents.ts";
+const szenen = true;
+const beteiligt = (s: { seiten: unknown[] }) => s.seiten.length > 0;
 import { calendarFlag, dayIndex, FLAG_LEAGUE, dateOfSeasonDay, seasonDay, seasonStartYear } from "./calendar.ts";
 import { dailyFinance, DAYS_IN_MONTH } from "./finance.ts";
 import { driftInterest, dailyConstruction } from "./stadium.ts";
@@ -132,19 +136,60 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
     }
   }
   // Live-Schleife 0x05403, erste Halbzeit: zu Beginn die Chancen jeder Paarung (0x054C2 ruft
-  // 0x102B9 mit Schalter 1: Zahl je Seite, dann die Minuten erst für Heim, dann für Gast)
-  const paare: { home: number; away: number; minuten: { minute: number; side: "home" | "away" }[] }[] = [];
+  // 0x102B9 mit Schalter 1: Zahl je Seite, dann die Minuten erst für Heim, dann für Gast), danach
+  // je Minute und Paarung Karten und Verletzungen (0x05FE5), nach glatt Rot oder Verletzung die
+  // Neuauslosung (0x0657F), dann die Chancen der Minute (0x1060B, Buchung 0x1B223)
+  const spiele: { home: number; away: number; match: LiveMatch; seiten: [number, IncidentState, "home" | "away"][] }[] = [];
   for (let league = 0; league < 3; league++) {
     if (!(flag & FLAG_LEAGUE[league])) continue;
-    for (const [home, away] of g.pairings(league)) paare.push({ home, away, minuten: [] });
+    for (const [home, away] of g.pairings(league)) {
+      const match = new LiveMatch(g.clubs.at(home).strengthMatrix, g.clubs.at(away).strengthMatrix, rng);
+      const seiten: [number, IncidentState, "home" | "away"][] = [];
+      for (const [club, seite] of [[home, "home"], [away, "away"]] as const) {
+        const mi = managerOf.get(club);
+        if (mi !== undefined) seiten.push([mi, newIncidentState(), seite]);
+      }
+      seiten.sort((a, b) => a[0] - b[0]);
+      spiele.push({ home, away, match, seiten });
+    }
   }
-  for (const p of paare) {
-    kp(4);
-    const hs = g.clubs.at(p.home).strengthMatrix;
-    const as = g.clubs.at(p.away).strengthMatrix;
-    const n = chanceCounts(hs, as, 1, 45, rng);
-    for (const m of chanceMinutes(n.home, 1, 45, rng)) p.minuten.push({ minute: m, side: "home" });
-    for (const m of chanceMinutes(n.away, 1, 45, rng)) p.minuten.push({ minute: m, side: "away" });
+  for (let minute = 1; minute <= 45; minute++) {
+    for (const s of spiele) {
+      if (minute === 1) kp(4);
+      s.match.beginMinute();
+    }
+    for (const s of spiele) {
+      let neu: number | undefined;
+      for (const [mi, st, seite] of s.seiten) {
+        const fresh = minuteIncidents(g, mi, minute, st, rng, kp);
+        if (fresh.length === 0) continue;
+        if (fresh.some((x) => x.kind !== "yellow")) s.match[seite] = matchStrength(g, mi, rng);
+        if (fresh.some((x) => x.kind === "red" || x.kind === "injury")) neu = mi;
+      }
+      if (neu !== undefined) {
+        kp(6);
+        s.match.neuAuslosen(neu);
+      }
+      s.match.chances((c) => {
+        // Den Chancenhandler ruft der Torwürfel nur für Spiele mit Manager (0x108EF)
+        if (!beteiligt(s)) return;
+        kp(16);
+        bookEvents(g, s.home, s.away, { home: s.match.hg, away: s.match.ag, events: [c] }, 0, rng, [szenen ? pickScene(rng, c.goal) : false]);
+      }, (seite) => kp(seite === "home" ? 14 : 15));
+    }
   }
-  return { punkte, bis: "Chancen der ersten Halbzeit - die Minuten fehlen noch" };
+  // Halbzeitende (0x05BD6). Zwischen hier und den Chancen der zweiten Halbzeit würfelt das
+  // Original in manchen Läufen noch - das ist noch nicht geklärt (#99)
+  kp(21);
+  return { punkte, bis: "Halbzeitpause und zweite Halbzeit fehlen noch" };
+}
+
+/** Szenenwahl des Laders 0x1502C (nur die Würfel): Nummer, Elfmeter, seltene Jubelszene. */
+function pickScene(rng: Rng, goal: boolean): boolean {
+  rng(2, 43);
+  const elfmeter = rng(0, goal ? 15 : 25) === 0;
+  if (elfmeter) rng(2, 5);
+  else rng(0, 400);
+  return elfmeter;
+
 }

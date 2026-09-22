@@ -268,8 +268,8 @@ verkehrt herum stand. Und die 56 aus 0xDF8F gehört zur Marktschleife, nicht zum
 Bei Tor oder Chance eines Managervereins wird ein Starter gewählt: Kandidat zufällig
 aus dem Kader, nur Nummern 1..11; Gewicht w = 3·Te/(5 - 3·mode) + Ko/5 + Fo/5 (bei
 mode 0 und Chance: random(120,170)) + Positionsgruppe·(6 - mode)·7 + 46·Ligatore +
-300·[mode ≥ 1] + (7 - Feldlinie)·200 (+1200 bei Feldlinie < 2) + 5·(|Frische - 3| -
-2·[mode ≥ 1]) + (Tor: 5·(5 - positionFit) + 35 - abstandZurLinie; Chance: 5·positionFit
+300·[mode = 0] + (7 - |y|)·200 (+1200 bei y < 2; y = Kaderbyte 26) + 5·(|x - 3| -
+2·[mode = 0]) (x = Kaderbyte 25; bis GitLab #99 stand hier [mode ≥ 1] und Byte 19) + (Tor: 5·(5 - positionFit) + 35 - abstandZurLinie; Chance: 5·positionFit
 + abstandZurLinie); angenommen, wenn random(0,3500) < w; Torhüter nur mit 1/21.
 Schütze: mode 0, Vorlage: mode 1 (bis ungleich Schütze). Tor: Spieler Byte 34 ++ (Liga),
 Kaderplatz Byte 3 (Liga) / 4 (Pokal) ++, 16-Bit-Zähler bei 34/36 ++, Bewertung Byte 21

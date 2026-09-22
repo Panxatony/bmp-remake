@@ -19,6 +19,10 @@ export const PUNKTE = {
   11: "Markterneuerung",
   12: "Hauptmenü",
   13: "Spielstärke Flag 1",
+  14: "Torwürfel Heim",
+  15: "Torwürfel Gast",
+  16: "Chancenhandler",
+  17: "nach Chancenhandler",
 };
 
 /** Einträge des Protokolls: Kennung und Zustand des Generators. */
