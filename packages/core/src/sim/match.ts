@@ -86,7 +86,9 @@ export function strength(t: TeamStrength, part: 0 | 1 | 2, minute: number): numb
 
 /** Chancenzahl je Seite für einen Spielabschnitt (0x102BA). */
 export function chanceCounts(home: TeamStrength, away: TeamStrength, from: number, to: number, rng: Rng): { home: number; away: number } {
-  const pick = (a: number, b: number) => (rng(0, 1) !== 0 && a < b ? a : b);
+  // 0x043D3: mit random(0,1) != 0 das Größere von a und b, sonst b (0x043F2 springt nur bei b < a
+  // zu a). Bis #99 stand hier das Kleinere - gefunden mit dem bytegenauen Vergleich.
+  const pick = (a: number, b: number) => (rng(0, 1) !== 0 && b < a ? a : b);
   let h = rng(0, 1);
   let g = 0;
   const sh = strength(home, 1, from);

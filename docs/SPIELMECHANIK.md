@@ -341,6 +341,15 @@ Manager mit); am Monatsende (Tag = Monatslänge aus 4cb3:07B8) gilt: Jugendkonto
 Spielstand), Fanwert (u16 476) unter 95 steigt um random(1,3), wenn random(0,22) <
 Werbeausgaben/2500. Der Server läuft alle übersprungenen Kalendertage einzeln durch.
 
+Reihenfolge der Würfe in 0x11D0D (bytegenauer Vergleich, GitLab #99): Bau (0x020E1, ohne
+Würfel), Öffnungszeiten der acht Lager (random(20,70) für jedes Lager, das dabei auf 0 kommt -
+auch für eines, das schon auf 0 stand), erst dann der Bankzins mit random(0,60) = 0. Am
+Monatsletzten mit Monat % 4 = 0 (0-basiert: Ende Januar, Mai, September) setzt 0x11E3D die
+Marke 4cb3:5256; das nächste Hauptmenü speichert dann als AUTOSAVE (0x9744 -> 0x32AAE). Jedes
+Speichern würfelt im Spielstrom mit: eine Kennung aus zwei random(0, 0x8FFF) und zwei
+Schlüsselbytes random(0,255). Der Server speichert selbst und bildet das nicht nach; im
+Vergleichslauf `originaltag` steht es drin.
+
 ## Pokale: DFB-Pokal und Europapokale (Auslosung 0x18600/0x18FC2, Rundenabschluss 0x192FC, Entscheid 0x19208, Verlängerung 0x18E46; sim/europa.ts, sim/cup.ts)
 
 Die 128-Byte-Tabelle bei 28009 hat vier Bereiche zu 32 Bytes: Bereich 0 = DFB-Pokal,
@@ -1118,10 +1127,11 @@ um random(0, 2·|Tordifferenz|) in Richtung des Ergebnisses, begrenzt auf 47..53
 An **jedem Kalendertag** (0x1D77C, gleich nach der täglichen Finanzroutine; bis GitLab #35 stand
 hier "am Monatsende"), zu Spielbeginn (0x942A)
 und zum Saisonbeginn (0x1E665, jeweils mit 10) schwankt die Matrix aller Vereine 0..63: je
-Verein a = random(0, 2·mode); je Linie i: k = 2i + 1 + a, Kondition += random(0, 2k) -
-(2i + 1) - mode, Technik ebenso (mit mode 1 nur bei random(0,2) = 0), Form += random(0,6) -
-3 (45..55). Mit mode 1 werden Kondition/Technik auf 1..99 begrenzt; mit mode 10 nur beim
-ersten Verein, danach gilt mode 3 (Eigenheit des Originals) und die Bänder der Ligaklasse
+Verein a = random(0, 2·mode), k = 1 bei mode 1 und 3 sonst (für alle drei Linien gleich -
+0x1007B setzt k ohne Linienzähler; bis GitLab #99 stand hier 2i + 1); je Linie Kondition +=
+random(0, 2(k + a)) - k - mode, Technik ebenso (mit mode 1 nur bei random(0,2) = 0), Form +=
+random(0,6) - 3 (45..55). Mit mode 1 werden Kondition/Technik auf 1..99 begrenzt; mit mode 10
+würfelt nur das a des ersten Vereins mit 10, danach gilt mode 3 (Eigenheit des Originals) und die Bänder der Ligaklasse
 (4cb3:05CE: Bundesliga 70..93, 2. Liga 40..74, Oberliga 15..45); dabei wird Bit 7 von Byte 33
 gelöscht.
 

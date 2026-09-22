@@ -15,6 +15,10 @@ export const PUNKTE = {
   7: "Finanzen Tagesbeginn",
   8: "Finanzen Saisontag",
   9: "Tagesroutine",
+  10: "Zug (Marktwurf)",
+  11: "Markterneuerung",
+  12: "Hauptmenü",
+  13: "Spielstärke Flag 1",
 };
 
 /** Einträge des Protokolls: Kennung und Zustand des Generators. */
@@ -23,7 +27,12 @@ export function protokoll(plain) {
   const w = (i) => plain[o + i] | (plain[o + i + 1] << 8);
   const n = w(0);
   const out = [];
-  for (let i = 0; i < n; i++) out.push({ punkt: w(2 + 8 * i), zustand: (w(4 + 8 * i) | (w(6 + 8 * i) << 16)) >>> 0 });
+  for (let i = 0; i < n; i++) {
+    const punkt = w(2 + 8 * i);
+    // Spur (tools/kontrollpunkte.py): random-Aufruf mit Rücksprungadresse statt Zustand
+    if (punkt === 0x8000) out.push({ punkt, aufruf: { off: w(4 + 8 * i), seg: w(6 + 8 * i) } });
+    else out.push({ punkt, zustand: (w(4 + 8 * i) | (w(6 + 8 * i) << 16)) >>> 0 });
+  }
   return out;
 }
 
@@ -42,6 +51,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const k = Number(process.argv[3] ?? 0x1234);
   let vorher = 0;
   for (const e of protokoll(plain)) {
+    if (e.aufruf) {
+      console.log(`   random aus ${e.aufruf.seg.toString(16)}:${e.aufruf.off.toString(16)} (Laufzeit)`);
+      continue;
+    }
     const n = wuerfeBis(k, e.zustand);
     console.log(`${String(e.punkt).padStart(2)} ${(PUNKTE[e.punkt] ?? "?").padEnd(28)} Wurf ${n} (+${n - vorher})`);
     if (n >= 0) vorher = n;
