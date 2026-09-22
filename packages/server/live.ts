@@ -164,15 +164,21 @@ export const ELFMETER_MS = 1100;
 /** Standzeit der fertigen Tafel, bevor die Konferenz weiterläuft */
 export const ELFMETER_ENDE_MS = 3000;
 
-/** Auswahl der Szene wie im Lader 0x1502C: Nummer random(2, 43), Elfmeterszene mit 1/15 (Tor) bzw. 1/25 (vorbei). */
-export function pickScene(rng: Rng, goal: boolean, available: Set<string>): string {
+/**
+ * Auswahl der Szene wie im Lader 0x1502C: Nummer random(2, 43); Elfmeterszene bei
+ * `random(0,15) = 0` (Tor) bzw. `random(0,25) = 0` (vorbei), also 1/16 bzw. 1/26; sonst mit
+ * `random(0,400) = 0` die seltene Jubelszene. Der Lader liefert zurück, ob es ein Elfmeter
+ * war - dann gibt es keine Vorlage (0x1BC9E). Bis GitLab #85 stand hier 1/15, 1/25 und 1/400.
+ */
+export function pickScene(rng: Rng, goal: boolean, available: Set<string>): { id: string; elfmeter: boolean } {
   const suffix = goal ? "T" : "V";
   let name = `${rng(2, 43)}.${suffix}`;
-  if (rng(1, goal ? 15 : 25) === 1) {
+  const elfmeter = rng(0, goal ? 15 : 25) === 0;
+  if (elfmeter) {
     const e = `${rng(2, 5)}.${suffix}E`;
     if (available.has(e)) name = e;
-  } else if (rng(1, 400) === 1 && available.has(`2.${suffix}J`)) name = `2.${suffix}J`;
-  return available.has(name) ? name : `10.${suffix}`;
+  } else if (rng(0, 400) === 0 && available.has(`2.${suffix}J`)) name = `2.${suffix}J`;
+  return { id: available.has(name) ? name : `10.${suffix}`, elfmeter };
 }
 
 export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempoMs: number): LiveState {
@@ -308,11 +314,15 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
       }
     }
     for (const c of chances) {
-      // Buchung wie im Original in der Chancenminute (0x5FE5 -> 0x1B223): Schütze, Statistik, Bewertung
+      // Buchung wie im Original in der Chancenminute (0x5FE5 -> 0x1B223): Schütze, Statistik,
+      // Bewertung. Mit Torszenen spielt das Original die Szene **vor** der Buchung (0x1B7FE ->
+      // 0x1502C): war es ein Elfmeter, zählt keine Vorlage (GitLab #85).
       const matchType = e.kind === "league" ? 0 : e.cup === 0 ? 1 : 2;
-      const booked = bookEvents(g, e.home, e.away, { home: e.match.hg, away: e.match.ag, events: [{ minute: c.minute, side: c.side, goal: c.goal }] }, matchType, rng);
+      const beteiligt = e.managerHome !== undefined || e.managerAway !== undefined;
+      const szene = state.scenesOn && beteiligt ? pickScene(rng, c.goal, scenes) : undefined;
+      const booked = bookEvents(g, e.home, e.away, { home: e.match.hg, away: e.match.ag, events: [{ minute: c.minute, side: c.side, goal: c.goal }] }, matchType, rng, [szene?.elfmeter ?? false]);
       e.scorers.push(...booked);
-      if (state.scenesOn) queueScene(state, e, c, rng, scenes, booked[0]);
+      if (szene) queueScene(state, e, c, szene.id, booked[0]);
     }
   }
     if (++schritte > 200) break;
@@ -379,12 +389,12 @@ function nachspielNoetig(state: LiveState, g: GameState, e: LiveEntry): boolean 
   return tieBreak(p[leg], p[leg + 1], e.match.hg, e.match.ag, seasonDay(state.dayIndex)) === 30;
 }
 
-function queueScene(state: LiveState, e: LiveEntry, c: LiveChance, rng: Rng, scenes: Set<string>, tor?: { name: string; goals?: number; assist?: string }): void {
+function queueScene(state: LiveState, e: LiveEntry, c: LiveChance, id: string, tor?: { name: string; goals?: number; assist?: string }): void {
   const manager = c.side === "home" ? e.managerHome : e.managerAway;
   const opponentManager = c.side === "home" ? e.managerAway : e.managerHome;
   if (manager === undefined && opponentManager === undefined) return;
   const club = c.side === "home" ? e.home : e.away;
-  state.sceneQueue.push({ id: pickScene(rng, c.goal, scenes), mirror: c.side === "away", goal: c.goal, minute: c.minute, side: c.side, key: e.key, club, manager: manager ?? opponentManager!, scorer: tor?.name, scorerGoals: tor?.goals, assist: tor?.assist, started: 0, until: 0 });
+  state.sceneQueue.push({ id, mirror: c.side === "away", goal: c.goal, minute: c.minute, side: c.side, key: e.key, club, manager: manager ?? opponentManager!, scorer: tor?.name, scorerGoals: tor?.goals, assist: tor?.assist, started: 0, until: 0 });
 }
 
 const frameCounts = new Map<string, number>();

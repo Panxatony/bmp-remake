@@ -206,7 +206,9 @@ export function newSeason(g: GameState, rng: Rng, verlaengerung = false): Season
   for (let i = 0; i < 125; i++) {
     const l = g.lineups.at(i);
     if (l.isEmpty) continue;
-    for (const off of [1, 3, 4, 6, 7]) l.setU8(off, 0);
+    // Saisontore in Liga, Pokal und Europapokal (Bytes 3, 4, 5) - Byte 5 wird seit GitLab #85
+    // gebucht; in den Originalspielständen steht es bei 0, auch wo die Karrieresumme 38 nicht 0 ist
+    for (const off of [1, 3, 4, 5, 6, 7]) l.setU8(off, 0);
     for (const off of [28, 29, 30, 31, 34, 35, 36, 37]) l.setU8(off, 0);
     l.setU8(9, l.u8(9) & 0x3f);
   }

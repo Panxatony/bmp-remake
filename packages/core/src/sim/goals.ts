@@ -1,9 +1,9 @@
 /**
  * Torschütze und Vorlagengeber eines Managervereins (Wahlfunktion 0x05D9A) und die
  * Buchung von Tor und Chance (0x1B223): Tore in Spieler Byte 34 und Kaderplatz Byte 3/4
- * sowie 16-Bit-Zähler bei 34/36, Spielbewertung in Byte 21 (+15 Tor, -10 vergebene
- * Chance; Gegner: Gegentor Torwart -8, Feldspieler -5; abgewehrte Chance Torwart +8,
- * Feldspieler -3). Siehe docs/SPIELMECHANIK.md.
+ * sowie Karrieresummen bei 34/36/38, Spielbewertung in Byte 21 (+15 Tor, -10 vergebene
+ * Chance, +10 Vorlage; Gegner: Gegentor Torwart -8, Feldspieler -5; abgewehrte Chance Torwart +8,
+ * Feldspieler -3). Siehe docs/abgleich/1B223.md.
  */
 import type { GameState, Lineup, Player } from "../records.ts";
 import type { Rng } from "./match.ts";
@@ -62,39 +62,55 @@ export interface GoalRecord {
   scorerName: string;
 }
 
-/** Tor eines Managervereins buchen (matchType 0 Liga, 1 Pokal). */
-export function bookGoal(g: GameState, manager: number, matchType: number, rng: Rng): GoalRecord | null {
+/**
+ * Chance eines Managervereins buchen (0x1B223, Modus 1 Tor / 0 vergeben), Zeile für Zeile
+ * belegt in docs/abgleich/1B223.md:
+ *
+ * * Schütze `pickPlayer(0, Tor)`, Vorlage `pickPlayer(1, 1)` bis ungleich dem Schützen, sobald
+ *   mehr als ein Spieler auf dem Platz steht - **auch bei einer vergebenen Chance**.
+ * * Tor: Saisontore in Kaderbyte 3 + Spieltyp (3 Liga, 4 Pokal, **5 Europapokal**),
+ *   Karrieresumme im Wort 34 + 2·Spieltyp, in der Liga zusätzlich Spielerbyte 34; Bewertung +15.
+ *   Vergeben: Bewertung -10.
+ * * **Vorlage: Bewertung +10** (0x1BD03), bei Tor wie bei vergebener Chance - außer die Szene
+ *   war ein Elfmeter (0x1BC9E).
+ *
+ * Bis GitLab #85 fehlten die Europapokaltore, die Wertung der Vorlage und die Vorlage bei
+ * vergebenen Chancen.
+ */
+export function bookChance(g: GameState, manager: number, goal: boolean, matchType: number, rng: Rng, elfmeter = false): GoalRecord | null {
   const squad = g.squadOf(manager);
-  const scorer = pickPlayer(g, manager, 0, 1, rng);
+  const scorer = pickPlayer(g, manager, 0, goal ? 1 : 0, rng);
   if (scorer < 0) return null;
   let assist = -1;
-  const starters = squad.filter((l) => l.number >= 1 && l.number <= 11).length;
-  if (starters > 1) {
+  if (squad.filter((l) => l.number >= 1 && l.number <= 11).length > 1) {
     do assist = pickPlayer(g, manager, 1, 1, rng);
     while (assist === scorer && assist >= 0);
   }
   const l = squad[scorer];
   const p = g.players.at(l.playerIndex);
-  if (matchType === 0) p.setU8(34, p.u8(34) + 1);
-  if (matchType <= 1) {
+  if (goal) {
+    if (matchType === 0) p.setU8(34, p.u8(34) + 1);
     l.setU8(3 + matchType, l.u8(3 + matchType) + 1);
     const o = 34 + 2 * matchType;
     const v = (l.u8(o) | (l.u8(o + 1) << 8)) + 1;
     l.setU8(o, v & 0xff);
     l.setU8(o + 1, (v >> 8) & 0xff);
-  }
-  addRating(l, 15);
+    addRating(l, 15);
+  } else addRating(l, -10);
+  if (assist >= 0 && !elfmeter) addRating(squad[assist], 10);
   return { scorer, assist, scorerName: p.displayName };
 }
 
-/** Vergebene Chance eines Managervereins: Bewertung des gewählten Spielers -10. */
-export function bookMissedChance(g: GameState, manager: number, rng: Rng): number {
-  const i = pickPlayer(g, manager, 0, 0, rng);
-  if (i >= 0) addRating(g.squadOf(manager)[i], -10);
-  return i;
+/** Tor eines Managervereins buchen (Kurzform von `bookChance` für ein Tor). */
+export function bookGoal(g: GameState, manager: number, matchType: number, rng: Rng): GoalRecord | null {
+  return bookChance(g, manager, true, matchType, rng);
 }
 
-/** Bewertung der Starter des verteidigenden Managervereins nach Gegentor (goal) oder abgewehrter Chance. */
+/**
+ * Bewertung der Starter des verteidigenden Managervereins nach Gegentor (goal) oder abgewehrter
+ * Chance. Das Original bucht sie **nur, wenn der Angreifer kein Managerverein ist** (0x1BDFA):
+ * im Duell zweier Manager bekommt der Verteidiger nichts (GitLab #85).
+ */
 export function bookDefence(g: GameState, manager: number, goal: boolean): void {
   for (const l of g.squadOf(manager)) {
     if (l.number < 1 || l.number > 11) continue;
