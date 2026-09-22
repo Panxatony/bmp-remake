@@ -428,8 +428,11 @@ export function afterCupDay(g: GameState, cups: number[], seasonDayNow: number, 
       let winner = orig[0];
       let loser = orig[1];
       for (let idx = 0; idx < count; idx += 2) {
+        // Die Marken für Verlängerung und Elfmeter zieht das Original im Ergebnisspeicher selbst
+        // ab (0x195C5) - das Endspiel steht danach ohne Marke in der Tabelle
         let h = p[resultArea(0) + idx];
         while (h > 9) h -= 10;
+        p[resultArea(0) + idx] = h;
         if (p[resultArea(0) + idx + 1] > h) {
           p[a + idx] = p[a + idx + 1];
           if (idx === 0) [winner, loser] = [orig[1], orig[0]];
