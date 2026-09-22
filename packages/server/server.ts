@@ -1104,6 +1104,7 @@ function startLiveDay(r: Room): void {
   // Ab jetzt zählt das laufende Spiel (0x1D838 setzt nach der Stärkerechnung zurück)
   r.letzteWechsel = st.subs;
   st.scenesOn = r.options.scenes;
+  st.halbzeitStaende = [0, 1, 2].map((l) => r.options.flags[3 * l] ?? true);
   if (st.entries.length === 0) {
     advanceDay(r, { results: new Map(), postponed: st.postponed });
     nachTageswechsel(r);
@@ -2704,6 +2705,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (room.live) {
       room.live.tempoMs = tempoMs(room.options.tempo);
       room.live.scenesOn = room.options.scenes;
+      room.live.halbzeitStaende = [0, 1, 2].map((l) => room.options.flags[3 * l] ?? true);
     }
     room.version++;
     broadcast(room);

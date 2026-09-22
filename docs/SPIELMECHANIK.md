@@ -864,6 +864,9 @@ Halbzeitstände[Liga] (0x5C93), nach dem Schlusspfiff Ergebnisse[Liga] (0x5CB4),
 dieser Liga kommt; Tabelle[Liga] (0x4C75) schaltet die Tabellenseite, DfB-Pokal (0x5D2F) und
 Europapokale (0x5D41) die Pokalseiten, Nachholspiele (0x5C1E) die Seite der verlegten Spiele.
 Nach jedem Spieltag gleicht 0xDA40 die Schalter noch mit den Ligen ab, die überhaupt spielen.
+Die Seite der Halbzeitstände ist nicht nur Anzeige: die Übersicht 0x2B61A rechnet an ihrem Ende
+die Spielstärke aller Manager mit Flag 1 neu (0x2C10C), mit neuen Fehlbesetzungswürfen und neuer
+Moral, und die Matrix gilt in der zweiten Halbzeit - einmal je angezeigter Liga (GitLab #99).
 
 ## Tagesablauf und Züge (0x1D6F6; GitLab #32, #33)
 

@@ -143,6 +143,13 @@ export interface LiveState {
   announceUntil?: number;
   /** Torszenen abspielen (Option des Originals) */
   scenesOn: boolean;
+  /**
+   * Schalter "Halbzeitstände" je Liga (Optionen 0, 3, 6). Mit ihm rechnet das Original an der
+   * Halbzeit die Spielstärke aller Manager neu (0x2B61A -> 0x2C10C, Flag 1): die zweite Halbzeit
+   * läuft mit neu gewürfelten Fehlbesetzungen und neuer Moral (#99). Gilt nur für Ligen, in denen
+   * ein Manager spielt (0xDA40 schaltet die übrigen ab).
+   */
+  halbzeitStaende: boolean[];
   /** Karten und Verletzungen dieser Konferenz in Reihenfolge (für Protokoll und Meldungen) */
   news: Incident[];
   /**
@@ -292,7 +299,29 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
   // Spieltags (0x1D866: erst die Ligen, dann der DFB-Pokal, dann Europa) und wartet 50 Ticks.
   const announce = flag & 7 ? "Ligaspiel" : flag & FLAG_CUP ? "DFB-Pokal" : flag & FLAG_EUROPE ? "Europapokal" : undefined;
   const halt = announce ? ANNOUNCE_MS : 1500;
-  return { dayIndex: k, flag, entries, postponed, minute: 0, paused: false, sceneQueue: [], holdUntil: now + halt, nextMinuteAt: now + halt, finished: false, tempoMs, scenesOn: true, news: [], subs: {}, einsaetzeVorher, elfmeterQueue: [], announce, announceUntil: announce ? now + halt : undefined };
+  return { dayIndex: k, flag, entries, postponed, minute: 0, paused: false, sceneQueue: [], holdUntil: now + halt, nextMinuteAt: now + halt, finished: false, tempoMs, scenesOn: true, halbzeitStaende: [true, true, true], news: [], subs: {}, einsaetzeVorher, elfmeterQueue: [], announce, announceUntil: announce ? now + halt : undefined };
+}
+
+/**
+ * Übersicht an der Halbzeit (0x05C48): je Liga des Tages mit Manager und gesetztem Schalter
+ * "Halbzeitstände" die Spielstärke aller Manager neu (0x2C10C). Die Ligaspiele der Manager
+ * bekommen die neue Matrix; Pokalspiele zeigen an der Halbzeit keine Übersicht.
+ */
+function halbzeitStaerke(state: LiveState, g: GameState, rng: Rng): void {
+  const managers = g.activeManagers();
+  const ligaVon = (club: number) => (club < 18 ? 0 : club < 38 ? 1 : 2);
+  for (let league = 0; league < 3; league++) {
+    if (!(state.flag & FLAG_LEAGUE[league]) || !state.halbzeitStaende[league]) continue;
+    if (!managers.some((m) => ligaVon(m.clubIndex) === league)) continue;
+    managers.forEach((_, mi) => {
+      const st = matchStrength(g, mi, rng, wechselZahl(state.subs, mi));
+      for (const e of state.entries) {
+        if (e.kind !== "league" || e.forfeit !== undefined) continue;
+        if (e.managerHome === mi) e.match.home = st;
+        if (e.managerAway === mi) e.match.away = st;
+      }
+    });
+  }
 }
 
 /** Ein Zeitschritt; true, wenn sich etwas geändert hat. */
@@ -383,6 +412,7 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
   state.nextMinuteAt = now + state.tempoMs;
   // Halbzeit: das Original zeigt die Übersicht der Ligen und wartet auf WEITER
   if (state.minute === 45) {
+    halbzeitStaerke(state, g, rng);
     state.holdUntil = now + HALFTIME_MS;
     state.paused = true;
     state.pausedBy = HALFTIME;

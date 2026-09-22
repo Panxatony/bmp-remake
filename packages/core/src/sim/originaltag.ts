@@ -135,7 +135,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
       }
     }
   }
-  // Live-Schleife 0x05403, erste Halbzeit: zu Beginn die Chancen jeder Paarung (0x054C2 ruft
+  // Live-Schleife 0x05403 je Halbzeit: zu Beginn die Chancen jeder Paarung (0x054C2 ruft
   // 0x102B9 mit Schalter 1: Zahl je Seite, dann die Minuten erst für Heim, dann für Gast), danach
   // je Minute und Paarung Karten und Verletzungen (0x05FE5), nach glatt Rot oder Verletzung die
   // Neuauslosung (0x0657F), dann die Chancen der Minute (0x1060B, Buchung 0x1B223)
@@ -153,9 +153,20 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
       spiele.push({ home, away, match, seiten });
     }
   }
-  for (let minute = 1; minute <= 45; minute++) {
+  const managerLigen = new Set(managers.map((m) => (m.clubIndex < 18 ? 0 : m.clubIndex < 38 ? 1 : 2)));
+  const staerkeNeu = () => {
+    managers.forEach((m, mi) => {
+      const st = matchStrength(g, mi, rng);
+      matrixInVerein(g, mi, st);
+      for (const sp of spiele) {
+        if (sp.home === m.clubIndex) sp.match.home = st;
+        if (sp.away === m.clubIndex) sp.match.away = st;
+      }
+    });
+  };
+  for (let minute = 1; minute <= 90; minute++) {
     for (const s of spiele) {
-      if (minute === 1) kp(4);
+      if (minute === 1 || minute === 46) kp(4);
       s.match.beginMinute();
     }
     for (const s of spiele) {
@@ -177,11 +188,20 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
         bookEvents(g, s.home, s.away, { home: s.match.hg, away: s.match.ag, events: [c] }, 0, rng, [szenen ? pickScene(rng, c.goal) : false]);
       }, (seite) => kp(seite === "home" ? 14 : 15));
     }
+    if (minute !== 45 && minute !== 90) continue;
+    // Halbzeitende (0x05BD6)
+    kp(21);
+    if (minute === 90) break;
+    // Übersicht je Liga (0x5C48): mit gesetztem Schalter "Halbzeitstände" der Liga zeigt das
+    // Original ihre Seite (0x2B61A), und die rechnet am Ende die Spielstärke aller Manager mit
+    // Flag 1 neu (0x2C10C) - mit Würfeln, und die neue Matrix gilt in der zweiten Halbzeit.
+    // Die Schalter stehen auf den Ligen der Manager (0xDA40).
+    for (let league = 0; league < 3; league++) {
+      if (!(flag & FLAG_LEAGUE[league]) || !managerLigen.has(league)) continue;
+      staerkeNeu();
+    }
   }
-  // Halbzeitende (0x05BD6). Zwischen hier und den Chancen der zweiten Halbzeit würfelt das
-  // Original in manchen Läufen noch - das ist noch nicht geklärt (#99)
-  kp(21);
-  return { punkte, bis: "Halbzeitpause und zweite Halbzeit fehlen noch" };
+  return { punkte, bis: "nach der 90. Minute (Tabelle 0x2D143, Torschützen 0x160A2) fehlt noch" };
 }
 
 /** Szenenwahl des Laders 0x1502C (nur die Würfel): Nummer, Elfmeter, seltene Jubelszene. */
