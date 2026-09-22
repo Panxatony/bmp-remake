@@ -42,9 +42,24 @@ test("Originaltag TEST4: die Würfe stimmen an jedem erreichten Kontrollpunkt", 
   const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
   // Die Vorlage hat nur einen Teil der Kontrollpunkte eingebaut
   const ids = new Set(orig.map((p) => p.punkt));
-  const lauf = originaltag(g, originalRng(0x1234)).punkte.filter((p) => ids.has(p.punkt));
-  assert.ok(lauf.length >= 71, `nur ${lauf.length} Kontrollpunkte`);
+  // Bis zu den Chancen der ersten Halbzeit: danach klickte der Treiber in diesem Lauf noch in die
+  // Konferenz (vor der Korrektur in drive.py), das Original ließ dadurch Minuten aus
+  const lauf = originaltag(g, originalRng(0x1234)).punkte.filter((p) => ids.has(p.punkt)).slice(0, 71);
+  assert.equal(lauf.length, 71);
   lauf.forEach((p, i) => assert.deepEqual(p, orig[i], `Kontrollpunkt ${i + 1}`));
+});
+
+// Beide Halbzeiten (kontrollpunkte.py --still 7,10,12,13): Chancen, Neuauslosung,
+// Chancenhandler und Halbzeitende, mit der Neuberechnung der Stärke in der Pause
+const SPIEL = resolve(import.meta.dirname, "../../../tools/dosbox/KP-TEST4-SPIEL.MAN");
+test("Originaltag TEST4: beide Halbzeiten bis zum Schlusspfiff", { skip: !existsSync(SPIEL) || !existsSync(join(BMP_DIR, "TEST4.MAN")) }, () => {
+  const orig = protokoll(SaveFile.decode(new Uint8Array(readFileSync(SPIEL))).plain);
+  const ids = new Set(orig.map((p) => p.punkt));
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+  const lauf = originaltag(g, originalRng(0x1234)).punkte.filter((p) => ids.has(p.punkt));
+  const bisSchluss = orig.slice(0, orig.findLastIndex((p) => p.punkt === 21) + 1);
+  assert.ok(bisSchluss.length >= 79, `nur ${bisSchluss.length} Punkte bis zum Schlusspfiff`);
+  assert.deepEqual(lauf.slice(0, bisSchluss.length), bisSchluss);
 });
 
 // Ringprotokoll (kontrollpunkte.py --ring 1 --halt 21): die letzten 160 Punkte der ersten
@@ -63,7 +78,7 @@ test("Originaltag TEST4: Minutenschleife der ersten Halbzeit Wurf für Wurf", { 
   orig.sort((a, b) => a.wurf - b.wurf);
   const ids = new Set(orig.map((p) => p.punkt));
   const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
-  const lauf = originaltag(g, originalRng(0x1234)).punkte.filter((p) => ids.has(p.punkt) && p.wurf >= orig[0].wurf);
+  const lauf = originaltag(g, originalRng(0x1234)).punkte.filter((p) => ids.has(p.punkt) && p.wurf >= orig[0].wurf && p.wurf <= orig[orig.length - 1].wurf);
   assert.equal(orig.length, 160);
   assert.deepEqual(lauf, orig);
 });

@@ -80,6 +80,12 @@ def probe(im):
     olive = sum(1 for x in range(0, 320, 5) for y in range(0, 240, 5) if near(px((x, y)), (97, 130, 48), 12))
     if olive >= 12:
         return "live"
+    # Konferenz ohne laufende Szene: kein Rasen, aber die olivgrünen Tafeln der Spiele. Ohne diese
+    # Prüfung galt sie als "weiter", und der Klick unten rechts öffnete mitten im Spiel die
+    # Einstellungen - das Original lässt danach eine Minute aus (#99)
+    tafel = sum(1 for x in range(0, 320, 5) for y in range(0, 240, 5) if near(px((x, y)), (81, 97, 16), 6))
+    if tafel >= 40:
+        return "live"
     if near(px((160, 118)), (120, 20, 20), 50):
         return "dialog"
     # Schaltfläche WEITER unten rechts: dunkles Feld mit hellem Text
