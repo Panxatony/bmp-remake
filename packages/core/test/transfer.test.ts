@@ -140,3 +140,25 @@ test("Transfermarkt: eigene Spieler anbieten, zurückholen, verkaufen; Markterne
   for (let d = 1; d < 400 && events === 0; d++) events += dailyTransfers(g, 0, d, rng).length;
   assert.ok(events > 0, "keine Angebote");
 });
+
+test("Leihe: das Gehalt trägt den Abschlag des Originals, ein Drittel (GitLab #79)", () => {
+  // 0x23E79 übergibt an 0x224A8 die 99, wenn der Schalter auf LEIHEN steht; die Routine
+  // rechnet das Gehalt dann bei 0x226FA mit Modus 3 statt 1 - Modus 3 ist die Gehaltsbasis
+  // durch drei (sim/value.ts, Bit 1).
+  const g = load("TEST4.MAN");
+  const markt = marketEntries(g);
+  assert.ok(markt.length > 0);
+  const slot = markt[0].slot;
+  const spieler = markt[0].playerIndex;
+  const vollesGehalt = playerValue(g, MARKET_MANAGER, slot, 1, mulberryRng(4));
+  const platz = completeLoan(g, 0, slot, 50000, MARKET_MANAGER, mulberryRng(4));
+  assert.ok(platz >= 0);
+  const l = g.lineups.at(platz);
+  assert.equal(l.playerIndex, spieler);
+  assert.equal(l.contractYears, 1, "Leihe läuft ein Jahr");
+  const gehalt = l.i32(40);
+  assert.ok(gehalt > 0, "Gehalt gesetzt");
+  // Ein Drittel, bis auf die Rundung auf volle 100 DM
+  assert.ok(Math.abs(gehalt - Math.trunc(vollesGehalt / 3)) <= 200, `${gehalt} statt rund ${Math.trunc(vollesGehalt / 3)}`);
+  assert.ok(gehalt < vollesGehalt / 2, `Leihgehalt ${gehalt} ist nicht kleiner als das halbe volle ${vollesGehalt}`);
+});
