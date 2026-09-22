@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import {
   SaveFile, GameState, setRuleSet, RULES_2026,
   DOPING_BONUS, DOPING_FRESH, DOPING_RISK, DOPING_RISK_STEP, DOPING_RISK_MAX, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopeCures, DOPING_MALUS,
-  dopeStart, dopeStop, dopeMatchday, dopingCleanup, dopingRows, dopingRisk, dopingFine, isDoped, isDopeBanned, dopeBonus, dopeFresh,
+  dopeStart, dopeStop, dopeMatchday, dopingCleanup, dopingRows, dopingRisk, dopingFine, isDoped, isDopeBanned, dopeBonus, dopeFresh, dopeApps, migriereDopingBytes, DOPING_ZUSTAND, DOPING_AUFSCHLAG,
   medRows, medSet, medWeek, playerInfo,
 } from "../src/index.ts";
 
@@ -152,4 +152,37 @@ test("Doping: Grenzen - verletzte Spieler, höchstens drei Kuren, Original unber
   const h = load("RIED-CLI.MAN", false);
   assert.equal(dopeStart(h, 0, 3).ok, false);
   assert.deepEqual(dopeMatchday(h, 0, () => true, immer()), []);
+});
+
+test("Doping liegt in Kaderbyte 44/45: Europapokaltore (Byte 5) und -einsätze (Byte 8) berühren es nicht (#88)", () => {
+  const g = load("RIED-CLI.MAN");
+  const l = g.lineups.at(0 * 25 + 3);
+  assert.deepEqual(dopeStart(g, 0, 3), { ok: true });
+  const zustand = [l.u8(DOPING_ZUSTAND), l.u8(DOPING_AUFSCHLAG)];
+  assert.equal(l.u8(5), 0);
+  assert.equal(l.u8(8), 0);
+  // Ein Europapokaltor und ein Einsatz, wie sie 0x1BA9C und 0x1CC11 buchen
+  l.setU8(5, l.u8(5) + 1);
+  l.setU8(8, l.u8(8) + 1);
+  assert.ok(isDoped(l));
+  assert.deepEqual([l.u8(DOPING_ZUSTAND), l.u8(DOPING_AUFSCHLAG)], zustand);
+});
+
+test("Umzug alter 2026-Stände: Byte 5/8 nach 44/45, einmalig (#88)", () => {
+  const g = load("RIED-CLI.MAN");
+  const l = g.lineups.at(0 * 25 + 3);
+  // So stand eine Dopingsperre vor dem Umzug: Zustand 2 mit 3 Einsätzen in Byte 5, Aufschlag in 8
+  l.setU8(5, 2 | (3 << 2));
+  l.setU8(8, 5 | (4 << 4));
+  assert.equal(migriereDopingBytes(g), 1);
+  assert.ok(isDopeBanned(l));
+  assert.equal(dopeApps(l), 3);
+  assert.equal(dopeBonus(l), 5);
+  assert.equal(dopeFresh(l), 8);
+  assert.equal(l.u8(5), 0);
+  assert.equal(l.u8(8), 0);
+  // Ein zweiter Lauf ändert nichts mehr
+  l.setU8(5, 1);
+  assert.equal(migriereDopingBytes(g), 0);
+  assert.equal(l.u8(5), 1);
 });
