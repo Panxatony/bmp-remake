@@ -54,7 +54,7 @@ export { generateOffers, stadiumValue, signShirt, signBoard, monthlyAdvertising,
 export { newSeason, swapClubs, promoteRelegate, shuffleLeagues, writeHistory, CALENDAR_TEMPLATE } from "./sim/season.ts";
 export { playerValue } from "./sim/value.ts";
 export { seasonEvents, releaseExpiring } from "./sim/seasonEvents.ts";
-export { contractOffers, contractCooldown, contractScore, acceptOffer, declineOffer, rejectOffer, salaryDemand, contractCheck, contractRefusals, retirementAnnouncements, MAX_CONTRACT_YEARS, tooLongText, type ContractOffer } from "./sim/contracts.ts";
+export { contractOffers, contractCooldown, contractScore, acceptOffer, declineOffer, rejectOffer, vertragsgespraechSperren, salaryDemand, contractCheck, contractRefusals, retirementAnnouncements, MAX_CONTRACT_YEARS, tooLongText, type ContractOffer } from "./sim/contracts.ts";
 export { LiveMatch, SUBSTITUTIONS, type LiveChance, type MatchSim } from "./sim/live.ts";
 export { parseMana, type ManaData } from "./data/mana.ts";
 export { createGame, fillMarket, addToSquad, type NewGameOptions, type NewGameManager } from "./sim/newgame.ts";
