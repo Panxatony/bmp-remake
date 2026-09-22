@@ -384,7 +384,7 @@ export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: 
     const importance = cup === 0 ? 1 : p[CUP_ROUND + 1] > 4 ? 3 : 2;
     // Hat die Live-Konferenz die Zahl schon gezeigt, wird genau sie gebucht. Zuschauerhistorie
     // und Rekorde führt das Original nur für Ligaheimspiele (0x1C78F).
-    const att = zuschauer?.(home, away) ?? pokalZuschlag(g, mh, away, attendance(g, { manager: mh, home, away, importance, level: p[LEVEL_OFFSET] }, rng), rng);
+    const att = zuschauer?.(home, away) ?? pokalZuschlag(g, mh, away, attendance(g, { manager: mh, home, away, importance, level: p[LEVEL_OFFSET], staerkeHeim: hs, staerkeGast: as }, rng), rng);
     match.attendance = att;
     match.gate = bookGate(g, mh, att, 2);
     // Der Gast bekommt die andere Hälfte, gerechnet mit dem Eintrittspreis des Heimvereins
@@ -397,7 +397,7 @@ export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: 
     // Kapazität aus dem Ligaband des Heimvereins. Zuschauerhistorie und Randale bleiben aus:
     // beides hängt am Heimspiel.
     const preis = ERSATZ_PREIS[ligaBand(home)] + rng(0, 1);
-    const att = attendance(g, { manager: ma, home, away, importance: 1, fremdesStadion: true, preis, level: p[LEVEL_OFFSET] }, rng);
+    const att = attendance(g, { manager: ma, home, away, importance: 1, fremdesStadion: true, preis, level: p[LEVEL_OFFSET], staerkeHeim: hs, staerkeGast: as }, rng);
     bookGate(g, ma, att, 2, preis);
   }
   for (const mi of [mh, ma]) if (mi !== undefined) afterMatch(g, mi, matchType, rng);

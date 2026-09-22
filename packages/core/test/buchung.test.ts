@@ -109,3 +109,46 @@ test("DFB-Pokalfinale: 76000 Zuschauer und 532000 DM für jeden beteiligten Mana
   assert.equal(g.managers.at(0).balance, konto[0] + FINALE_PAUSCHALE);
   assert.equal(g.managers.at(0).u8(314), spiele, "keine Zuschauerhistorie im Pokal");
 });
+
+test("Zuschauer 0x10BB0: mit der Spielmatrix im Vereinssatz passt die Streuung zu den Originalläufen RUNA/RUNB", async () => {
+  const { attendance, matchStrength } = await import("../src/index.ts");
+  const { readdirSync } = await import("node:fs");
+  const t4 = load("TEST4.MAN");
+  // Alle Läufe spielen denselben Spieltag ab TEST4; die Zuschauersumme von Manager 1 wächst um das Heimspiel
+  const orig = [...new Set(readdirSync(BMP_DIR).filter((f) => /^RUN[AB]\d\.MAN$/.test(f)).map((f) => load(f).managers.at(1).i32(484) - t4.managers.at(1).i32(484)))].sort((a, b) => a - b);
+  assert.ok(orig.length >= 8, `${orig.length} verschiedene Läufe`);
+  const club = t4.managers.at(1).clubIndex;
+  const [home, away] = t4.pairings(club < 18 ? 0 : 1).find(([h]) => h === club)!;
+  const werte: number[] = [];
+  for (let s = 1; s <= 300; s++) {
+    const g = load("TEST4.MAN");
+    const rng = mulberryRng(s);
+    const staerkeHeim = matchStrength(g, 1, rng);
+    werte.push(attendance(g, { manager: 1, home, away, level: g.save.plain[34062], staerkeHeim }, rng));
+  }
+  werte.sort((a, b) => a - b);
+  for (const o of orig) assert.ok(o >= werte[0] && o <= werte[werte.length - 1], `${o} außerhalb ${werte[0]}..${werte[werte.length - 1]}`);
+  const median = (a: number[]) => (a[Math.floor((a.length - 1) / 2)] + a[Math.ceil((a.length - 1) / 2)]) / 2;
+  assert.ok(Math.abs(median(werte) - median(orig)) < 300, `Median ${median(werte)} gegen ${median(orig)}`);
+});
+
+test("Zuschauer: Endspurt erst in den letzten fünf Spieltagen, Gästebonus nur mit Heimbonus (0x110EF, 0x11169)", async () => {
+  const { attendance } = await import("../src/index.ts");
+  const g = load("TEST4.MAN");
+  const m = g.managers.at(0);
+  m.setU8(266, 12);
+  const club = m.clubIndex;
+  const liga = club < 18 ? 0 : 1;
+  const tage = liga === 0 ? 34 : 38;
+  const [home, away] = [club, g.pairings(liga).flat().find((c) => c !== club)!];
+  const zu = (md: number, posH: number, posA: number) => {
+    g.save.plain[28432 + liga] = md;
+    g.standings.at(home).setU8(46, posH);
+    g.standings.at(away).setU8(46, posA);
+    return attendance(g, { manager: 0, home, away, level: 3 }, mulberryRng(9));
+  };
+  // Heim auf Platz 3 bekäme im Endspurt ein Viertel der Kapazität dazu
+  assert.equal(zu(tage - 5, 3, 3), zu(tage - 6, 3, 3), "md + 5 = Spieltage: noch kein Endspurt");
+  // Heim auf Platz 9, Gast auf 3: der Gästebonus allein greift nicht
+  assert.equal(zu(tage - 3, 9, 3), zu(tage - 6, 9, 3));
+});

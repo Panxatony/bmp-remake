@@ -251,7 +251,7 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
     else if (e.managerHome !== undefined) {
       const pokal = e.kind !== "league";
       const importance = !pokal ? undefined : e.cup === 0 ? 1 : g.save.plain[CUP_ROUND + 1] > 4 ? 3 : 2;
-      const att = attendance(g, { manager: e.managerHome, home: e.home, away: e.away, importance, level: g.save.plain[34062] }, rng);
+      const att = attendance(g, { manager: e.managerHome, home: e.home, away: e.away, importance, level: g.save.plain[34062], staerkeHeim: e.match.home, staerkeGast: e.match.away }, rng);
       e.attendance = pokal ? pokalZuschlag(g, e.managerHome, e.away, att, rng) : att;
     }
     // 0:2-Wertung bei weniger als acht einsatzfähigen Startern (0x0F9D2/0x1C5D1); geprüft wird in

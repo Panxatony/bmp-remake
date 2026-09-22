@@ -3,7 +3,7 @@
  * ab 0x1C798). Siehe docs/SPIELMECHANIK.md, Abschnitt "Zuschauer".
  */
 import type { GameState } from "../records.ts";
-import type { Rng } from "./match.ts";
+import type { Rng, TeamStrength } from "./match.ts";
 import { strength } from "./match.ts";
 import { LEAGUES } from "./fixtures.ts";
 
@@ -40,11 +40,19 @@ export interface AttendanceInput {
   preis?: number;
   /** Spiel-Level (Save-Offset 34062) */
   level: number;
+  /**
+   * Spielmatrizen von Heim und Gast. Die Stärkerechnung vor dem Spiel (0x0F9D2, Flag 1) schreibt
+   * ihre Matrix in den Vereinssatz, und 0x04568 liest dort - bei Managervereinen zählt also die
+   * Spielstärke, nicht die Anzeigematrix des Spielstands. Ohne Angabe gilt der Vereinssatz.
+   */
+  staerkeHeim?: TeamStrength;
+  staerkeGast?: TeamStrength;
 }
 
-function partsSum(g: GameState, club: number): number {
-  const m = g.clubs.at(club).strengthMatrix;
-  return div(2 * (strength(m, 0, 1) + strength(m, 1, 1) + strength(m, 2, 1)), 15);
+/** Stärkesumme eines Vereins: 0x04568 mit Minute 0 für die drei Teile (0x10C2F..0x10C9B). */
+function partsSum(g: GameState, club: number, matrix?: TeamStrength): number {
+  const m = matrix ?? g.clubs.at(club).strengthMatrix;
+  return div(2 * (strength(m, 0, 0) + strength(m, 1, 0) + strength(m, 2, 0)), 15);
 }
 
 export function attendance(g: GameState, inp: AttendanceInput, rng: Rng): number {
@@ -52,8 +60,8 @@ export function attendance(g: GameState, inp: AttendanceInput, rng: Rng): number
   const pos = (c: number) => (c < 64 ? g.standings.at(c).u8(46) : 5);
   let posH = pos(inp.home);
   const posA = pos(inp.away);
-  const sH = partsSum(g, inp.home);
-  const sA = partsSum(g, inp.away);
+  const sH = partsSum(g, inp.home, inp.staerkeHeim);
+  const sA = partsSum(g, inp.away, inp.staerkeGast);
   const price = inp.preis ?? mg.u8(266);
   const league = mg.u8(312);
   const mult = 1 << (2 - league);
@@ -92,11 +100,15 @@ export function attendance(g: GameState, inp: AttendanceInput, rng: Rng): number
   if (league === 2) imp = 0;
   if (sA < 90 && imp > 1) imp--;
   if (price < 22) att = div(att * (imp + 2), 3);
-  if (md + 5 >= matchdays && price < 22) {
+  // Endspurt: die letzten fünf Spieltage (md + 5 > Spieltage, 0x110EF); der Zuschlag für einen
+  // Gast aus den ersten sechs gilt nur zusammen mit dem für den Heimverein oben (0x11169)
+  if (md + 5 > matchdays && price < 22) {
     if (md === matchdays) att = capacity;
     else {
-      if (7 - 2 * (league > 0 ? 1 : 0) > posH) att += div(capacity, 4);
-      if (posA < 7) att += div(capacity, 5);
+      if (7 - 2 * (league > 0 ? 1 : 0) > posH) {
+        att += div(capacity, 4);
+        if (posA < 7) att += div(capacity, 5);
+      }
       if (posH + 5 + (league > 0 ? 1 : 0) > LEAGUES[league].teams) att += div(capacity, 4);
     }
   }

@@ -276,7 +276,9 @@ Spiel gelöscht (Nachbereitung) und ist damit die Spielbewertung.
 ## Zuschauer (0x10BB0, Buchung 0x1C798; portiert in sim/attendance.ts)
 
 Eingaben: Tabellenplätze beider Vereine (Byte 46, 0-basiert; Bundesliga-Heimplatz
-höchstens 14), sH/sA = 2·(Abwehr + Mittelfeld + Angriff der Stärkefunktion)/15, Preis =
+höchstens 14), sH/sA = 2·(Abwehr + Mittelfeld + Angriff der Stärkefunktion bei Minute 0)/15
+aus dem Vereinssatz - bei Managervereinen steht dort die **Spielmatrix**, weil die
+Stärkerechnung vor dem Spiel (0x1D7FF, Flag 1) sie hineinschreibt; Preis =
 Manager Byte 266, Liga = Byte 312 (mult = 4/2/1). Gleitkomma-Basis:
 ((1 - 0,02·(posA-1))·sA + (1 - 0,02·(posH-1))·sH)·1150/4,3, minus random((Preis-10)·1050,
 1550·Preis - 14400), plus 1000. Danach mit q = (sA+sH)·100/180: + random(5q,9q)·Komfort398
@@ -284,9 +286,10 @@ Manager Byte 266, Liga = Byte 312 (mult = 4/2/1). Gleitkomma-Basis:
 + (überdacht366/1000 - 8)·q; Fanwert u16 476 > 50: + 30·Fanwert - 1500; - 2000·Liga;
 Level > 0: + 1200; Sitzplätze + 2000 > Stehplätze: + random(400,700). Bedeutung
 (0..3, Oberliga 0, bei sA < 90 um 1 gesenkt): Preis < 22: att = att·(Bedeutung+2)/3.
-Letzte fünf Spieltage bei Preis < 22: letzter Spieltag ausverkauft, sonst + Kapazität/4
-bei Heimplatz unter 7 (2. Liga: 5), + Kapazität/5 bei Gastplatz unter 7, + Kapazität/4 im
-Abstiegskampf. Preis > 10: + 900·(10 - Preis). Deckel: att·Preis ≤ (2·mult - [mult = 4])
+Letzte fünf Spieltage (Spieltag + 5 > Spieltage) bei Preis < 22: letzter Spieltag
+ausverkauft, sonst + Kapazität/4 bei Heimplatz unter 7 (2. Liga: 5) und **nur dann** noch
++ Kapazität/5 bei Gastplatz unter 7; + Kapazität/4 im Abstiegskampf. Fanwert-Term mit 16 Bit
+(überläuft erst ab 2185, der Fanwert endet bei 95). Preis > 10: + 900·(10 - Preis). Deckel: att·Preis ≤ (2·mult - [mult = 4])
 ·100000 (Bundesliga 700000 DM), Schritte von 1000; mindestens 501; höchstens Kapazität
 (Sitz + Steh; bei Argument +0x10 = 1 stattdessen random(K - K/3, K + K/3)·10 mit
 K = 4500/2200/1200/600 je Ligaband - das gilt nur für Heimvereine des Rechners, siehe
