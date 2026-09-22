@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, contractCheck, contractRefusalAnnouncements, contractOffers, salaryDemand, playerValue, LEAGUES } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, contractCheck, contractRefusalAnnouncements, contractOffers, contractCooldown, salaryDemand, playerValue, LEAGUES } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -68,4 +68,35 @@ test("Absage: nur im letzten Vertragsjahr", () => {
   l.setU8(11, 2);
   l.setU8(24, 0);
   assert.equal(contractRefusalAnnouncements(g, 0, (lo: number) => lo).some((x) => x.place === 4), false);
+});
+
+test("Absage hält nicht ewig: mit einem Sechstel je Tag verhandelt der Spieler wieder (GitLab #80)", () => {
+  // 0x0E5DC: Byte 24 über 99 und Bit 7 frei -> random(0,5) == 0 setzt es auf random(9,17);
+  // sonst zählt der Wert täglich um eins herunter (0x0E64C).
+  const g = load("RIED-CLI.MAN");
+  const l = g.lineups.at(0 * 25 + 3);
+  l.setU8(24, 102); // Absage steht
+
+  // Ein Wurf, der nie 0 wird: nichts passiert
+  const nie = (lo: number, hi: number) => hi;
+  for (let tag = 0; tag < 20; tag++) assert.equal(contractCooldown(g, 0, nie).length, 0);
+  assert.equal(l.u8(24), 102, "die Absage bleibt stehen");
+
+  // Kleinster Wurf: der Spieler kommt zurück, und zwar auf 9..17
+  const klein = (lo: number) => lo;
+  const zurueck = contractCooldown(g, 0, klein);
+  assert.ok(zurueck.includes(3), "Platz 3 verhandelt wieder");
+  assert.ok(l.u8(24) >= 9 && l.u8(24) <= 17, `Byte 24 = ${l.u8(24)}`);
+  // Damit steht er wieder unter der Schwelle, ab der die Tagesroutine Angebote macht
+  assert.ok(l.u8(24) < 100 && !(l.u8(24) & 0x80), "wieder verhandlungsbereit");
+
+  // Unter 100 zählt der Wert täglich herunter
+  l.setU8(24, 5);
+  l.setU8(9, l.u8(9) & 0x7f);
+  contractCooldown(g, 0, nie);
+  assert.equal(l.u8(24), 4, "täglich eins herunter");
+  // Ein offenes Angebot (Bit 7) bleibt unberührt
+  l.setU8(24, 0x80 | 12);
+  contractCooldown(g, 0, klein);
+  assert.equal(l.u8(24), 0x80 | 12, "mit offenem Angebot passiert nichts");
 });
