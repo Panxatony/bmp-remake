@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, matchIncidents, pickStarter, fitStarters, isForfeit, playMatchday, FORFEIT_FINE } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, matchIncidents, matchStrength, pickStarter, fitStarters, isForfeit, playMatchday, FORFEIT_FINE } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -56,4 +56,51 @@ test("0:2-Wertung bei weniger als acht einsatzfähigen Startern", () => {
   const other = mine.home === m.clubIndex ? mine.result.away : mine.result.home;
   assert.deepEqual([own, other], [0, 2]);
   assert.equal(m.balance, bal - FORFEIT_FINE + (mine.gate ?? 0));
+});
+
+test("Moral: die Stärkerechnung schreibt Byte 317, Karten und Verletzungen hängen daran (GitLab #73)", () => {
+  // Vor dem Spiel setzt das Original Managerbyte 317 aus Einsatzregler und Stärkeverhältnis
+  // (0x0FFA8); bis #73 blieb der Wert liegen und die Ereignisse rechneten mit Byte 305.
+  const g = load("TEST4.MAN");
+  const m = g.managers.at(0);
+  m.setU8(317, 0);
+  m.setU8(305, 16); // Einsatzregler in der Mitte
+  const s = matchStrength(g, 0, mulberryRng(5));
+  assert.equal(m.u8(317), s.moralNeu, "Moral steht im Managersatz");
+  assert.ok(m.u8(317) >= 16 && m.u8(317) <= 20, `Moral ${m.u8(317)} liegt nicht bei Einsatz + Zuschlag`);
+  // Der Regler verschiebt sie mit
+  m.setU8(317, 0);
+  m.setU8(305, 34);
+  const hoch = matchStrength(g, 0, mulberryRng(5)).moralNeu;
+  assert.ok(hoch > s.moralNeu, `${hoch} nicht über ${s.moralNeu}`);
+  assert.ok(hoch <= 40, "auf 40 begrenzt");
+  // Die 100 der 0:2-Wertung bleibt stehen
+  m.setU8(317, 100);
+  matchStrength(g, 0, mulberryRng(5));
+  assert.equal(m.u8(317), 100, "die Wertungsmarke wird nicht überschrieben");
+
+  // Der Wert geht als x = 40 - Byte 317 in die Würfe ein, und getroffen wird bei random(0, ...)
+  // gleich 0: je höher er steht, desto enger das Fenster und desto mehr Karten und
+  // Verletzungen. Wer voll draufgeht, holt sich also mehr ab - das passt zum Regler.
+  const zaehle = (moral: number): number => {
+    let n = 0;
+    for (let seed = 0; seed < 60; seed++) {
+      const h = load("TEST4.MAN");
+      h.managers.at(0).setU8(317, moral);
+      n += matchIncidents(h, 0, mulberryRng(300 + seed)).length;
+    }
+    return n;
+  };
+  const vollerEinsatz = zaehle(40);
+  const verhalten = zaehle(0);
+  assert.ok(vollerEinsatz > verhalten, `Byte 317 wirkt nicht: ${vollerEinsatz} gegen ${verhalten}`);
+});
+
+test("Moral bleibt nicht im Spielstand stehen: nach dem Spieltag steht Byte 317 wieder auf 0 (#73)", () => {
+  // Im Original hat jeder Spielstand hier eine 0 - wir dürfen also nichts zurücklassen
+  const g = load("TEST4.MAN");
+  playMatchday(g, 0, mulberryRng(4), []);
+  for (let i = 0; i < g.activeManagers().length; i++) {
+    assert.equal(g.managers.at(i).u8(317), 0, `Manager ${i}`);
+  }
 });

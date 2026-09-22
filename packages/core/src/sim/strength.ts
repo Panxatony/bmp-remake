@@ -15,11 +15,21 @@ const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.m
 
 export interface StrengthInput {
   starters: { squad: Lineup; player: Player }[];
-  /** Regler "Einsatz" (DGROUP 0x4A28, Save-Offset 34062) */
+  /**
+   * Spielstufe, **umgekehrt** gespeichert: DGROUP 0x4A28 = 5 - Level (Save-Offset 34062).
+   * Der Optionsbildschirm rechnet für die Anzeige "(LEVEL n)" wieder zurück (0x265F8), und die
+   * Auswahl beim Spielstart schreibt 5 - Wahl (0x34468). Leichtestes Level = 4 im Byte, und
+   * genau darauf prüft auch das Startkapital (0x0C639: 4 -> 1,9 statt 1,5 Millionen).
+   * Hieß bis GitLab #73 "einsatz"; der Regler ist ein anderes Byte (siehe unten).
+   */
+  stufe: number;
+  /**
+   * Einsatzregler des Kaderbildschirms, 0..34, Vorgabe 16 (Managerbyte 305). Im Original wird
+   * er mit der Maus gezogen: x von 275 bis 309 bei y 5..35, Wert = x - 275, auf 0..34 geklemmt
+   * und bei 0x2061F in den Managersatz geschrieben. Hieß bis #73 "zufriedenheit".
+   */
   einsatz: number;
-  /** Manager Byte 305 */
-  zufriedenheit: number;
-  /** Manager Byte 317 (100 = fixiert) */
+  /** Manager Byte 317, die Moral vor dem Spiel (100 = 0:2-Wertung, wird nicht überschrieben) */
   moral: number;
   /** Vereinsbyte 23 */
   base: number;
@@ -33,8 +43,8 @@ export function strengthInput(g: GameState, manager: number): StrengthInput {
     .map((squad) => ({ squad, player: g.players.at(squad.playerIndex) }));
   return {
     starters,
-    einsatz: g.save.plain[34062],
-    zufriedenheit: m.u8(305),
+    stufe: g.save.plain[34062],
+    einsatz: m.u8(305),
     moral: m.u8(317),
     base: g.clubs.at(m.clubIndex).u8(23),
   };
@@ -46,10 +56,14 @@ export function strengthInput(g: GameState, manager: number): StrengthInput {
  * `forMatch` entspricht dem Schreibflag des Originals: Mit 0 (Anzeige in den
  * Bildschirmen) werden nur die reinen Durchschnitte gebildet und in den
  * Vereinsdatensatz geschrieben; nur vor einem Spiel (Flag 1) kommen
- * Frische, Einsätze, Tore, Fehlbesetzungen, Torwart, Einsatzregler und
- * Zufriedenheit dazu. Der Spielstand enthält deshalb fast immer die Anzeigewerte.
+ * Frische, Einsätze, Tore, Fehlbesetzungen, Torwart, Spielstufe und
+ * Einsatzregler dazu. Der Spielstand enthält deshalb fast immer die Anzeigewerte.
+ *
+ * `moralNeu` ist der Wert, den das Original vor dem Spiel in Managerbyte 317 schreibt
+ * (0x0FFA8), wenn dort nicht die 100 der 0:2-Wertung steht. Daran hängen Karten und
+ * Verletzungen - `matrixFor` schreibt ihn deshalb zurück (GitLab #73).
  */
-export function teamStrength(inp: StrengthInput, rng: Rng, forMatch = true): TeamStrength & { zufriedenheitNeu: number } {
+export function teamStrength(inp: StrengthInput, rng: Rng, forMatch = true): TeamStrength & { moralNeu: number } {
   const sumKo = [0, 0, 0];
   const sumTe = [8, 8, 8];
   const sumFo = [0, 0, 0];
@@ -105,12 +119,12 @@ export function teamStrength(inp: StrengthInput, rng: Rng, forMatch = true): Tea
     count[grp] += 1;
   }
 
-  for (let l = 0; l < 3; l++) sumTe[l] += div((inp.einsatz - 5) * malus[l] * 20, 100);
+  for (let l = 0; l < 3; l++) sumTe[l] += div((inp.stufe - 5) * malus[l] * 20, 100);
   if (starters === 0) sumTe[0] = sumTe[1] = sumTe[2] = 0;
   // fehlende Starter zählen reihum
   for (let i = starters, l = 0; i < 11; i++, l = (l + 1) % 3) count[l]++;
-  if (!forMatch) return finish(inp, sumKo, sumTe, sumFo, count, inp.zufriedenheit);
-  if (inp.einsatz === 0 && tw > 8) sumTe[2] += -100 * teMinusKo; // Torwart-Sonderfall (0xFD40), Bedeutung offen
+  if (!forMatch) return finish(inp, sumKo, sumTe, sumFo, count, inp.einsatz);
+  if (inp.stufe === 0 && tw > 8) sumTe[2] += -100 * teMinusKo; // Torwart-Sonderfall (0xFD40), Bedeutung offen
   if (torwartModus > 0) {
     const k = torwartModus - 1;
     sumTe[0] = Math.trunc((sumTe[0] * rng(10 * k + 5, 20 * k + 5)) / 100);
@@ -125,9 +139,9 @@ export function teamStrength(inp: StrengthInput, rng: Rng, forMatch = true): Tea
   if (plus[2] > 0) plus[0] += plus[1] - 1;
   if (plus[0] < -1 && rng(7, 10) > plus[0] + 10) plus[1] -= rng(3, 5);
   for (let l = 0; l < 3; l++) {
-    sumTe[l] += inp.einsatz;
-    if (sumKo[l] !== 0) sumKo[l] += inp.zufriedenheit - 16;
-    if (sumTe[l] !== 0 && inp.einsatz < 4) {
+    sumTe[l] += inp.stufe;
+    if (sumKo[l] !== 0) sumKo[l] += inp.einsatz - 16;
+    if (sumTe[l] !== 0 && inp.stufe < 4) {
       const t = plus[l] * count[l];
       // Tabelle 4238:90C6[manager] liegt außerhalb des Spielstands (nur Laufzeit), hier 0
       sumTe[l] += (t + 3 * 0) * 10;
@@ -138,7 +152,7 @@ export function teamStrength(inp: StrengthInput, rng: Rng, forMatch = true): Tea
   }
   let z = clamp(div(teMinusKo, 9), -4, 4);
   if (z < 0) z = 0;
-  return finish(inp, sumKo, sumTe, sumFo, count, clamp(z + inp.zufriedenheit, 0, 40));
+  return finish(inp, sumKo, sumTe, sumFo, count, clamp(z + inp.einsatz, 0, 40));
 }
 
 function finish(
@@ -147,8 +161,8 @@ function finish(
   sumTe: number[],
   sumFo: number[],
   count: number[],
-  zufriedenheitNeu: number,
-): TeamStrength & { zufriedenheitNeu: number } {
+  moralNeu: number,
+): TeamStrength & { moralNeu: number } {
   const ko: [number, number, number] = [0, 0, 0];
   const te: [number, number, number] = [0, 0, 0];
   const fo: [number, number, number] = [0, 0, 0];
@@ -158,5 +172,5 @@ function finish(
     te[l] = div(sumTe[l], count[l]);
     fo[l] = div(sumFo[l], count[l]);
   }
-  return { base: inp.base, ko, te, fo, zufriedenheitNeu };
+  return { base: inp.base, ko, te, fo, moralNeu };
 }

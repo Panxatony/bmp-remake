@@ -15,8 +15,7 @@ import {
   type Incident,
   LiveMatch,
   matrixFor,
-  teamStrength,
-  strengthInput,
+  matchStrength,
   postponementCount,
   replays,
   fixtures,
@@ -304,8 +303,8 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
       if (fresh.length === 0) continue;
       state.news.push(...fresh);
       if (fresh.some((i) => i.kind !== "yellow")) {
-        if (side === "home") e.match.home = teamStrength(strengthInput(g, manager), rng, true);
-        else e.match.away = teamStrength(strengthInput(g, manager), rng, true);
+        if (side === "home") e.match.home = matchStrength(g, manager, rng);
+        else e.match.away = matchStrength(g, manager, rng);
       }
     }
     for (const c of chances) {
@@ -549,7 +548,7 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
 export function refreshStrength(state: LiveState, g: GameState, manager: number, rng: Rng): void {
   const club = g.managers.at(manager).clubIndex;
   for (const e of state.entries) {
-    if (e.home === club) e.match.home = teamStrength(strengthInput(g, manager), rng, true);
-    if (e.away === club) e.match.away = teamStrength(strengthInput(g, manager), rng, true);
+    if (e.home === club) e.match.home = matchStrength(g, manager, rng);
+    if (e.away === club) e.match.away = matchStrength(g, manager, rng);
   }
 }

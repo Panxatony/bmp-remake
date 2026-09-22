@@ -605,7 +605,7 @@ Oberligist, wird er mit einem zufälligen freien Oberligaplatz random(38,57) get
 und Logo wandern mit). Kaderwerte: b = Level/2 + 27, Kondition und Technik random(b, b+5), Form
 random(40,60); Gehälter neu; Trainingsbälle 321.. = 5,4,6,5,6 und 326.. = 1,3,3,3; Liga 2;
 Eintritt 2·8 - 3·Liga = 10 DM; Stehplätze 4000·(5 - Liga) = 12000, Sitze 3000·(2 - Liga) = 0,
-Überdacht 3500·(2 - Liga) = 0, Komfort 390 = 4, 398 = 3; Zufriedenheit 305 = 16; Fanwert 50 -
+Überdacht 3500·(2 - Liga) = 0, Komfort 390 = 4, 398 = 3; Einsatzregler 305 = 16; Fanwert 50 -
 20·Liga = 10; Trainer (0x09623) = L·(random(15,20) + 40) + ((L·(110 - Fans)) & 0xFE)·500 mit
 L = 2 - Liga, danach mal random(10·(L+10), 25·(L+4))/100; Fernsehgeld 1000·(30·L + Fans);
 Sponsorenangebote; Kontostand 1.500.000 DM (Level 4 gespeichert: 1.900.000), Zuschauerminimum
@@ -1041,7 +1041,7 @@ Unentschieden einzeln bei 179 + 48·k, alle auf vier Stellen mit '^' aufgefüllt
 
 ## Karten, Verletzungen und 0:2-Wertung im Spiel (Minutenschleife 0x05FE5, Chancenhandler 0x1B223 ab 0x1BF6D, Spielerwahl 0x04E45, Spielvorbereitung 0x1C632/0x1C5D1; sim/incidents.ts)
 
-Je Spielminute und Managerverein mit x = 40 - Zufriedenheit (Managerbyte 305, 0..40) und
+Je Spielminute und Managerverein mit x = 40 - Moral (Managerbyte 317, 0..40; die Stärkerechnung setzt sie vor dem Spiel aus Einsatzregler und Stärkeverhältnis, 0x0FFA8) und
 L = Level (Spielstand 34062): Rote Karte höchstens einmal je Spiel bei random(0, 70x +
 50(L+5)) = 0; Gelbe Karte aus einem Foulbudget von sechs je Spiel bei random(0, 5L + 2x +
 37) = 0; Verletzung bei random(0, 55x + 60L + 200) = 0. Spielerwahl 0x04E45: zufälliger
@@ -1525,7 +1525,7 @@ Einen Knopf für die Systemwahl gibt es hier nicht - die Systeme stehen als Symb
 Spielfeld. Der Einsatz steht im Managerbyte 305 und reicht von 0 bis 34 (Vorgabe 16); bestimmt
 durch den Vergleich von CLAUDE.MAN und EINSATY.MAN, in dem nur dieses Byte von 16 auf 34
 wechselte. Die Simulation nutzt den Wert bereits: höherer Einsatz heißt mehr Stärke, aber auch
-mehr Karten und Verletzungen (sim/incidents.ts: x = 40 - Byte 305).
+mehr Karten und Verletzungen (sim/incidents.ts: x = 40 - Byte 317, und Byte 317 kommt vor dem Spiel aus Byte 305 plus einem Zuschlag aus Technik minus Kondition).
 
 Das Symbol blendet das Spielfeld ein (PIC/6.VGA): Feld 118x120 bei (189,94), die drei
 Systemsymbole 32x23 (im Bild bei y 0, 24 und 48) unten links in Rahmen von 48x36 bei

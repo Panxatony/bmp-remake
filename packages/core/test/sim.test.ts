@@ -61,7 +61,7 @@ test("Mannschaftsstärke aus der Aufstellung trifft Nürnbergs gespeicherte Matr
       assert.ok(Math.abs(m.te[l] - stored.te[l]) <= 25, `${name} Technik Linie ${l}: ${m.te[l]} vs ${stored.te[l]}`);
       assert.equal(m.fo[l], stored.fo[l], `${name} Form Linie ${l}`);
     }
-    console.log(name, "Anzeige", shown.ko, shown.te, "Spiel", m.ko, m.te, "Zufriedenheit", inp.zufriedenheit, "->", m.zufriedenheitNeu);
+    console.log(name, "Anzeige", shown.ko, shown.te, "Spiel", m.ko, m.te, "Einsatz", inp.einsatz, "-> Moral", m.moralNeu);
   }
 });
 

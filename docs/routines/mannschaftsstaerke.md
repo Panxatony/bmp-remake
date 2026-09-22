@@ -1,7 +1,7 @@
 # Mannschaftsstärke eines Managers (0x0F9D2)
 
 Aufruf: `staerke(manager, schreiben)`; `schreiben` = 0 nur rechnen (z.B. für
-Anzeige), sonst Zufriedenheit und Vereinsstärke schreiben. Ergebnis landet im
+Anzeige), sonst Moral (Byte 317) und Vereinsstärke schreiben. Ergebnis landet im
 Vereinsdatensatz des Managervereins: Byte 24+l Kondition, 27+l Technik,
 30+l Form je Linie l (0 Abwehr, 1 Mittelfeld, 2 Angriff), jeweils Durchschnitt
 der Spieler der Linie. Stand: Anzeigeweg exakt gegen drei Spielstände geprüft, Spielweg aus dem
@@ -14,8 +14,14 @@ Disassembly rekonstruiert (Zufallsanteile).
 - `linie` = 7 - Byte 26 (0 = Sturm ... 7 = Tor); Gruppe l = TABELLE_2A2[linie]
   (DGROUP 0x2A2, 8 Einträge, ordnet Feldlinien den drei Gruppen zu)
 - `rolle` = Byte 25 (0..6), `pos` = Spieler Byte 31 (0..99), `posArt` = Spieler Byte 32
-- `einsatz` = DGROUP 0x4A28 (Save-Offset 34062, Regler "Einsatz", 1..7)
-- `zufriedenheit` = Manager Byte 305, `moral` = Manager Byte 317 (100 = fixiert)
+- `stufe` = DGROUP 0x4A28 (Save-Offset 34062): die Spielstufe, **umgekehrt** gespeichert als
+  5 - Level. Der Optionsbildschirm zeigt sie als "(LEVEL n)" wieder zurückgerechnet (0x265F8),
+  die Auswahl beim Spielstart schreibt 5 - Wahl (0x34468). Kein Regler - bis GitLab #73 stand
+  hier "Regler Einsatz, 1..7", das war falsch.
+- `einsatz` = Manager Byte 305: der Regler im Kaderbildschirm, 0..34, Vorgabe 16. Er wird mit
+  der Maus gezogen (x 275..309 bei y 5..35, Wert = x - 275, geklemmt bei 0x205EF, geschrieben
+  bei 0x2061F).
+- `moral` = Manager Byte 317 (100 = 0:2-Wertung, dann wird nicht überschrieben)
 
 ## Rechnung
 
@@ -46,11 +52,11 @@ für jeden Startspieler:
     anzahl[l] += 1
 
 // Einsatzregler wirkt auf den Malus
-für l in 0..2: sumTe[l] += (einsatz - 5) * malus[l] * 20 / 100
+für l in 0..2: sumTe[l] += (stufe - 5) * malus[l] * 20 / 100
 starter == 0: alle Summen 0
 moral = (starter < 8) ? 100 : 0   -> Manager Byte 317 (nur wenn nicht fixiert)
 weniger als 11 Starter: fehlende Plätze zählen reihum als Linie mit
-einsatz == 0 und tw > 8: sumTe[0] -= 100 * teMinusKo? (Torwart-Sonderfall, unsicher)
+stufe == 0 und tw > 8: sumTe[0] -= 100 * teMinusKo? (Torwart-Sonderfall, unsicher)
 torwartModus > 0: k = torwartModus - 1
     sumTe[0]  *= random(10k+5, 20k+5) / 100
     sumTe[1]  *= random(10, 40) / 100
@@ -61,14 +67,14 @@ plusMit < 1 und plusAbw > 0: plusAng += plusMit - 1
 plusAng > 0: plusAbw += plusMit - 1
 plusAbw < -1 und random(7,10) > plusAbw + 10: plusMit -= random(3,5)
 für l in 0..2:
-    sumTe[l] += einsatz
-    sumKo[l] != 0: sumKo[l] += zufriedenheit - 16
-    sumTe[l] != 0 und einsatz < 4:
+    sumTe[l] += stufe
+    sumKo[l] != 0: sumKo[l] += einsatz - 16
+    sumTe[l] != 0 und stufe < 4:
         sumTe[l] += (plus[l] * anzahl[l] + 3 * TAB_6F3A[manager]) * 10
         sumKo[l] += 5 * (plus[l] * anzahl[l])
     negative Summen auf 0
 teMinusKo = clamp(teMinusKo / 9, -4, 4) ; teMinusKo < 0: 0
-neueZufriedenheit = clamp(teMinusKo + zufriedenheit, 0, 40) -> Manager Byte 317 (wenn nicht 100)
+neueMoral = clamp(teMinusKo/9 (auf 0..4) + einsatz, 0, 40) -> Manager Byte 317 (wenn dort nicht 100 steht)
 // Ergebnis in den Vereinsdatensatz
 für l in 0..2:
     anzahl[l] <= 1: ko = te = fo = 0
@@ -88,7 +94,7 @@ für l in 0..2:
 Mit `schreiben = 0` (Aufruf aus den Bildschirmen) überspringt die Funktion
 in der Spielerschleife alles außer den reinen Summen (Sprung 0xFBE4 -> 0xFB5B)
 und nach der Schleife den ganzen Teil von 0xFD3C bis 0xFFAD (Torwart, Besetzung,
-Einsatzregler, Zufriedenheit). Geschrieben wird die Matrix trotzdem:
+Spielstufe, Einsatzregler). Geschrieben wird die Matrix trotzdem:
 
 ```
 Anzeige: ko = sum(ko)/n ; te = (8 + sum(te))/n ; fo = sum(fo)/n
@@ -97,7 +103,7 @@ Anzeige: ko = sum(ko)/n ; te = (8 + sum(te))/n ; fo = sum(fo)/n
 Abgleich: TEST1, TEST2 und RIED-CLI enthalten genau diese Anzeigewerte
 (Nürnberg Ko 84/90/62 bzw. 61, Te 89/76/95, Fo 56/54/54). Die Spielwerte
 (Flag 1, mit Frische, Einsätzen, Toren, Fehlbesetzung, Einsatzregler und
-Zufriedenheit) stehen nie im Spielstand, weil danach wieder ein Anzeigeaufruf
+Einsatzregler) stehen nie im Spielstand, weil danach wieder ein Anzeigeaufruf
 folgt; sie lassen sich nur über wiederholte Spieltage statistisch prüfen.
 Die Tabelle 0x6F3A (4238:90C6, je Manager ein Byte) liegt hinter den Kaderplätzen
 außerhalb des Spielstands und ist in der TypeScript-Fassung 0.
