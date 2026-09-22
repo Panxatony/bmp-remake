@@ -122,22 +122,52 @@ export function bookGate(g: GameState, manager: number, att: number, divisor = 1
   return income;
 }
 
-/** Zuschauer beim Manager buchen: Historie (Byte 330 + Zähler 314, in Tausend), gesamt 484, Rekord 488/500, Minuskulisse 492/504. */
+/**
+ * Zuschauer beim Manager buchen, nur im Ligaheimspiel (0x1C798): Historie (Byte 330 + Zähler
+ * 314, in Tausend), gesamt 484, Rekord 488/500, Minuskulisse 492/504. Einen Rekord löst auch
+ * die gleiche Zahl ab (0x1C7E4/0x1C821). Die Historie hat im Original keine Grenze; mit
+ * höchstens 19 Heimspielen endet sie vor Byte 350 (Sitzplätze), die 20 ist nur Schutz.
+ */
 export function bookAttendance(g: GameState, manager: number, att: number, opponent: number): void {
   const m = g.managers.at(manager);
   const n = m.u8(314);
-  if (n < 16) m.setU8(330 + n, Math.min(255, div(att, 1000)));
+  if (n < 20) m.setU8(330 + n, div(att, 1000) & 0xff);
   m.setU8(314, n + 1);
   const w = (off: number, v: number) => {
     for (let i = 0; i < 4; i++) m.setU8(off + i, (v >>> (8 * i)) & 0xff);
   };
   w(484, m.i32(484) + att);
-  if (att > m.i32(488)) {
+  if (att >= m.i32(488)) {
     w(488, att);
     w(500, opponent);
   }
-  if (att < m.i32(492)) {
+  if (att <= m.i32(492)) {
     w(492, att);
     w(504, opponent);
   }
+}
+
+/** DFB-Pokalfinale (Rundenbyte > 4): feste Kulisse (4cb3:2256, das Olympiastadion) - 0x1CB6B. */
+export const FINALE_KULISSE = 76000;
+/** ... und statt Eintritt eine Pauschale für jeden beteiligten Manager (0x1C8F5, 0x1CAA2). */
+export const FINALE_PAUSCHALE = 532000;
+
+const s16 = (v: number): number => (v << 16) >> 16;
+
+/**
+ * Pokalzuschlag im Heimspiel eines Managers gegen einen Verein aus höherer Liga (0x1C858): mit
+ * d = eigene Liga (Byte 312) - Ligaband des Gastes kommen `random(Kulisse/(8 - 3d), Kulisse)`
+ * Zuschauer dazu, höchstens bis zur Stadiongröße. Das Original würfelt mit 16-Bit-Grenzen
+ * (`lo + rand % (hi - lo + 1)`, 0x08377); über 32767 Zuschauern kippt die obere Grenze ins
+ * Negative, der Rest wird dann wie dort genommen.
+ */
+export function pokalZuschlag(g: GameState, manager: number, away: number, att: number, rng: Rng): number {
+  const m = g.managers.at(manager);
+  const d = m.u8(312) - ligaBand(away);
+  if (d <= 0) return att;
+  const lo = s16(div(att, 8 - 3 * d));
+  const span = s16(s16(att) - lo + 1);
+  if (span === 0) return att;
+  att += s16(lo + rng(0, Math.abs(span) - 1));
+  return Math.min(att, m.i32(350) + m.i32(358));
 }

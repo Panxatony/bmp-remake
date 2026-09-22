@@ -8,6 +8,9 @@
  */
 import {
   attendance,
+  pokalZuschlag,
+  dfbFinale,
+  FINALE_KULISSE,
   minuteIncidents,
   newIncidentState,
   isForfeit,
@@ -231,14 +234,23 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
     // Zuschauer auch für Pokalspiele: der Kern rechnet sie ohnehin (0x10BB0). Gebucht wird genau
     // diese Zahl (server.ts reicht sie weiter). Die Kapazität ist auch im Pokal das eigene
     // Stadion - die ausgewürfelte aus dem Ligaband gilt nur für Vereine des Rechners (#75).
-    if (e.managerHome !== undefined) {
+    // Im DFB-Pokalfinale steht die Kulisse fest (0x1CB6B), auch gegen einen Verein des Rechners.
+    // Im Pokal kommt beim Heimspiel gegen einen höherklassigen Gast der Zuschlag dazu (0x1C858).
+    if (e.kind === "cup" && dfbFinale(g, e.cup ?? -1)) e.attendance = FINALE_KULISSE;
+    else if (e.managerHome !== undefined) {
       const pokal = e.kind !== "league";
       const importance = !pokal ? undefined : e.cup === 0 ? 1 : g.save.plain[CUP_ROUND + 1] > 4 ? 3 : 2;
-      e.attendance = attendance(g, { manager: e.managerHome, home: e.home, away: e.away, importance, level: g.save.plain[34062] }, rng);
+      const att = attendance(g, { manager: e.managerHome, home: e.home, away: e.away, importance, level: g.save.plain[34062] }, rng);
+      e.attendance = pokal ? pokalZuschlag(g, e.managerHome, e.away, att, rng) : att;
     }
-    // 0:2-Wertung bei weniger als acht einsatzfähigen Startern (0x0F9D2/0x1C5D1)
-    if (e.managerHome !== undefined && isForfeit(g, e.managerHome)) e.forfeit = e.managerHome;
-    else if (e.managerAway !== undefined && isForfeit(g, e.managerAway)) e.forfeit = e.managerAway;
+    // 0:2-Wertung bei weniger als acht einsatzfähigen Startern (0x0F9D2/0x1C5D1); geprüft wird in
+    // Managerreihenfolge, der erste beendet die Buchung (0x1C632 kehrt sofort zurück)
+    for (const mi of [e.managerHome, e.managerAway].filter((x) => x !== undefined).sort((a, b) => a - b)) {
+      if (isForfeit(g, mi)) {
+        e.forfeit = mi;
+        break;
+      }
+    }
     if (e.forfeit !== undefined) {
       e.match.hg = e.forfeit === e.managerHome ? 0 : 2;
       e.match.ag = e.forfeit === e.managerHome ? 2 : 0;

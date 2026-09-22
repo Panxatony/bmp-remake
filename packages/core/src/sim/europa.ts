@@ -24,14 +24,20 @@ import { texte } from "../data/texte.ts";
 import type { Rng, MatchResult, TeamStrength } from "./match.ts";
 import { simulateMatch, chanceCounts, chanceMinutes, goalDice } from "./match.ts";
 import { matrixFor, bookEvents, afterMatch } from "./matchday.ts";
-import { attendance, bookAttendance, bookGate, ERSATZ_PREIS, ligaBand } from "./attendance.ts";
+import { attendance, bookGate, pokalZuschlag, ERSATZ_PREIS, FINALE_KULISSE, FINALE_PAUSCHALE, ligaBand } from "./attendance.ts";
 import { riotCheck } from "./finance.ts";
+import { addBalance } from "./transfer.ts";
 import type { MatchSim } from "./live.ts";
 
 const defaultSim: MatchSim = (_h, _a, hs, as, r) => simulateMatch(hs, as, r, true);
 
 export const CUP_TABLE = 28009;
 export const CUP_ROUND = 28233;
+
+/** DFB-Pokalfinale: Rundenbyte des DFB-Pokals über 4 (0x1CB65). */
+export function dfbFinale(g: GameState, cup: number): boolean {
+  return cup === 0 && g.save.plain[CUP_ROUND] > 4;
+}
 export const LEG_FLAG = 28241;
 export const CUP_RESULTS = 28304;
 export const FIRST_LEG = 28137;
@@ -366,11 +372,19 @@ export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: 
   match.scorers = bookEvents(g, home, away, result, matchType, rng);
   const mh = managerOf.get(home);
   const ma = managerOf.get(away);
-  if (mh !== undefined) {
+  if (dfbFinale(g, cup)) {
+    // Endspiel in Berlin: feste Kulisse, und jeder beteiligte Manager bekommt statt Eintritt
+    // dieselbe Pauschale (0x1CB6B, 0x1C8F5, 0x1CAA2). Randale gibt es trotzdem - sie hängt am
+    // Heimrecht im Kaderteil (0x1CE4D).
+    match.attendance = zuschauer?.(home, away) ?? FINALE_KULISSE;
+    for (const mi of [mh, ma]) if (mi !== undefined) addBalance(g, mi, FINALE_PAUSCHALE);
+    if (mh !== undefined || ma !== undefined) match.gate = FINALE_PAUSCHALE;
+    if (mh !== undefined) riotCheck(g, mh, rng);
+  } else if (mh !== undefined) {
     const importance = cup === 0 ? 1 : p[CUP_ROUND + 1] > 4 ? 3 : 2;
-    // Hat die Live-Konferenz die Zahl schon gezeigt, wird genau sie gebucht
-    const att = zuschauer?.(home, away) ?? attendance(g, { manager: mh, home, away, importance, level: p[LEVEL_OFFSET] }, rng);
-    bookAttendance(g, mh, att, away);
+    // Hat die Live-Konferenz die Zahl schon gezeigt, wird genau sie gebucht. Zuschauerhistorie
+    // und Rekorde führt das Original nur für Ligaheimspiele (0x1C78F).
+    const att = zuschauer?.(home, away) ?? pokalZuschlag(g, mh, away, attendance(g, { manager: mh, home, away, importance, level: p[LEVEL_OFFSET] }, rng), rng);
     match.attendance = att;
     match.gate = bookGate(g, mh, att, 2);
     // Der Gast bekommt die andere Hälfte, gerechnet mit dem Eintrittspreis des Heimvereins

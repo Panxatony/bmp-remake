@@ -16,6 +16,7 @@ import { bookHistory } from "./history.ts";
 import { isForfeit, bookForfeit, matchIncidents, type Incident } from "./incidents.ts";
 import { creditAiGoals, bookBaseBonus } from "./ai.ts";
 import { riotCheck } from "./finance.ts";
+import { MARKET_SIZE } from "./transfer.ts";
 import { SCALARS } from "../records.ts";
 
 export interface PlayedMatch {
@@ -138,10 +139,19 @@ function spieleEins(
     const managers = g.activeManagers();
     const mHome = managers.findIndex((mg) => mg.clubIndex === home);
     const mAway = managers.findIndex((mg) => mg.clubIndex === away);
+    // Die Spielvorbereitung 0x1C632 geht die Manager der Reihe nach durch. Wer zu wenige
+    // Spieler hat, zahlt die Strafe, und die Routine kehrt sofort zurück: er selbst und alle
+    // nach ihm bekommen weder Einnahmen noch den Kaderteil (Frische, Einsätze, Sperren).
     let forfeit: number | undefined;
     const check = (mi: number) => (live ? live.forfeit(mi) : isForfeit(g, mi));
-    if (mHome >= 0 && check(mHome)) forfeit = mHome;
-    else if (mAway >= 0 && check(mAway)) forfeit = mAway;
+    const bearbeitet: number[] = [];
+    for (const mi of [mHome, mAway].filter((x) => x >= 0).sort((a, b) => a - b)) {
+      if (check(mi)) {
+        forfeit = mi;
+        break;
+      }
+      bearbeitet.push(mi);
+    }
     const result = forfeit !== undefined ? { home: forfeit === mHome ? 0 : 2, away: forfeit === mHome ? 2 : 0, events: [] } : sim(home, away, matrixFor(g, home, rng), matrixFor(g, away, rng), rng);
     if (forfeit !== undefined) bookForfeit(g, forfeit);
     writeResult(g, league, md, m, result.home, result.away);
@@ -156,14 +166,13 @@ function spieleEins(
       for (const mi of [mHome, mAway]) if (mi >= 0) incidents.push(...(live ? live.incidents(mi) : matchIncidents(g, mi, rng)));
       if (incidents.length) played.incidents = incidents;
     }
-    g.activeManagers().forEach((mg, i) => {
-      if (mg.clubIndex !== home) return;
-      const att = attendanceOf?.(home, away) ?? attendance(g, { manager: i, home, away, level: g.save.plain[34062] }, rng);
-      bookAttendance(g, i, att, away);
+    if (bearbeitet.includes(mHome)) {
+      const att = attendanceOf?.(home, away) ?? attendance(g, { manager: mHome, home, away, level: g.save.plain[34062] }, rng);
+      bookAttendance(g, mHome, att, away);
       played.attendance = att;
-      played.gate = bookGate(g, i, att);
-      riotCheck(g, i, rng);
-    });
+      played.gate = bookGate(g, mHome, att);
+      riotCheck(g, mHome, rng);
+    }
     // Die Bewertungen festhalten, solange es sie noch gibt: afterMatch räumt Byte 21 gleich weg
     g.activeManagers().forEach((mg, i) => {
       if (mg.clubIndex !== home && mg.clubIndex !== away) return;
@@ -171,9 +180,7 @@ function spieleEins(
       for (const l of g.squadOf(i)) if (!l.isEmpty) werte.push([l.playerIndex, (l.u8(21) << 24) >> 24]);
       (played.bewertungen ??= []).push({ manager: i, werte });
     });
-    g.activeManagers().forEach((mg, i) => {
-      if (mg.clubIndex === home || mg.clubIndex === away) afterMatch(g, i, 0, rng);
-    });
+    for (const mi of bearbeitet) afterMatch(g, mi, 0, rng);
     return played;
   }
 }
@@ -230,13 +237,15 @@ export function bookEvents(g: GameState, home: number, away: number, result: Mat
 }
 
 /**
- * Nachbereitung eines Managervereins nach einem Spiel (Spielvorbereitung 0x1C632,
- * Kaderteil ab 0x1CC4A). matchType 0 = Liga, 1 = Pokal, sonst Freundschafts-/Europaspiel.
- * Je Kaderplatz: bei Ligaspielen zählt eine laufende Sperre (Byte 13) herunter, wenn
- * Flag-Bit 0 gesetzt ist; Byte 21 wird gelöscht; Starter (Nummer 1..11) bekommen
- * Frische + 6 + random(2,4) - [Kondition > Technik des Spielers], bei Liga einen
- * Einsatz in der Spielertabelle (Byte 35), bei Liga/Pokal einen Einsatz in Byte 6/7
- * und im 16-Bit-Zähler bei 28/30. Frische wird auf 50..150 begrenzt.
+ * Kaderteil der Spielvorbereitung 0x1C632 (ab 0x1CBB9) für einen Managerverein. matchType 0 =
+ * Liga, 1 = DFB-Pokal, 2 = Europapokal und Relegation. Im Original läuft er vor dem Anpfiff;
+ * hier nach dem Spiel (siehe docs/abgleich/1C632.md).
+ * - Liga: eigene Spieler auf den Marktplätzen 0..11 zählen eine Sperre (Flag-Bit 0, Byte 13)
+ *   herunter wie der Kader.
+ * - Je Kaderplatz: in der Liga zählt eine Sperre herunter; Byte 21 wird gelöscht; Starter
+ *   (Nummer 1..11) bekommen Frische + 6 + random(2,4) - [Kondition > Technik des Spielers],
+ *   in der Liga einen Einsatz in der Spielertabelle (Byte 35) und je Wettbewerb einen Einsatz
+ *   in Byte 6/7/8 und im 16-Bit-Zähler bei 28/30/32. Frische wird auf 50..150 begrenzt.
  */
 export function afterMatch(g: GameState, manager: number, matchType: number, rng: Rng): void {
   // Die Moral gilt nur für dieses Spiel. Im Original steht sie danach noch im Speicher, bis
@@ -244,6 +253,13 @@ export function afterMatch(g: GameState, manager: number, matchType: number, rng
   // immer eine Anzeige kommt, steht in **jedem** Spielstand des Originals eine 0 (in allen
   // vorhandenen nachgesehen). Wir räumen sie deshalb gleich hier weg (GitLab #73).
   g.managers.at(manager).setU8(317, 0);
+  if (matchType === 0) {
+    for (let k = 0; k < MARKET_SIZE; k++) {
+      const l = g.lineups.at(100 + k);
+      if (l.isEmpty || g.players.at(l.playerIndex).u8(33) !== manager) continue;
+      if ((l.u8(9) & 1) === 1 && l.u8(13) > 0) l.setU8(13, l.u8(13) - 1);
+    }
+  }
   for (const l of g.squadOf(manager)) {
     if ((l.u8(9) & 1) === 1 && l.u8(13) > 0 && matchType === 0) l.setU8(13, l.u8(13) - 1);
     l.setU8(21, 0);
@@ -252,13 +268,12 @@ export function afterMatch(g: GameState, manager: number, matchType: number, rng
       const fit = p.u8(28) > p.u8(29) ? 1 : 0;
       l.setU8(19, (l.u8(19) + rng(2, 4) - fit + 6) & 0xff);
       if (matchType === 0) p.setU8(35, p.u8(35) + 1);
-      if (matchType <= 1) {
-        l.setU8(6 + matchType, l.u8(6 + matchType) + 1);
-        const o = 28 + 2 * matchType;
-        const v = (l.u8(o) | (l.u8(o + 1) << 8)) + 1;
-        l.setU8(o, v & 0xff);
-        l.setU8(o + 1, (v >> 8) & 0xff);
-      }
+      const t = Math.min(matchType, 2);
+      l.setU8(6 + t, (l.u8(6 + t) + 1) & 0xff);
+      const o = 28 + 2 * t;
+      const v = (l.u8(o) | (l.u8(o + 1) << 8)) + 1;
+      l.setU8(o, v & 0xff);
+      l.setU8(o + 1, (v >> 8) & 0xff);
     }
     if (l.u8(19) < 50) l.setU8(19, 50);
     if (l.u8(19) > 150) l.setU8(19, 150);
