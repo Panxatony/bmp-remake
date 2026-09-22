@@ -3,7 +3,7 @@ import { texte } from "../src/data/texte.ts";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, trainingSettings, setTraining, trainingBars, TRAINING_BUDGET, trainingCamp, campCost, campCountdown, advanceCampOpen, camps, CAMP_OPEN_START } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, trainingSettings, setTraining, trainingBars, TRAINING_BUDGET, trainingCamp, campCost, campCountdown, advanceCampOpen, camps, CAMP_OPEN_START, trainingInjuries } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -72,4 +72,17 @@ test("Trainingslager: Preis nach Kadergröße, Sperre, Öffnungszeiten", () => {
   m.setU8(313, 0);
   for (let i = 0; i < 4; i++) m.setU8(496 + i, 0);
   assert.equal(trainingCamp(g, 0, 7, rng), texte("ui.keinGeld").join(" "));
+});
+
+test("Trainingsverletzung nur ohne jeden Merker in Kaderbyte 9 (0x0E6D1, #83 F5)", () => {
+  const g = load("RIED-CLI.MAN");
+  const kader = g.squadOf(0);
+  for (const l of kader) { l.setU8(13, 0); l.setU8(9, 0); }
+  // Kleinster Wurf: jeder in Frage kommende Spieler verletzt sich
+  const alle = trainingInjuries(g, 0, 2, false, (lo: number) => lo);
+  assert.equal(alle.length, kader.length, "ohne Merker trifft es jeden");
+  const h = load("RIED-CLI.MAN");
+  const k2 = h.squadOf(0);
+  for (const l of k2) { l.setU8(13, 0); l.setU8(9, 0x40); } // Angebot eines fremden Vereins
+  assert.equal(trainingInjuries(h, 0, 2, false, (lo: number) => lo).length, 0, "mit Angebotsbit keiner");
 });

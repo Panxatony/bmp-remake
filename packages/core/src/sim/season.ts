@@ -195,10 +195,10 @@ export function newSeason(g: GameState, rng: Rng, verlaengerung = false): Season
   p[SCALARS.monthIndex] = 6;
   p[DAY_INDEX_OFFSET] = 0;
   setDayIndex(g, 0);
-  // Spieler: ein Jahr älter, Saisonstatistik zurück
+  // Spieler: Saisonstatistik zurück. Ein Jahr älter werden sie schon in seasonEvents, direkt
+  // vor dem Karriereende (0x0D420, #81)
   for (const pl of g.players.toArray()) {
     if (pl.isEmpty) continue;
-    pl.setU8(26, pl.u8(26) + 1);
     pl.setU8(34, 0);
     pl.setU8(35, 0);
   }

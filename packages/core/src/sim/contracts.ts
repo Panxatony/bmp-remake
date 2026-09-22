@@ -1,6 +1,7 @@
 /**
- * Vertragsverlängerungsangebote der Spieler (Tagesroutine 0x0DF0D ab 0xE76F, Zufriedenheit
- * 0x16FC8, Meldung 0x30AA0 Vorlage 4). Siehe docs/SPIELMECHANIK.md.
+ * Verträge in der Tagesroutine 0x0DF0D: Karriereankündigung (ab 0xE76F, Wert 0x16FC8,
+ * Meldung Vorlage 4), Verlängerungsangebot (ab 0xE83E, Vorlage 0) und der Zähler in
+ * Kaderbyte 24 (ab 0xE5DC). Zeile für Zeile belegt in docs/abgleich/0DF0D.md.
  */
 import type { GameState } from "../records.ts";
 import type { Rng } from "./match.ts";
@@ -117,63 +118,86 @@ export interface ContractOffer {
 }
 
 /**
- * Tägliche Prüfung: je Kaderplatz ohne offenes Angebot (Byte 24 Bit 7) und Byte 24 < 100 wird
- * bei random(32,45) < Zufriedenheitswert ein Angebot erzeugt und Bit 7 gesetzt.
- */
-export function contractOffers(g: GameState, manager: number, rng: Rng): ContractOffer[] {
-  const out: ContractOffer[] = [];
-  for (let place = 0; place < 25; place++) {
-    const l = g.lineups.at(manager * 25 + place);
-    if (l.isEmpty) continue;
-    const b24 = l.u8(24);
-    if (b24 & 0x80 || b24 >= 100) continue;
-    if (rng(32, 45) >= contractScore(g, manager, place)) continue;
-    l.setU8(24, b24 | 0x80);
-    const p = g.players.at(l.playerIndex);
-    const years = l.u8(11);
-    const salary = salaryDemand(g, manager, place, years + 1);
-    out.push({ manager, place, playerIndex: l.playerIndex, name: p.displayName, yearsFrom: years, yearsTo: years + 1, salary });
-  }
-  return out;
-}
-
-/**
- * Ankündigung, dass ein Spieler seinen Vertrag nicht verlängert (0x0E8xx bis 0x0E9C1, GitLab #59).
- * Im letzten Vertragsjahr kündigt das Original an, dass der Spieler geht - die Vorwarnung zum
- * Vertragsende. Danach steht Kaderbyte 24 auf 100 + Stufe (0x0E98C), und weil die Tagesroutine
- * nur unter 100 Angebote macht (0x0E1xx), verhandelt der Spieler nicht mehr.
+ * Karriereankündigung (Tagesroutine 0x0E76F bis 0x0E835): je Kaderplatz `random(32,45)` gegen
+ * den Wert aus 0x16FC8, der mit dem Alter wächst; liegt der Wurf darunter und ist weder
+ * Bit 7 noch ein Wert ab 100 in Kaderbyte 24 gesetzt, setzt das Original Bit 7 und meldet
+ * mit Vorlage 4: "$ kündigt an, dass er seinen Vertrag nicht mehr verlängern wird." Eine
+ * Verhandlung gibt es nicht. Läuft sein Vertrag am Saisonende aus, hängt er die Schuhe an den
+ * Nagel (seasonEvents.ts, 0x0D511).
  *
- * Die Schwelle (0x0E8B1 bis 0x0E8FA): L = min(8, |25 - Alter|) (Absolutbetrag über 0x319E5),
- * A = 100 - 100·L/8, S = (Kondition + Technik + Form)/3, N = (40·A + 60·S)/100. Je näher an 25
- * und je stärker, desto größer N - und desto unwahrscheinlicher die Absage, denn es braucht
- * random(0, N) = 0 **und** random(0, 3) = 0. Ein dritter Summand des Originals (0x0E900, aus
- * Kaderbytes 28/30/32) ist noch nicht entschlüsselt; er verschiebt die Schwelle leicht.
- *
- * Die Stufe: random(0,100) über 90 ergibt 4, über 70 ergibt 3, sonst 2 (0x0E96C).
+ * Bis GitLab #81 war das hier ein Verlängerungsangebot mit Dialog - das Remake hatte die
+ * beiden Meldungen der Tagesroutine vertauscht. In allen Originalspielständen sind die
+ * Spieler mit Bit 7 zwischen 33 und 35 Jahre alt.
  */
-export function contractRefusalAnnouncements(g: GameState, manager: number, rng: Rng): { place: number; playerIndex: number; name: string; zeilen: string[] }[] {
+export function retirementAnnouncements(g: GameState, manager: number, rng: Rng): { place: number; playerIndex: number; name: string; zeilen: string[] }[] {
   const out: { place: number; playerIndex: number; name: string; zeilen: string[] }[] = [];
   for (let place = 0; place < 25; place++) {
     const l = g.lineups.at(manager * 25 + place);
     if (l.isEmpty) continue;
+    // Das Original würfelt vor der Prüfung von Byte 24 (0x0E788)
+    if (rng(32, 45) >= contractScore(g, manager, place)) continue;
     const b24 = l.u8(24);
     if (b24 & 0x80 || b24 >= 100) continue;
-    if (l.u8(11) !== 1) continue;
+    l.setU8(24, b24 | 0x80);
     const p = g.players.at(l.playerIndex);
-    const lo = Math.min(8, Math.abs(25 - p.u8(26)));
-    const a = 100 - div(100 * lo, 8);
-    const s = div(l.u8(16) + l.u8(17) + l.u8(18), 3);
-    const n = div(40 * a + 60 * s, 100);
-    if (rng(0, n) !== 0 || rng(0, 3) !== 0) continue;
-    const wurf = rng(0, 100);
-    l.setU8(24, 100 + (wurf > 90 ? 4 : wurf > 70 ? 3 : 2));
     const t = texte("ui.keineverlaengerung");
     out.push({ place, playerIndex: l.playerIndex, name: p.displayName, zeilen: [`${p.displayName} ${t[0]}`, t[1], t[2]] });
   }
   return out;
 }
 
-/** Angebot annehmen: Vertragsjahre und Gehalt setzen, Bit 7 löschen. */
+/**
+ * Verlängerungsangebot eines Spielers (Tagesroutine 0x0E83E bis 0x0E9D5): im letzten
+ * Vertragsjahr bietet er an, von 1 auf 2, 3 oder 4 Jahre zu verlängern (Vorlage 0 "$ bietet an,
+ * von # auf # Jahre zu verlängern"). Kaderbyte 24 wird 100 + Jahre; verhandelt wird im
+ * Vertragsdialog, und ohne Antwort verfällt das Angebot mit einem Sechstel je Tag
+ * (`contractCooldown`).
+ *
+ * Schwelle (0x0E83E bis 0x0E918): S = (Kondition + Technik + Form)/3, L = min(8, |25 - Alter|),
+ * A = 100 - 100·L/8, N₀ = (40·A + 60·S)/100, T = min(5, (Einsätze 28 + 30 + 32)/36) und
+ * **N = N₀ - N₀·T/10**: wer viele Einsätze hat, bietet eher an. T fehlte bis GitLab #83 (F3).
+ * Angeboten wird bei `random(0,N) = 0` und `random(0,3) = 0`; Jahre: `random(0,100)` über 90
+ * ergibt 4, über 70 ergibt 3, sonst 2 (0x0E96C).
+ *
+ * Geliehene Spieler (Kaderbyte 12) bieten nicht an: für sie endet die Schleife vorher
+ * (0x0E650, GitLab #83, F4).
+ *
+ * Bis GitLab #81 stand hier die Ankündigung, nicht zu verlängern - vertauscht mit der
+ * Karriereankündigung. In den Originalspielständen sind die Spieler mit 100 + Jahre zwischen
+ * 29 und 31 und im letzten Vertragsjahr.
+ */
+export function contractOffers(g: GameState, manager: number, rng: Rng): ContractOffer[] {
+  const out: ContractOffer[] = [];
+  for (let place = 0; place < 25; place++) {
+    const l = g.lineups.at(manager * 25 + place);
+    if (l.isEmpty || l.u8(12) !== 0) continue;
+    const p = g.players.at(l.playerIndex);
+    const s = div(l.u8(16) + l.u8(17) + l.u8(18), 3);
+    const lo = Math.min(8, Math.abs(25 - p.u8(26)));
+    const a = 100 - div(100 * lo, 8);
+    const n0 = div(40 * a + 60 * s, 100);
+    const u16 = (o: number) => l.u8(o) | (l.u8(o + 1) << 8);
+    const t = Math.min(5, div((u16(28) + u16(30) + u16(32)) & 0xffff, 36));
+    const n = n0 - div(n0 * t * 10, 100);
+    // Gewürfelt wird vor den übrigen Bedingungen (0x0E91F, 0x0E931)
+    if (rng(0, n) !== 0 || rng(0, 3) !== 0) continue;
+    // Kein liegendes Angebot (das Original prüft dessen Meldungszeiger in Feld 48), keine
+    // Karriereankündigung, letztes Vertragsjahr
+    const b24 = l.u8(24);
+    if (b24 & 0x80 || b24 >= 100 || l.u8(11) !== 1) continue;
+    const wurf = rng(0, 100);
+    const jahre = wurf > 90 ? 4 : wurf > 70 ? 3 : 2;
+    l.setU8(24, 100 + jahre);
+    out.push({ manager, place, playerIndex: l.playerIndex, name: p.displayName, yearsFrom: l.u8(11), yearsTo: jahre, salary: salaryDemand(g, manager, place, jahre) });
+  }
+  return out;
+}
+
+/**
+ * Angebot annehmen: Vertragsjahre und Gehalt setzen. Kaderbyte 24 bleibt auf 100 + Jahre, bis
+ * `contractCooldown` es zurücksetzt - was der Vertragsdialog 0x251FF beim Annehmen damit macht,
+ * klärt dessen Zweigbuch (#82).
+ */
 export function acceptOffer(g: GameState, offer: ContractOffer): void {
   const l = g.lineups.at(offer.manager * 25 + offer.place);
   l.setU8(11, offer.yearsTo);
@@ -187,7 +211,7 @@ export function rejectOffer(g: GameState, offer: ContractOffer, rng: Rng): void 
   l.setU8(24, rng(10, 18));
 }
 
-/** Angebot ablehnen: Bit 7 löschen, Byte 24 = 100 (kein weiteres Angebot). */
+/** Angebot ablehnen: Byte 24 = 100, das Angebot liegt nicht mehr (verfällt über `contractCooldown`). */
 export function declineOffer(g: GameState, offer: ContractOffer): void {
   const l = g.lineups.at(offer.manager * 25 + offer.place);
   l.setU8(24, 100);
@@ -197,10 +221,10 @@ export function declineOffer(g: GameState, offer: ContractOffer): void {
  * Tägliche Pflege des Verhandlungszählers (Kaderbyte 24) in der Tagesroutine, 0x0E5DC bis
  * 0x0E64C:
  *
- * * Steht dort ein Wert **über 99** - gesetzt beim "verlängert nicht"-Hinweis (100 + Stufe)
- *   und beim Ablehnen eines eigenen Angebots (100) -, kommt der Spieler mit `random(0,5) = 0`,
- *   also einem Sechstel je Tag, auf `random(9,17)` zurück und verhandelt wieder. **Die Absage
- *   ist im Original nicht endgültig.**
+ * * Steht dort ein Wert **über 99** - ein liegendes Verlängerungsangebot (100 + Jahre) oder
+ *   ein abgelehntes (100) -, **verfällt** es mit `random(0,5) = 0`, also einem Sechstel je Tag:
+ *   der Wert geht auf `random(9,17)`, und der Spieler kann wieder anbieten. (In #80 hatte ich
+ *   das als "Absage" gedeutet; das Verhalten stimmte, die Deutung nicht - siehe #81.)
  * * Sonst zählt der Wert täglich um eins herunter, bis er 0 erreicht.
  *
  * Nicht nachgebaut: Das Original knüpft die Rückkehr daran, dass zu dem Spieler noch ein

@@ -73,7 +73,7 @@ import {
   releaseExpiring,
   contractOffers,
   contractCooldown,
-  contractRefusalAnnouncements,
+  retirementAnnouncements,
   acceptOffer,
   declineOffer,
   generateOffers,
@@ -1698,7 +1698,7 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
         r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: ${text}`);
         pushMessage(r, i, wrap(text), dt);
       }
-      for (const ev of dailyFinance(g, i, dt, r.rng, r.balanceSums[i])) {
+      for (const ev of dailyFinance(g, i, dt, r.rng, r.balanceSums[i], d <= 321)) {
         r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: ${ev.text}`);
         // Was der Manager davon zu sehen bekommt, richtet sich nach dem Original (GitLab #41):
         // "Ihr Kredit von ... wurde heute fällig." steht in der Texttabelle des Hinweiskastens
@@ -1772,36 +1772,43 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
     const flagNeu = calendarFlag(g, kNeu);
     const tr = trainingInput(g);
     const dtNeu = dateOfSeasonDay(seasonDay(kNeu), startYear);
+    // Die ganze Tagesroutine entfällt ab Saisontag 322 (0x0DF4F): kein Markt, keine Verträge,
+    // kein Training, keine Automatik-Aufstellung. Bis GitLab #83 (F6) entfiel bei uns nur das
+    // Training.
+    const tagesroutine = seasonDay(kNeu) <= 321;
     g.activeManagers().forEach((m, i) => {
-      // Marktteile derselben Routine (Frische der Marktspieler 0xDF8F, Angebote fremder Vereine):
-      // einmal je Kalendertag, nicht je Saisontag (GitLab #33). Im Original stehen sie vor dem
-      // Kader (0xDF72 vor 0xEFA1).
-      for (const ev of dailyTransfers(g, i, seasonDay(kNeu), r.rng)) {
-        r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${ev.lines.join(" ")}`);
-        pushMessage(r, i, ev.lines, dtNeu);
-      }
-      // Verhandlungszähler pflegen (0x0E5DC): eine Absage hält nicht ewig, mit einem Sechstel
-      // je Tag verhandelt der Spieler wieder (GitLab #80)
-      for (const platz of contractCooldown(g, i, r.rng)) {
-        const l = g.lineups.at(i * 25 + platz);
-        r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${g.players.at(l.playerIndex).displayName} verhandelt wieder`);
-      }
-      // Ankündigung, dass ein Spieler im letzten Vertragsjahr nicht verlängert (0x0E9C1,
-      // GitLab #59) - die Vorwarnung zum Vertragsende
-      for (const a of contractRefusalAnnouncements(g, i, r.rng)) {
-        r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${a.name} verlängert nicht`);
-        pushMessage(r, i, a.zeilen, dtNeu);
-      }
-      for (const offer of contractOffers(g, i, r.rng)) {
-        r.offers.push(offer);
-        r.log.push(`${m.displayName}: ${offer.name} bietet Vertragsverlängerung an (${offer.yearsFrom} -> ${offer.yearsTo} Jahre, ${offer.salary} DM)`);
-        pushMessage(r, i, [`${offer.name} ${T("quell.server", 10)}`, `von ${offer.yearsFrom} auf ${offer.yearsTo}`, T("quell.server", 0)]);
+      if (tagesroutine) {
+        // Marktteile derselben Routine (Frische der Marktspieler 0xDF8F, Angebote fremder
+        // Vereine): einmal je Kalendertag, nicht je Saisontag (GitLab #33). Im Original stehen
+        // sie vor dem Kader (0xDF72 vor 0xEFA1).
+        for (const ev of dailyTransfers(g, i, seasonDay(kNeu), r.rng)) {
+          r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${ev.lines.join(" ")}`);
+          pushMessage(r, i, ev.lines, dtNeu);
+        }
+        // Verträge in der Reihenfolge des Originals je Kaderplatz (0x0E76F, 0x0E5DC, 0x0E83E):
+        // erst die Karriereankündigung, dann verfallen liegende Angebote, dann neue Angebote.
+        // Ankündigung und Angebot waren bis GitLab #81 vertauscht.
+        for (const a of retirementAnnouncements(g, i, r.rng)) {
+          r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${a.name} hört am Vertragsende auf`);
+          pushMessage(r, i, a.zeilen, dtNeu);
+        }
+        for (const platz of contractCooldown(g, i, r.rng)) {
+          const l = g.lineups.at(i * 25 + platz);
+          r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: Angebot von ${g.players.at(l.playerIndex).displayName} verfallen`);
+        }
+        for (const offer of contractOffers(g, i, r.rng)) {
+          r.offers.push(offer);
+          r.log.push(`${m.displayName}: ${offer.name} bietet Vertragsverlängerung an (${offer.yearsFrom} -> ${offer.yearsTo} Jahre, ${offer.salary} DM)`);
+          pushMessage(r, i, [`${offer.name} ${T("quell.server", 10)}`, `von ${offer.yearsFrom} auf ${offer.yearsTo}`, T("quell.server", 0)]);
+        }
       }
       const before = g.squadOf(i).map((l) => l.u8(9));
-      dailyTraining(g, i, seasonDay(kNeu), tr, r.rng, flagNeu === 0);
-      // Automatische Aufstellung (0x0DF0D -> 0x22030), wenn ein System gewählt ist - nach
-      // Training und Verletzungen, einmal je Kalendertag
-      autoLineupIfEnabled(g, i);
+      if (tagesroutine) {
+        dailyTraining(g, i, seasonDay(kNeu), tr, r.rng, flagNeu === 0);
+        // Automatische Aufstellung (0x0DF0D -> 0x22030), wenn ein System gewählt ist - nach
+        // Training und Verletzungen, einmal je Kalendertag
+        autoLineupIfEnabled(g, i);
+      }
       // Sponsorenangebote alle 14 Saisontage neu (0x1DC27: Saisontag mod 14 = 0 -> 0x176F4).
       // Bei uns standen sie die ganze Saison über fest (GitLab #34).
       if (seasonDay(kNeu) % 14 === 0) {

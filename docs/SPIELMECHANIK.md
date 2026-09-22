@@ -1803,12 +1803,25 @@ eines Vereins an den Rechner) oder wenn die Mechanik neu ist: die rund 35 Meldun
 Version 2026 (Bietgefecht, ablösefrei, Abwerben, Jugend, Derby, Doping, Arzt, Kredite unter
 Mitspielern, Überschuldung) gehören dazu. Alles andere gehört auf einen Bildschirm.
 
-## Vertragsangebote der Spieler (0x0DF0D ab 0xE76F, 0x16FC8, 0x30AA0; sim/contracts.ts)
+## Karriereankündigung und Vertragsangebote (0x0DF0D, 0x16FC8, 0x30AA0; sim/contracts.ts)
 
-Täglich je Kaderplatz ohne offenes Angebot (Byte 24 Bit 7) und Byte 24 < 100: Zufriedenheit
-= Alter·w/100 mit w = 100 - 15·[Torwart] - max(0, Te - Ko)/2; bei random(32,45) <
-Zufriedenheit setzt das Original Bit 7, legt einen Meldungsplatz (0x1D34, Typ 3) an und
-meldet "$ bietet an,^von # auf #^Jahre zu verlängern." (Jahre = Vertragsjahre und + 1).
+Zeile für Zeile belegt in `docs/abgleich/0DF0D.md`. **Bis GitLab #81 stand hier die
+Deutung vertauscht.**
+
+**Karriereankündigung** (ab 0xE76F): täglich je Kaderplatz wird random(32,45) gegen den Wert
+Alter·w/100 mit w = 100 - 15·[Torwart] - max(0, Te - Ko)/2 gewürfelt; liegt der Wurf
+darunter und ist Byte 24 frei (kein Bit 7, unter 100), setzt das Original Bit 7 und meldet mit
+Vorlage 4 "$ kündigt an,^daß er seinen Vertrag nicht^mehr verlängern wird." (Lebensdauer der
+Meldung 3 Tage, 0xE835). Keine Verhandlung. Läuft der Vertrag am Saisonende aus, hängt er
+die Schuhe an den Nagel (0x0D511, Vorlage 3). In allen Originalspielständen sind die Spieler
+mit Bit 7 zwischen 33 und 35.
+
+**Verlängerungsangebot** (ab 0xE83E, nicht für Leihspieler): im letzten Vertragsjahr bei
+random(0,N) = 0 und random(0,3) = 0 mit N = N₀ - N₀·T/10, N₀ = (40·A + 60·S)/100,
+A = 100 - 100·min(8, |25 - Alter|)/8, S = (Ko+Te+Fo)/3, T = min(5, (Einsätze 28 + 30 + 32)/36).
+Jahre 2/3/4 (random(0,100) über 70 bzw. 90), Byte 24 = 100 + Jahre, Meldung Vorlage 0
+"$ bietet an,^von # auf #^Jahre zu verlängern." Ohne Antwort verfällt das Angebot mit 1/6 je
+Tag (0xE5DC: Byte 24 auf random(9,17), danach täglich herunter).
 Die Verhandlung läuft im Vertragsdialog 0x251FF: Angebot unter der Forderung → "So dumm
 ist $ leider nicht", sonst "Ihr Angebot wurde angenommen". Forderung (0x25C27): v =
 Marktwert mit Flags 5 (also die Gehaltsbasis), prog = 100 - 100·nächster Spieltag/Spieltage

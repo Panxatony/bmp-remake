@@ -149,7 +149,8 @@ export function dailyTraining(g: GameState, manager: number, seasonDay: number, 
 }
 
 /**
- * Trainingsverletzungen (0x0DF0D ab 0xE668): je gesundem Kaderplatz Wahrscheinlichkeit
+ * Trainingsverletzungen (0x0DF0D ab 0xE668): je Kaderplatz ohne Sperre und ohne jeden Merker in
+ * Byte 9 Wahrscheinlichkeit
  * 1 / (30·Level + d + 81) mit d = max(40, 2·(160 - Frische + 25·[spielfreier Tag])).
  * Verletzung (0x17B0F): Grundform des Spielers (Byte 30) über 20 sinkt um random(12,19);
  * Art random(0,17), mit 50 % Chance neu gewürfelt, wenn ihre Dauer > random(2,4);
@@ -159,7 +160,9 @@ export function dailyTraining(g: GameState, manager: number, seasonDay: number, 
 export function trainingInjuries(g: GameState, manager: number, level: number, freeDay: boolean, rng: Rng): number[] {
   const injured: number[] = [];
   g.squadOf(manager).forEach((l, i) => {
-    if (l.u8(13) !== 0 || (l.u8(9) & 3) !== 0) return;
+    // Kaderbyte 9 muss ganz leer sein (0x0E6D1), nicht nur Sperre und Verletzung: wer etwa ein
+    // Angebot eines fremden Vereins hat (Bit 6/7), verletzt sich nicht (GitLab #83, F5)
+    if (l.u8(13) !== 0 || l.u8(9) !== 0) return;
     let d = 2 * (160 - l.u8(19) + (freeDay ? 25 : 0));
     if (d < 40) d = 40;
     if (rng(0, 30 * level + d + 80) !== 0) return;
