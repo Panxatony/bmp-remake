@@ -285,6 +285,10 @@ export function refreshMarket(g: GameState, rng: Rng): void {
       const range = [[0, 17], [18, 37], [38, 57]][league];
       do club = rng(range[0], range[1]);
       while (managers.some((m) => m.clubIndex === club));
+      // Eigenheit des Originals: die Bandsuche (0x2463A) benutzt den Schleifenzähler -0xA mit,
+      // 0x248C4 setzt ihn dafür auf 0 - danach zählt die Schleife vom Ligaband aus weiter, und
+      // es kommen mehr neue Spieler auf den Markt als ausgewürfelt
+      n = league;
     }
     const c = g.clubs.at(club);
     pl.setU8(28, clamp(rng(0, 14) + c.u8(25) - 10, 10, 99));
@@ -484,12 +488,16 @@ export function completePurchase(g: GameState, manager: number, slot: number, am
   const place = addToSquad(g, manager, l.playerIndex, years, rng);
   if (place < 0) return -1;
   const n = g.lineups.at(manager * 25 + place);
-  n.setU8(9, market[9] & 0x3f);
-  n.setU8(23, market[23]);
-  n.setU8(13, market[13]);
-  n.setU8(0, market[0]);
-  n.setU8(1, market[1]);
-  n.setU8(2, market[2]);
+  // Verletzung, Sperre und Karten wandern nur mit, wenn ein Manager verkauft (0x23EE5: nur mit
+  // der Marke aus 0x23DE8); ein Spieler des Rechners bekommt den frischen Platz aus 0x224A8
+  if (owner !== MARKET_MANAGER) {
+    n.setU8(9, market[9] & 0x3f);
+    n.setU8(23, market[23]);
+    n.setU8(13, market[13]);
+    n.setU8(0, market[0]);
+    n.setU8(1, market[1]);
+    n.setU8(2, market[2]);
+  }
   n.setU8(11, years);
   writeI32(g, manager * 25 + place, 40, salary);
   assignNumber(g, manager, place);
