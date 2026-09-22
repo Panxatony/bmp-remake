@@ -131,9 +131,23 @@ export interface ScorerRow {
  * Auswahlsortierung, die sofort tauscht; wo auch die Einsätze gleich sind, fällt die Folge so,
  * wie die Tauschkette sie legt, und ein gewöhnliches Sortieren trifft sie nicht (GitLab #62).
  */
+/**
+ * Saisontore für die Torschützenliste: 0x16515 schreibt vorher bei allen Spielern in den
+ * Managerkadern die Tore aus dem Kaderplatz (Byte 3) über Spielerbyte 34 (0x16566). Wer im
+ * Laufe der Saison von einem Verein des Rechners kam, zählt also nur mit den Toren seit dem
+ * Wechsel. Hier ohne Schreiben - der Saisonwechsel löscht Byte 34 ohnehin.
+ */
+function saisonTore(g: GameState): (c: number) => number {
+  const kader = new Map<number, number>();
+  g.activeManagers().forEach((_, m) => {
+    for (const l of g.squadOf(m)) kader.set(l.playerIndex, l.u8(3));
+  });
+  return (c: number) => kader.get(c) ?? g.players.at(c).u8(34);
+}
+
 function scorerOrder(g: GameState): number[] {
   const idx = Array.from({ length: 151 }, (_, i) => i);
-  const tore = (c: number) => g.players.at(c).u8(34);
+  const tore = saisonTore(g);
   const spiele = (c: number) => g.players.at(c).u8(35);
   for (let i = 1; i < 151; i++) {
     for (let j = i + 1; j < 151; j++) {
@@ -151,11 +165,12 @@ function scorerOrder(g: GameState): number[] {
 export function leagueScorers(g: GameState, league: number, limit = 20): ScorerRow[] {
   const L = LEAGUES[league];
   const out: ScorerRow[] = [];
+  const tore = saisonTore(g);
   for (const i of scorerOrder(g)) {
     const p = g.players.at(i);
     const club = p.u8(36);
-    if (club < L.base || club >= L.base + L.teams || p.u8(34) < 2 || p.u8(33) === 5 && p.name === "") continue;
-    out.push({ playerIndex: i, name: p.displayName, club, goals: p.u8(34), apps: p.u8(35), place: out.length + 1 });
+    if (club < L.base || club >= L.base + L.teams || tore(i) < 2 || p.u8(33) === 5 && p.name === "") continue;
+    out.push({ playerIndex: i, name: p.displayName, club, goals: tore(i), apps: p.u8(35), place: out.length + 1 });
     if (out.length >= limit) break;
   }
   return out;

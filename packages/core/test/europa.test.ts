@@ -89,7 +89,7 @@ test("Auslaufende Verträge: Verhandlung aufschiebbar, Freigabe bringt die Ablö
   const erg = releaseExpiring(g, 0, platz);
   assert.ok(erg.text.startsWith(name), erg.text);
   assert.equal(g.squadOf(0).map((x) => x.playerIndex).includes(spieler), false, "ist nicht mehr im Kader");
-  assert.equal(g.managers.at(0).balance, konto + Math.trunc(wert / 2), "halber Marktwert");
+  assert.equal(g.managers.at(0).balance, konto + Math.trunc(Math.trunc(wert / 2) / 1000) * 1000, "halber Marktwert, auf Tausend abgerundet");
   const nachher = g.squadOf(0).map((x) => x.playerIndex);
   assert.equal(nachher.length, vor.length - 1);
   assert.ok(nachher.every((x, i) => x === vor.filter((v) => v !== spieler)[i]), "Kader ist aufgeschoben, Reihenfolge bleibt");
