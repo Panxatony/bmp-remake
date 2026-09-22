@@ -13,6 +13,7 @@
 import type { GameState } from "../records.ts";
 import type { Rng } from "./match.ts";
 import { LiveMatch } from "./live.ts";
+import { composeZeitung, reportFromMatch } from "./zeitung.ts";
 import { bookEvents } from "./matchday.ts";
 import { minuteIncidents, newIncidentState, type IncidentState } from "./incidents.ts";
 import { matchStrength } from "./matchday.ts";
@@ -26,7 +27,9 @@ import { calendarFlag, dayIndex, FLAG_LEAGUE, dateOfSeasonDay, seasonDay, season
 import { dailyFinance, DAYS_IN_MONTH } from "./finance.ts";
 import { driftInterest, dailyConstruction } from "./stadium.ts";
 import { advanceCampOpen, CAMP_OPEN_START } from "./training.ts";
-import { driftClubs } from "./ai.ts";
+import { driftClubs, bookBaseBonus, creditAiGoals } from "./ai.ts";
+import { applyResult } from "./standings.ts";
+import { bookHistory } from "./history.ts";
 import { autoLineupIfEnabled, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
 
@@ -116,6 +119,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
   // Spieltagstreiber 0x46DB: Spielvorbereitung je Paarung in Ligareihenfolge (0x4914)
   kp(1);
   const managerOf = new Map(managers.map((m, i) => [m.clubIndex, i] as const));
+  const zuschauer = new Map<number, number>();
   for (let league = 0; league < 3; league++) {
     if (!(flag & FLAG_LEAGUE[league])) continue;
     for (const [home, away] of g.pairings(league)) {
@@ -127,6 +131,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
         if (isForfeit(g, mi)) break;
         if (managers[mi].clubIndex === home) {
           const att = attendance(g, { manager: mi, home, away, level: g.save.plain[34062] }, rng);
+          zuschauer.set(home, att);
           bookAttendance(g, mi, att, away);
           bookGate(g, mi, att);
         }
@@ -139,7 +144,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
   // 0x102B9 mit Schalter 1: Zahl je Seite, dann die Minuten erst für Heim, dann für Gast), danach
   // je Minute und Paarung Karten und Verletzungen (0x05FE5), nach glatt Rot oder Verletzung die
   // Neuauslosung (0x0657F), dann die Chancen der Minute (0x1060B, Buchung 0x1B223)
-  const spiele: { home: number; away: number; match: LiveMatch; seiten: [number, IncidentState, "home" | "away"][] }[] = [];
+  const spiele: { home: number; away: number; match: LiveMatch; seiten: [number, IncidentState, "home" | "away"][]; schuetzen: { minute: number; side: "home" | "away"; name: string }[] }[] = [];
   for (let league = 0; league < 3; league++) {
     if (!(flag & FLAG_LEAGUE[league])) continue;
     for (const [home, away] of g.pairings(league)) {
@@ -150,7 +155,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
         if (mi !== undefined) seiten.push([mi, newIncidentState(), seite]);
       }
       seiten.sort((a, b) => a[0] - b[0]);
-      spiele.push({ home, away, match, seiten });
+      spiele.push({ home, away, match, seiten, schuetzen: [] });
     }
   }
   const managerLigen = new Set(managers.map((m) => (m.clubIndex < 18 ? 0 : m.clubIndex < 38 ? 1 : 2)));
@@ -185,7 +190,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
         // Den Chancenhandler ruft der Torwürfel nur für Spiele mit Manager (0x108EF)
         if (!beteiligt(s)) return;
         kp(16);
-        bookEvents(g, s.home, s.away, { home: s.match.hg, away: s.match.ag, events: [c] }, 0, rng, [szenen ? pickScene(rng, c.goal) : false]);
+        s.schuetzen.push(...bookEvents(g, s.home, s.away, { home: s.match.hg, away: s.match.ag, events: [c] }, 0, rng, [szenen ? pickScene(rng, c.goal) : false]));
       }, (seite) => kp(seite === "home" ? 14 : 15));
     }
     if (minute !== 45 && minute !== 90) continue;
@@ -201,7 +206,51 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
       staerkeNeu();
     }
   }
-  return { punkte, bis: "nach der 90. Minute (Tabelle 0x2D143, Torschützen 0x160A2) fehlt noch" };
+  // Nach der 90. Minute je Liga (0x05C48): Tabelle mit Grundzuschlag je Paarung (0x2D143 ->
+  // 0x2C3FC, Heim dann Gast), dann die Torschützen der KI-Vereine (0x160A2 -> 0x15F14), dann
+  // mit dem Schalter "Ergebnisse" die Übersicht - und mit ihr die Stärke aller Manager neu
+  for (let league = 0; league < 3; league++) {
+    if (!(flag & FLAG_LEAGUE[league])) continue;
+    const paare = spiele.filter((sp) => g.pairings(league).some(([h, a]) => h === sp.home && a === sp.away));
+    kp(22);
+    for (const sp of paare) {
+      const { hg, ag } = sp.match;
+      applyResult(g, sp.home, sp.away, hg, ag);
+      bookHistory(g, sp.home, sp.away, hg, ag);
+      bookBaseBonus(g, sp.home, hg - ag, rng);
+      bookBaseBonus(g, sp.away, ag - hg, rng);
+    }
+    kp(23);
+    for (const sp of paare) {
+      creditAiGoals(g, sp.home, sp.match.hg, rng);
+      creditAiGoals(g, sp.away, sp.match.ag, rng);
+    }
+    if (managerLigen.has(league)) staerkeNeu();
+  }
+  // Sportzeitung (0x3074A): je Manager, der heute gespielt hat, in Managerreihenfolge erst die
+  // Noten (ohne Würfel), dann die Seite (0x2F243)
+  managers.forEach((m, mi) => {
+    const sp = spiele.find((x) => x.home === m.clubIndex || x.away === m.clubIndex);
+    if (!sp) return;
+    const inc = sp.seiten.flatMap(([, st]) => st.incidents);
+    const eigene = inc.filter((x) => x.manager === mi);
+    const bewertungen = new Map(g.squadOf(mi).filter((l) => !l.isEmpty).map((l) => [l.playerIndex, (l.u8(21) << 24) >> 24] as const));
+    kp(24);
+    const report = reportFromMatch(g, mi, {
+      home: sp.home,
+      away: sp.away,
+      result: sp.match.result(),
+      scorers: sp.schuetzen,
+      attendance: zuschauer.get(sp.home),
+      yellowNames: eigene.filter((x) => x.kind === "yellow").map((x) => x.name),
+      redNames: eigene.filter((x) => x.kind === "red" || x.kind === "yellowred").map((x) => x.name),
+      cards: inc.filter((x) => x.kind !== "injury").length,
+      bewertungen,
+    }, rng);
+    composeZeitung(report, rng);
+  });
+  kp(25);
+  return { punkte, bis: "nach der Zeitung fehlt noch" };
 }
 
 /** Szenenwahl des Laders 0x1502C (nur die Würfel): Nummer, Elfmeter, seltene Jubelszene. */

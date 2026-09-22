@@ -12,7 +12,6 @@ import type { GameState } from "../records.ts";
 import { texte, text as T } from "../data/texte.ts";
 import type { Rng, MatchEvent, TeamStrength } from "./match.ts";
 import { strength } from "./match.ts";
-import { matrixFor } from "./matchday.ts";
 import { TOTAL_CAPACITY } from "./stadium.ts";
 import { positionFit, lineDist } from "./goals.ts";
 
@@ -120,9 +119,11 @@ type Node = string | { sel: number; n: number; alts: Node[][] };
  *   + Reihenabstand / 5              wie bei der Spielerwahl: |Positionswert - Reihe|
  *   + Positionsabstand               |Spielerbyte 32 - Kaderbyte 25|
  *
- * Danach greift die Zeitung selbst noch einmal ein: wer über 25 bewertet wurde (und einen
- * Positionswert hat), bekommt random(1,2) abgezogen, mindestens 1 (0x2F69D); der **erste**
- * Spieler unter -15 bekommt random(1,2) aufgeschlagen, höchstens 6 (0x2F6DB).
+ * Danach greift die Zeitung selbst noch einmal ein, über **alle** Kaderplätze (0x2F63C) und mit
+ * der ungekappten Bewertung: wer über 25 bewertet wurde (und einen Positionswert hat), bekommt
+ * random(1,2) abgezogen, mindestens 1 (0x2F69D); der **erste** Spieler unter -15 - auch der
+ * Torwart - bekommt random(1,2) aufgeschlagen, höchstens 6 (0x2F6DB). Bis #99 prüfte das Remake
+ * nur die Starter und die gekappte Bewertung (nie unter -12): der Aufschlag fiel nie.
  */
 function spielnoten(g: GameState, manager: number, rng: Rng, bewertungen?: Map<number, number>): Map<number, number> {
   // Schlüssel ist die Spielernummer, nicht der Kaderplatz: `squadOf` baut bei jedem Aufruf neue
@@ -130,22 +131,27 @@ function spielnoten(g: GameState, manager: number, rng: Rng, bewertungen?: Map<n
   const aus = new Map<number, number>();
   let schlechtester = false;
   for (const l of g.squadOf(manager)) {
+    if (l.isEmpty) continue;
     const nr = l.u8(10);
-    if (nr < 1 || nr > 11) continue;
+    const starter = nr >= 1 && nr <= 11;
     const p = g.players.at(l.playerIndex);
-    const b = Math.max(-12, Math.min(36, bewertungen?.get(l.playerIndex) ?? (l.u8(21) << 24) >> 24));
-    let wert = 2 * (div(l.u8(16) + l.u8(17), -33) - div(Math.abs(30 - l.u8(18)), 6) + 12);
-    wert += 4 * (div(-(b + 12), 6) + 6);
-    wert += div(l.u8(19), 33);
-    wert += div(lineDist(l, p), 5);
-    wert += positionFit(l, p);
-    let note = Math.max(1, Math.min(6, div(wert, 11)));
-    if (p.u8(31) !== 0 && b > 25) note = Math.max(1, note - rng(1, 2));
-    else if (b < -15 && !schlechtester) {
+    const roh = bewertungen?.get(l.playerIndex) ?? (l.u8(21) << 24) >> 24;
+    let note = 6;
+    if (starter) {
+      const b = Math.max(-12, Math.min(36, roh));
+      let wert = 2 * (div(l.u8(16) + l.u8(17), -33) - div(Math.abs(30 - l.u8(18)), 6) + 12);
+      wert += 4 * (div(-(b + 12), 6) + 6);
+      wert += div(l.u8(19), 33);
+      wert += div(lineDist(l, p), 5);
+      wert += positionFit(l, p);
+      note = Math.max(1, Math.min(6, div(wert, 11)));
+    }
+    if (p.u8(31) !== 0 && roh > 25) note = Math.max(1, note - rng(1, 2));
+    if (roh < -15 && !schlechtester) {
       schlechtester = true;
       note = Math.min(6, note + rng(1, 2));
     }
-    aus.set(l.playerIndex, note);
+    if (starter) aus.set(l.playerIndex, note);
   }
   return aus;
 }
@@ -242,28 +248,109 @@ function pick(rng: Rng, prio: number, cur: number, taken: { v: number }, lo: num
   return cur;
 }
 
+/**
+ * Zeichenbreiten der kleinen Schrift (Zeichen 32..126 in der Schriftbelegung des Spiels, das
+ * Leerzeichen 2), wie sie die Breitenmessung 0x395F6 für die Artikelspalte liefert.
+ */
+const SCHRIFT = [2,3,5,4,5,5,5,3,3,3,5,4,3,4,2,5,5,5,5,5,5,5,5,5,5,5,3,4,5,5,5,5,5,4,4,4,4,4,4,5,4,4,4,5,4,6,5,4,4,6,4,5,4,5,6,6,6,4,4,5,5,5,5,4,0,5,5,5,5,4,5,5,5,3,4,5,5,6,5,5,5,5,5,5,5,5,6,6,5,5,4,5,5,4,5];
+const CP437_ZU_SPIEL: Record<string, string> = { "\x84": "{", "\x81": "}", "\x94": "|", "\xe1": "~", "\x8e": "[", "\x9a": "]", "\x99": "\\" };
+function breite(text: string): number {
+  let b = 0;
+  for (const c of text) {
+    const i = (CP437_ZU_SPIEL[c] ?? c).charCodeAt(0) - 32;
+    b += c === " " ? 2 : i >= 0 && i < SCHRIFT.length ? SCHRIFT[i] : 0;
+  }
+  return b;
+}
+
+/**
+ * Artikelspalte (0x2EFAB): die Artikel werden Wort für Wort gesetzt (0x2F0D3 trennt an Leerzeichen
+ * und 0xA0), fortlaufend über alle Artikel. Passt ein Wort nicht mehr in die Zeile (Breite über
+ * 180, 0x2EA7F), beginnt eine neue, 7 Punkte tiefer, ab y = 60. Liegt die Zeile nach einem Artikel
+ * über 148, ist die Spalte voll: weitere Artikel werden gar nicht erst ausgefüllt - ihre
+ * Platzhalter würfeln also auch nicht (#99). Liefert die gesetzten Artikel.
+ */
+function artikelspalte(vorlagen: number[], fuellen: (i: number) => string): string[] {
+  const aus: string[] = [];
+  let zeile = "";
+  let y = 60;
+  for (const i of vorlagen) {
+    const text = fuellen(i);
+    aus.push(text);
+    let p = 0;
+    while (p < text.length) {
+      let wort = "";
+      while (p < text.length && text[p] !== " " && text[p] !== "\xa0") wort += text[p++];
+      const probe = zeile ? zeile + " " + wort : wort;
+      if (breite(probe) > 180) {
+        y += 7;
+        zeile = "";
+      }
+      zeile = zeile ? zeile + " " + wort : wort;
+      if (p < text.length) p++;
+    }
+    if (y > 148) break;
+  }
+  return aus;
+}
+
+/** Gewichte der Verlaufskurve (4cb3:937E). */
+const KURVE = [3, 4, 5, 7, 9, 10, 9, 7, 5, 4, 3];
+
 /** Zeitung eines Managers aus seinem Spielbericht zusammensetzen (0x2F243). */
 export function composeZeitung(r: MatchReport, rng: Rng): Zeitung {
   const diff = r.ownGoals - r.oppGoals;
   const result = diff > 0 ? 1 : diff < 0 ? 2 : 0;
-  const chances = r.events.length;
-  // Frühe Tore/Chancen und später Treffer (Schleifen ab 0x2F4D2)
+  // Chancenzahl (Berichtsbyte 6), vom Original vor allem Weiteren auf 3..10 begrenzt (0x2F85F)
+  const chances = clamp(r.events.length, 3, 10);
+  // Tore (Liste 0x13/0x27) und vergebene Chancen (Liste 0x3B/0x4F) des Spielberichts; daraus
+  // die Verlaufskurve über 120 Minuten (0x2F4B1): je Ereignis in Minute m die Gewichte
+  // 3,4,5,7,9,10,9,7,5,4,3 auf m-5..m+5 (nur 1..119), für die eigene Seite dazu, für den
+  // Gegner ab. Bis #99 stand hier eine Näherung mit 66 je Ereignis.
   const goals = r.events.filter((e) => e.goal);
   const misses = r.events.filter((e) => !e.goal);
-  const earlyGoal = goals.some((e) => e.minute < 8);
-  const earlyChance = !earlyGoal && misses.some((e) => e.minute < 8);
-  const last = goals[goals.length - 1];
-  const lateDecisive = last !== undefined && last.minute > 80 && Math.abs(r.ownGoals - r.oppGoals) <= 1;
+  const kurve = new Array<number>(120).fill(0);
+  const eintragen = (m: number, own: boolean) => {
+    for (let i = 0; i < 11; i++) {
+      const k = m - 5 + i;
+      if (k > 0 && k < 120) kurve[k] += own ? KURVE[i] : -KURVE[i];
+    }
+  };
+  // Frühes Tor (vor Minute 8): das erste entscheidet, ob es ein eigenes (Artikel 17) oder ein
+  // Gegentor (Artikel 16) war. Spätes Tor: das letzte, nach der 80. Minute, zum Ausgleich oder
+  // zur Führung (Artikel 18).
+  let fruehEigen = false;
+  let fruehGegner = false;
+  let lateDecisive = false;
+  let og = 0;
+  let pg = 0;
+  goals.forEach((e, i) => {
+    if (e.minute < 8) {
+      if (e.own && !fruehGegner) fruehEigen = true;
+      if (!e.own && !fruehEigen) fruehGegner = true;
+    }
+    if (i === goals.length - 1 && e.minute > 80) {
+      if (e.own && (og === pg || og - pg === -1)) lateDecisive = true;
+      if (!e.own && (og === pg || og - pg === 1)) lateDecisive = true;
+    }
+    if (e.own) og++;
+    else pg++;
+    eintragen(e.minute, e.own);
+  });
+  for (const e of misses) eintragen(e.minute, e.own);
   const ownMisses = misses.filter((e) => e.own).length;
-  // Spielverlaufskurve: je Ereignis 66 Punkte (Gewichte 3,4,5,7,9,10,9,7,5,4,3) für oder gegen
-  let sum = 0;
-  for (const e of r.events) sum += e.own ? 66 : -66;
-  if (div(sum, 120) > 2) sum = 2;
-  const klasse = Math.min(4, div(clamp(chances, 3, 10) - 3, 2) + (result === 1 ? 1 : 0) + 1);
+  // 0x2F843: die Summe wird durch 120 geteilt (Division mit Zuweisung) und nach oben auf 2
+  // begrenzt - ein Mittelwert je Minute, kein Rohwert
+  let sum = div(kurve.reduce((a, b) => a + b, 0), 120);
+  if (sum > 2) sum = 2;
+  const klasse = Math.min(4, div(chances - 3, 2) + (result === 1 ? 1 : 0) + 1);
   let mood = 1;
   if (result === 1 || (result === 0 && r.oppStrength > r.ownStrength) || (result === 0 && r.attendance === 0 && r.ownStrength + 10 < r.oppStrength)) mood = 2;
+  // 0x2F9AC: bei positiver Summe 1, sonst wird gewürfelt - auch bei negativer Summe, dort
+  // ohne Wirkung (bis #99 nur bei Summe 0)
   let momentum = 2;
-  if (sum > 0 || (sum === 0 && rng(0, 1) !== 0)) momentum = 1;
+  if (sum > 0) momentum = 1;
+  else if (rng(0, 1) !== 0 && sum === 0) momentum = 1;
   const flags: Flags = { place: r.attendance !== 0 ? 1 : 2, klasse, result: result + 1, mood, momentum };
   const ctx: Ctx = { r, flags, rng };
 
@@ -279,8 +366,8 @@ export function composeZeitung(r: MatchReport, rng: Rng): Zeitung {
   art(5);
   if (lateDecisive) art(18);
   if (ownMisses > 3 && diff < 2) art(12);
-  if (earlyChance) art(16);
-  if (earlyGoal) art(17);
+  if (fruehGegner) art(16);
+  if (fruehEigen) art(17);
   if (ownMisses < 2 && result === 1) art(13);
   if (result === 2) art(19);
   if (result === 1) art(7);
@@ -330,7 +417,7 @@ export function composeZeitung(r: MatchReport, rng: Rng): Zeitung {
   group(momentum === 1 && result === 0, 3);
 
   const headline = expandTemplate(schlagzeilen()[head], ctx).split("\n");
-  const sentences = articles.map((i) => expandTemplate(artikel()[i], ctx));
+  const sentences = artikelspalte(articles, (i) => expandTemplate(artikel()[i], ctx));
   return { headline, sentences, picture: r.picture, lineup: r.lineup, goals: r.goals, yellow: r.yellow, red: r.red };
 }
 
@@ -350,6 +437,12 @@ export interface ReportSource {
    * Note und es gäbe nie einen besten oder schwächsten Mann (GitLab #70).
    */
   bewertungen?: Map<number, number>;
+  /**
+   * Spielmatrix je Verein, wie sie am Ende im Vereinssatz steht (0x0F9D2 mit Flag 1 schreibt sie
+   * dorthin). Ohne Angabe gilt der Vereinssatz. Das Original liest sie nur - bis #99 rechnete der
+   * Bericht die Stärke der Managervereine hier noch einmal aus und würfelte dabei.
+   */
+  staerke?: Map<number, TeamStrength>;
 }
 
 /** Spielbericht eines Managers aus einem gespielten Spiel aufbauen (0x305DE je Ereignis). */
@@ -392,7 +485,7 @@ export function reportFromMatch(g: GameState, manager: number, m: ReportSource, 
     if (rating < -15 && worst === "") worst = p.name;
   }
   const str = (club: number): number => {
-    const t: TeamStrength = matrixFor(g, club, rng);
+    const t: TeamStrength = m.staerke?.get(club) ?? g.clubs.at(club).strengthMatrix;
     return div((strength(t, 0, 0) + strength(t, 1, 0) + strength(t, 2, 0)) * 2, 15);
   };
   const attendance = home ? (m.attendance ?? 0) : 0;

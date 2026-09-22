@@ -65,7 +65,14 @@ PUNKTE = [
     (19, 0x611E, 0x076B, 0x0CC7),  # Wurf Gelb
     (20, 0x623C, 0x076B, 0x0CC7),  # Wurf Verletzung
     (21, 0x5BD6, 0x06C7, 0x083C),  # Halbzeitende der Live-Schleife (Rahmen 0x06C7:083C)
+    (22, 0x5C68, 0x2A41, 0x2D33),  # nach 90: Tabelle der Liga 0x2D143
+    (23, 0x5C74, 0x14A4, 0x1662),  # nach 90: Torschützen der KI-Vereine 0x160A2
+    (24, 0x4CC1, 0x2E3A, 0x23AA),  # Noten und Zeitung aller Manager 0x3074A
 ]
+# Punkte mit Speicherabzug: vor dem Eintrag werden DUMP_LAENGE Bytes ab 4238:DUMP_VON nach
+# 4238:LOG+DUMP_ZIEL kopiert (die Spielberichte 4238:90CA, 154 Bytes je Manager)
+DUMP_PUNKTE: set = set()
+DUMP_VON, DUMP_LAENGE, DUMP_ZIEL = 0x90CA, 3 * 154, 0x200
 # --ring: das Protokoll läuft im Kreis (älteste Einträge werden überschrieben); die Einträge
 # tragen den Zustand, der Leser ordnet sie nach der Wurfzahl
 RING = False
@@ -193,6 +200,7 @@ def quelltext_spur(spur: int) -> str:
     seiner Rücksprungadresse ins Protokoll: Kennung 0x8000, dann Offset und Segment (zur
     Laufzeit, also mit Ladesegment) - ohne Zustand, die Reihenfolge genügt. chkstk selbst
     entfällt: random ruft es mit AX = 0, es prüft dann nur den Stapel."""
+    ring_oder_voll = f"  jb 2f\n  xor si, si\n  mov word ptr es:[{LOG:#x}], si\n2:" if RING else "  jae voll"
     return f""".code16
 .intel_syntax noprefix
 .set spur, {spur:#x}
@@ -207,7 +215,7 @@ def quelltext_spur(spur: int) -> str:
   mov es, ax
   mov si, word ptr es:[{LOG:#x}]
   cmp si, {MAX_EINTRAEGE}
-  jae voll
+{ring_oder_voll}
   inc word ptr es:[{LOG:#x}]
   shl si, 1
   shl si, 1
@@ -234,20 +242,52 @@ def kennung(k: int) -> int:
     return k | (SPUR if k in SPUR_PUNKTE else 0) | (STILL if k in STILL_PUNKTE else 0) | (HALT if k in HALT_PUNKTE else 0)
 
 
-def quelltext_stummel(protokoll: int) -> str:
+def quelltext_dump(protokoll: int) -> str:
+    """Kopiert den Speicherbereich ins Protokoll und springt dann in den Protokollierer."""
+    return f""".code16
+.intel_syntax noprefix
+.set protokoll, {protokoll:#x}
+.text
+  push si
+  push di
+  push cx
+  push ds
+  push es
+  push ax
+  mov ax, cs
+  add ax, {(DATA - CAVE_SEG) & 0xFFFF:#x}
+  mov ds, ax
+  mov es, ax
+  mov si, {DUMP_VON:#x}
+  mov di, {LOG + DUMP_ZIEL:#x}
+  mov cx, {DUMP_LAENGE}
+  cld
+  rep movsb
+  pop ax
+  pop es
+  pop ds
+  pop cx
+  pop di
+  pop si
+  jmp protokoll
+"""
+
+
+def quelltext_stummel(protokoll: int, dump: int = 0) -> str:
     stummel = "\n".join(
-        f"stummel{k}:\n  call protokoll\n  .word {(seg - CAVE_SEG) & 0xFFFF:#x}, {off:#x}\n  .word {kennung(k):#x}"
+        f"stummel{k}:\n  call {'dump' if k in DUMP_PUNKTE else 'protokoll'}\n  .word {(seg - CAVE_SEG) & 0xFFFF:#x}, {off:#x}\n  .word {kennung(k):#x}"
         for k, _, seg, off in aktive())
     return f""".code16
 .intel_syntax noprefix
 .set protokoll, {protokoll:#x}
+.set dump, {dump:#x}
 .text
 {stummel}
 """
 
 
 def main() -> None:
-    global SPUR_PUNKTE, STILL_PUNKTE, RING, HALT_PUNKTE, OHNE_PUNKTE
+    global SPUR_PUNKTE, STILL_PUNKTE, RING, HALT_PUNKTE, OHNE_PUNKTE, DUMP_PUNKTE
     args = sys.argv[1:]
     liste = lambda v: {int(x) for x in v.split(",") if x}
     while len(args) > 1 and args[0].startswith("--"):
@@ -255,6 +295,8 @@ def main() -> None:
             SPUR_PUNKTE = liste(args[1])
         elif args[0] == "--still":
             STILL_PUNKTE = liste(args[1])
+        elif args[0] == "--dump":
+            DUMP_PUNKTE = liste(args[1])
         elif args[0] == "--halt":
             HALT_PUNKTE = liste(args[1])
         elif args[0] == "--ohne":
@@ -302,7 +344,20 @@ def main() -> None:
     if bytes(b[o:o + 5]) != bytes.fromhex("9ac602013a") or RANDOM_CHKSTK + 3 not in rel:
         raise SystemExit("random sieht anders aus")
     b[o:o + 5] = bytes([0x9A]) + r_org.to_bytes(2, "little") + CAVE_SEG.to_bytes(2, "little")
-    s_code = asm(quelltext_stummel(p_org), s_org)
+    belegt |= set(range(r_start - 1, r_start + r_len))
+    d_org = 0
+    if DUMP_PUNKTE & {k for k, *_ in aktive()}:
+        d_len = len(asm(quelltext_dump(p_org), CAVE_OFF))
+        d_start = CAVE_ADDR
+        while True:
+            d_start = luecke(rel, d_start, ende, d_len)
+            if not belegt & set(range(d_start, d_start + d_len)):
+                break
+            d_start += 1
+        d_org = CAVE_OFF + (d_start - CAVE_ADDR)
+        d_code = asm(quelltext_dump(p_org), d_org)
+        b[HDR + d_start:HDR + d_start + len(d_code)] = d_code
+    s_code = asm(quelltext_stummel(p_org, d_org), s_org)
     stummel = {}
     for k, _, seg, off in aktive():
         muster = ((seg - CAVE_SEG) & 0xFFFF).to_bytes(2, "little") + off.to_bytes(2, "little") + kennung(k).to_bytes(2, "little")
@@ -321,7 +376,7 @@ def main() -> None:
             raise SystemExit(f"unerwartete Bytes bei {addr:#x}: {b[o:o + 5].hex()}")
         b[o:o + 5] = bytes([0x9A]) + stummel[k].to_bytes(2, "little") + CAVE_SEG.to_bytes(2, "little")
     open(pfad, "wb").write(b)
-    print(f"{pfad}: {len(aktive())} Kontrollpunkte, Protokollierer {len(p_code)} Bytes bei {CAVE_SEG:04x}:{p_org:04x}, Stummel {len(s_code)} Bytes bei {CAVE_SEG:04x}:{s_org:04x}, Spur {len(r_code)} Bytes bei {CAVE_SEG:04x}:{r_org:04x}")
+    print(f"{pfad}: {len(aktive())} Kontrollpunkte, Protokollierer {len(p_code)} Bytes bei {CAVE_SEG:04x}:{p_org:04x}, Stummel {len(s_code)} Bytes bei {CAVE_SEG:04x}:{s_org:04x}, Spur {len(r_code)} Bytes bei {CAVE_SEG:04x}:{r_org:04x}" + (f", Abzug bei {CAVE_SEG:04x}:{d_org:04x}" if d_org else ""))
 
 
 if __name__ == "__main__":
