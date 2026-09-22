@@ -174,6 +174,15 @@ interface LiveState {
   elfmeter?: LiveElfmeter | null;
 }
 
+/**
+ * Gespielte Minuten der linken und der rechten Balkenhälfte (0x4EEF, 0x5186): regulär 1..45 und
+ * 46..90, in der Verlängerung 91..105 und 106..120 - dort beginnen beide Balken wieder leer.
+ */
+function halbzeitMinuten(minute: number): [number, number] {
+  if (minute > 90) return [Math.min(minute, 105) - 90, Math.max(0, minute - 105)];
+  return [Math.min(minute, 45), Math.max(0, Math.min(minute, 90) - 45)];
+}
+
 /** Tafel des Elfmeterschießens (0x6733); es kommen nur die Schüsse, die schon gefallen sind. */
 interface LiveElfmeter {
   home: number;
@@ -1829,8 +1838,9 @@ class App {
       if (this.kartenMeldung) s.drawCenter(ctx, this.kartenMeldung.text, 160, 232, this.kartenMeldung.farbe);
       else {
         f.drawCenter(ctx, toGame(label), 160, 233, COLORS.white, false);
-        this.drawHalfBar(35, 234, 92, Math.min(live.minute, 45) / 45);
-        this.drawHalfBar(194, 234, 94, Math.max(0, Math.min(live.minute - 45, 45)) / 45);
+        const [links, rechts] = halbzeitMinuten(live.minute);
+        this.drawHalfBar(35, 234, 92, 2 * links);
+        this.drawHalfBar(194, 234, 94, 2 * rechts, true);
       }
       // Der Hinweis aufs Auswechseln ist unsere Zutat; im Original steht dort nichts. Er passt
       // nur ins freie Viertel rechts unten, das es erst ab drei Tafeln und nur bis drei gibt.
@@ -1842,10 +1852,16 @@ class App {
       }
     } else {
       f.drawCenter(ctx, toGame(label), 160, bottomY + 100, COLORS.white, false);
-      // Fortschritt der beiden Halbzeiten links und rechts neben der Minute (im Original
-      // vermessen: Balken bei (32,y) 92x4 und (192,y) 94x4, y vier unter der Zeile)
-      this.drawHalfBar(32, bottomY + 104, 92, Math.min(live.minute, 45) / 45);
-      this.drawHalfBar(192, bottomY + 104, 94, Math.max(0, Math.min(live.minute - 45, 45)) / 45);
+      // Fortschritt der beiden Hälften links und rechts neben der Minute (im Original vermessen:
+      // Balken bei (32,y) 92x4 und (192,y) 94x4, y vier unter der Zeile). Das Original setzt je
+      // Minute eine 2 Pixel breite Marke (0x5186, 0x5B16): links von links nach rechts, rechts
+      // **von rechts nach links** (0x55BD kehrt die Richtung je Hälfte um). Zu Beginn jeder
+      // Hälfte leert 0x4EEF beide Balken und zeichnet die abgeschlossene linke Hälfte nach -
+      // in der zweiten Halbzeit voll, ab der 106. Minute das Drittel aus 91..105. Die
+      // Verlängerung füllt also je Hälfte nur 30 Pixel (GitLab #72).
+      const [links, rechts] = halbzeitMinuten(live.minute);
+      this.drawHalfBar(32, bottomY + 104, 92, 2 * links);
+      this.drawHalfBar(192, bottomY + 104, 94, 2 * rechts, true);
       if (this.kartenMeldung) s.drawCenter(ctx, this.kartenMeldung.text, 160, bottomY + 112, this.kartenMeldung.farbe);
       else if (unterbrechbar) {
         s.drawCenter(ctx, hinweis, 160, bottomY + 112, COLORS.textDim);
@@ -2025,8 +2041,9 @@ class App {
    * Fortschrittsbalken einer Halbzeit (im Original neben der Spielminute): 4 Pixel hoch, oben
    * und links hell (#a2a2c3), unten und rechts dunkel (#303051), leer #616182; der gefüllte
    * Teil ist in der oberen Innenzeile gelb (#f3f300) und in der unteren weiß (#f3f3f3).
+   * `pixel` ist die gefüllte Breite (2 je Minute), `vonRechts` füllt vom rechten Rand her.
    */
-  drawHalfBar(x: number, y: number, w: number, part: number): void {
+  drawHalfBar(x: number, y: number, w: number, pixel: number, vonRechts = false): void {
     const ctx = this.ctx;
     ctx.fillStyle = "#616182";
     ctx.fillRect(x, y, w, 4);
@@ -2036,12 +2053,13 @@ class App {
     ctx.fillStyle = "#303051";
     ctx.fillRect(x, y + 3, w, 1);
     ctx.fillRect(x + w - 1, y, 1, 4);
-    const füllung = Math.round((w - 2) * Math.max(0, Math.min(1, part)));
+    const füllung = Math.max(0, Math.min(w - 2, Math.round(pixel)));
     if (füllung > 0) {
+      const x0 = vonRechts ? x + w - 1 - füllung : x + 1;
       ctx.fillStyle = "#f3f300";
-      ctx.fillRect(x + 1, y + 1, füllung, 1);
+      ctx.fillRect(x0, y + 1, füllung, 1);
       ctx.fillStyle = "#f3f3f3";
-      ctx.fillRect(x + 1, y + 2, füllung, 1);
+      ctx.fillRect(x0, y + 2, füllung, 1);
     }
   }
 

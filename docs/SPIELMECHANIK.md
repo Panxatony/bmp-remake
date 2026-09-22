@@ -1455,8 +1455,14 @@ Links und rechts neben der Spielminute steht je ein Balken für die erste und di
 Halbzeit: links bei x 32, 92 breit, rechts bei x 192, 94 breit, beide 4 Pixel hoch und vier
 Pixel unter dem Kopf der Minutenzeile. Oben und links ist der Rand hell (#a2a2c3), unten und
 rechts dunkel (#303051), der leere Teil #616182. Der gefüllte Teil ist in der oberen Innenzeile
-gelb (#f3f300) und in der unteren weiß (#f3f3f3); die Füllung ist Minute/45 der jeweiligen
-Halbzeit (in der 18. Minute waren links 36 von 90 Innenpixeln gefüllt).
+gelb (#f3f300) und in der unteren weiß (#f3f3f3). Im Code (0x5186, 0x5B16): je Minute setzt das
+Original eine 2 Pixel breite Marke, links ab x 36 nach rechts, **rechts ab x 285 nach links** -
+0x55BD kehrt die Richtung je Hälfte um, die Startpunkte stehen in DGROUP 0x8A. Zu Beginn jeder
+Hälfte leert 0x4EEF beide Balken und zeichnet die abgeschlossene linke Hälfte nach: in der
+zweiten Halbzeit voll, ab der 106. Minute bis x 64. Die Verlängerung läuft als zwei weitere
+Hälften derselben Live-Schleife (Aufrufe bei 0x4B0E mit 91..105 und 0x4B31 mit 106..120) und
+füllt je Balken also nur 30 Pixel. Eine Übersichtsseite gibt es nur am Ende der Minuten 45
+und 90 (0x5C7E, 0x5C9F), nicht nach 105; nach 120 folgt die Pokalübersicht (0x198EB).
 
 ## Konferenztafel: Zuschauerzahl
 
