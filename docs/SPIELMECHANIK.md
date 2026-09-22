@@ -1759,7 +1759,24 @@ random(45,55), Verein = alter Verein des Datensatzes (Managerverein oder ungült
 Verein der Liga), Ko = clamp(random(0,14) + Verein25 - 10, 10, 99), Te = random(0,14) +
 Verein28 - 10 (1/5: + random(12,20)), Aufnahme (0x224A8), Preis = Marktwert Flag 4.
 
-## Saisonende je Manager (0x0CB62; sim/seasonEvents.ts)
+## Saisonende je Manager (0x0CB62; sim/seasonEvents.ts; Zweigbuch docs/abgleich/0CB62.md)
+
+Ablauf (GitLab #94): je Manager der Reihe nach Prämien, Torschützenkönig, Jugend und
+Karriereende; **beim ersten Manager** zwischen Jugend und Karriereende einmal für alle 150
+Spieler der Jahrgangswechsel (0x0D288..0x0D472): Alter + 1, auf Kader- und Marktplätzen
+Angebotsmarken (Byte 9 Bits 6/7) weg und Vertragsjahr - 1; wer nicht dem gehört, bei dem er
+steht (Spielerbyte 33 - Leihspieler, eigene Spieler auf der Transferliste), geht zurück: zum
+Manager über die Aufnahme 0x224A8 mit dem ganzen alten Kaderplatz, ohne Leihmarke (12) und
+Vertragsgespräch (24); gehörte er dem Markt, ist er frei. Nach der Schleife werden in den
+Managerkadern (Plätze 0..23) die Saisonwerte Byte 0..8 gelöscht - die Karrieresummen 28..38
+bleiben (in RIED-2TE bis RIED-6TE wachsen sie über jeden Saisonwechsel) -, dann die
+Vertragsenden. Torschützenkönig: Platz 1 der Torschützenliste der eigenen Liga (0x16515:
+mindestens zwei Tore, bei Gleichstand weniger Spiele vorn, bei Managerspielern zählen die Tore
+des Kaderplatzes). Jugendspieler über 0x224A8 (Frische random(80,120), Trainingsfaktor, keine
+Rückennummer), danach halbes Gehalt und random(2,3) Jahre; der Positionswert (Spielerbyte 31)
+des wiederverwendeten Datensatzes bleibt stehen. Ablöse beim Vertragsende: halber Marktwert,
+auf Tausend abgerundet. Im Modus "Spiele automatisch" (4cb3:05D4) würfelt das Original die
+Alter neu statt Verträge abzuziehen - den Modus gibt es hier nicht.
 
 Byte 320 (vom Tagesablauf gesetzt): Bit 0 Aufstieg (800.000 DM in die 2. Liga, 1.600.000
 DM in die Bundesliga), Bit 1 "Ihr Abstieg erschüttert Millionen Fans", Bit 2 "DFB

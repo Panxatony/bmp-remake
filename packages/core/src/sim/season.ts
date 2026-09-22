@@ -162,11 +162,8 @@ export function newSeason(g: GameState, rng: Rng, verlaengerung = false): Season
   const managersBefore = g.activeManagers().map((m) => m.clubIndex);
   const moves = promoteRelegate(g, rng);
   const flags = managersBefore.map((c) => (moves.up.includes(c) ? 1 : moves.licence.includes(c) ? 4 : moves.down.includes(c) ? 2 : 0));
-  // Verträge laufen vor den Ereignissen ab (Original: Alterung im Ereignisbildschirm)
-  for (let i = 0; i < 100; i++) {
-    const l = g.lineups.at(i);
-    if (!l.isEmpty && l.u8(11) > 0) l.setU8(11, l.u8(11) - 1);
-  }
+  // Vertragsjahre, Alter, Rückkehr der Leihspieler und Saisonwerte der Kader laufen im
+  // Ereignisbildschirm in der Reihenfolge des Originals (seasonEvents, 0x0CB62)
   const events = seasonEvents(g, flags, rng, verlaengerung);
   shuffleLeagues(g, rng);
   // Spielerpool der KI-Vereine nach den Vertragsdialogen (0x0DB40 -> 0x0F2A6)
@@ -201,16 +198,6 @@ export function newSeason(g: GameState, rng: Rng, verlaengerung = false): Season
     if (pl.isEmpty) continue;
     pl.setU8(34, 0);
     pl.setU8(35, 0);
-  }
-  // Kaderplätze aller Manager und Transfermarkt: Vertragsjahr weniger, Karten/Tore/Einsätze zurück
-  for (let i = 0; i < 125; i++) {
-    const l = g.lineups.at(i);
-    if (l.isEmpty) continue;
-    // Saisontore in Liga, Pokal und Europapokal (Bytes 3, 4, 5) - Byte 5 wird seit GitLab #85
-    // gebucht; in den Originalspielständen steht es bei 0, auch wo die Karrieresumme 38 nicht 0 ist
-    for (const off of [1, 3, 4, 5, 6, 7]) l.setU8(off, 0);
-    for (const off of [28, 29, 30, 31, 34, 35, 36, 37]) l.setU8(off, 0);
-    l.setU8(9, l.u8(9) & 0x3f);
   }
   // Manager: Krawall-Flag, Zuschauerhistorie; Werbung (0x0CC00) und neue Sponsorenangebote (0x176F4).
   // Die Werbeverträge rührt das Original nur nach einem Aufstieg an (0x0D924); lief der

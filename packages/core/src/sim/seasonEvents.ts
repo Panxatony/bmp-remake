@@ -8,7 +8,10 @@ import { is2026 } from "./regeln.ts";
 import type { Rng } from "./match.ts";
 import { playerValue } from "./value.ts";
 import { removePlace } from "./transfer.ts";
+import { addToSquad as aufnehmen } from "./newgame.ts";
+import { TABLES } from "../records.ts";
 import { sortIntoSquad } from "./lineup.ts";
+import { leagueScorers } from "./display.ts";
 
 const div = (a: number, b: number): number => Math.trunc(a / b);
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
@@ -38,21 +41,15 @@ function addBalance(g: GameState, manager: number, amount: number): void {
   for (let i = 0; i < 4; i++) m.setU8(496 + i, (v >>> (8 * i)) & 0xff);
 }
 
-/** Torschützenkönig der Liga des Managers? (0x16515: bester Ligatorschütze, Spieler Byte 34) */
+/**
+ * Torschützenkönig aus dem eigenen Verein? Das Original fragt die Torschützenliste der eigenen
+ * Liga (0x16515 mit Argument 1): Platz 1 - mindestens zwei Tore, bei Gleichstand weniger
+ * Spiele vorn - muss für den Verein des Managers spielen (0x16A1B).
+ */
 function hasTopScorer(g: GameState, manager: number): boolean {
   const club = g.managers.at(manager).clubIndex;
   const league = club < 18 ? 0 : club < 38 ? 1 : 2;
-  const inLeague = (c: number) => (c < 18 ? 0 : c < 38 ? 1 : 2) === league;
-  let best = 0;
-  let bestClub = -1;
-  for (const p of g.players.toArray()) {
-    if (p.isEmpty || !inLeague(p.u8(36))) continue;
-    if (p.u8(34) > best) {
-      best = p.u8(34);
-      bestClub = p.u8(36);
-    }
-  }
-  return best > 0 && bestClub === club;
+  return leagueScorers(g, league, 1)[0]?.club === club;
 }
 
 /** Freien Spielerdatensatz (Manager 5 = niemand) finden. */
@@ -69,11 +66,10 @@ function freePlace(g: GameState, manager: number): number {
   return -1;
 }
 
-/** Spieler in den Kader aufnehmen (0x224A8): Nummer 12+, Vertrag, Gehalt aus dem Marktwert. */
 /**
- * Jugendspieler in den Kader setzen (0x0CE84): Rückennummer ab 12, Frische 100, Formtendenz 50,
- * Vertrag über zwei bis drei Jahre und **die Hälfte der üblichen Gehaltsbasis**. Die
- * Jugendarbeit der Version 2026 (sim/jugend.ts) benutzt denselben Weg.
+ * Aufnahme für die Jugendarbeit der Version 2026 (sim/jugend.ts): Rückennummer ab 12, Frische
+ * 100, Trainingsfaktor 50, Vertrag über zwei bis drei Jahre und die Hälfte der Gehaltsbasis.
+ * Der Jugendspieler des Originals am Saisonende läuft über `jugendInKader` (0x224A8).
  */
 export function addToSquad(g: GameState, manager: number, playerIndex: number, rng: Rng): number {
   const place = freePlace(g, manager);
@@ -124,7 +120,8 @@ export function releaseExpiring(g: GameState, manager: number, place: number): S
   const name = p.displayName;
   const frei = is2026(g);
   const value = playerValue(g, manager, place, 0);
-  const fee = frei ? 0 : div(value, 2);
+  // Halber Marktwert, auf volle Tausend abgerundet (0x0DCB7..0x0DCC4)
+  const fee = frei ? 0 : div(div(value, 2), 1000) * 1000;
   const daten = { playerIndex: l.playerIndex, name, position: p.position, age: p.age, strength: l.strength.slice(), salary: l.i32(40), value, from: manager };
   removeFromSquad(g, manager, place);
   if (fee > 0) addBalance(g, manager, fee);
@@ -132,10 +129,95 @@ export function releaseExpiring(g: GameState, manager: number, place: number): S
   return { manager, text: `${name} ${texte("ui.vertragsende").slice(0, 2).join(" ")} ${texte("ui.abloese")[1]} ${fee} DM.` };
 }
 
-/** Saisonende-Ereignisse aller Manager; flags je Manager: 1 Aufstieg, 2 Abstieg, 4 Lizenz, 8 Neustart. */
+/** Wo steht Spieler x? Managerkader 0..3 (25 Plätze) oder Transfermarkt (4, 12 Plätze). */
+function fundort(g: GameState, x: number): { manager: number; place: number } | undefined {
+  for (let mi = 0; mi < 5; mi++) {
+    const n = mi === 4 ? 12 : 25;
+    const basis = mi === 4 ? 100 : mi * 25;
+    for (let place = 0; place < n; place++) {
+      const l = g.lineups.at(basis + place);
+      if (!l.isEmpty && l.playerIndex === x) return { manager: mi, place };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Jugendspieler aufnehmen wie das Original: Aufnahmeroutine 0x224A8 (Frische random(80,120),
+ * Trainingsfaktor 0x2277A, keine Rückennummer, Gehaltsbasis), danach setzt 0x0D0A6 das Gehalt
+ * auf die Hälfte und den Vertrag auf random(2,3) Jahre.
+ */
+function jugendInKader(g: GameState, manager: number, idx: number, rng: Rng): number {
+  const place = aufnehmen(g, manager, idx, 0, rng);
+  if (place < 0) return -1;
+  const l = g.lineups.at(manager * 25 + place);
+  const salary = div(playerValue(g, manager, place, 1, rng) * 50, 100);
+  for (let i = 0; i < 4; i++) l.setU8(40 + i, (salary >>> (8 * i)) & 0xff);
+  l.setU8(11, rng(2, 3));
+  return place;
+}
+
+/**
+ * Jahrgangswechsel (0x0D288 bis 0x0D472), einmal beim ersten Manager: alle 150 Spieler ein
+ * Jahr älter; wer auf einem Kader- oder Marktplatz steht, verliert die Angebotsmarken (Byte 9
+ * Bits 6/7) und ein Vertragsjahr. Gehört er nicht dem, bei dem er steht (Spielerbyte 33) - ein
+ * Leihspieler oder ein eigener Spieler auf der Transferliste -, geht er zurück: zu einem
+ * Manager über die Aufnahme 0x224A8, deren Platz dann den ganzen alten Kaderplatz bekommt
+ * (0x0D35D), ohne Leihmarke (Byte 12) und Vertragsgespräch (Byte 24); gehörte er niemandem
+ * (Markt), ist er frei (Byte 33 = 5). Der alte Platz wird aufgeschoben (0x1FDBE).
+ * Im Modus "Spiele automatisch" (4cb3:05D4) würfelt das Original stattdessen das Alter neu -
+ * den Modus gibt es hier nicht.
+ */
+function jahrgangswechsel(g: GameState, rng: Rng): void {
+  const plain = g.save.plain;
+  for (let x = 1; x < 151; x++) {
+    const p = g.players.at(x);
+    p.setU8(26, (p.u8(26) + 1) & 0xff);
+    const wo = fundort(g, x);
+    if (!wo) continue;
+    const basis = wo.manager === 4 ? 100 : wo.manager * 25;
+    const l = g.lineups.at(basis + wo.place);
+    l.setU8(9, l.u8(9) & 0x3f);
+    if (l.u8(11) > 0) l.setU8(11, l.u8(11) - 1);
+    const besitzer = p.u8(33);
+    if (besitzer === wo.manager) continue;
+    const alt = plain.slice(TABLES.lineups.offset + (basis + wo.place) * 52, TABLES.lineups.offset + (basis + wo.place + 1) * 52);
+    removePlace(g, basis, wo.place, wo.manager === 4 ? 12 : 25);
+    if (besitzer < 4) {
+      const neu = aufnehmen(g, besitzer, x, 1, rng);
+      if (neu >= 0) {
+        const o = TABLES.lineups.offset + (besitzer * 25 + neu) * 52;
+        plain.set(alt, o);
+        plain[o + 24] = 0;
+        plain[o + 12] = 0;
+        p.setU8(33, besitzer);
+        continue;
+      }
+    }
+    p.setU8(33, 5);
+  }
+}
+
+/**
+ * Saisonende-Ereignisse aller Manager (0x0CB62); flags je Manager: 1 Aufstieg, 2 Abstieg,
+ * 4 Lizenz, 8 Neustart. Die Reihenfolge ist die des Originals: je Manager Prämien, Jugend und
+ * Karriereende; **beim ersten Manager** zwischen Jugend und Karriereende einmal für alle
+ * 150 Spieler Alter, Vertragsjahr und die Rückkehr verliehener und gelisteter Spieler
+ * (0x0D288 bis 0x0D472). Der Jugendspieler des ersten Managers altert und verliert also
+ * gleich ein Vertragsjahr, die der anderen nicht. Danach die Saisonwerte der Kader
+ * (0x0D9A6) und die Vertragsenden (0x0DB40).
+ */
 export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaengerung = false): SeasonEvent[] {
   const events: SeasonEvent[] = [];
   const managers = g.activeManagers();
+  const neuBelegen = (p: ReturnType<typeof g.players.at>) => {
+    // Reihenfolge der Würfel wie bei 0x0D5BE: erst das Alter, dann der Grundwert
+    p.setU8(26, rng(18, 25));
+    const jj = rng(30, 92);
+    p.setU8(28, rng(jj - 5, jj + 5));
+    p.setU8(32, rng(0, 6));
+    p.setU8(29, rng(jj - 5, jj + 5));
+  };
   managers.forEach((m, i) => {
     const f = flags[i] ?? 0;
     if (f & 1) {
@@ -150,10 +232,13 @@ export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaenger
       addBalance(g, i, 250000);
       events.push({ manager: i, text: "Torschützenkönig aus Ihrem Team (250.000 DM)." });
     }
-    // Jugend (0x0CE84): J = Konto/12, Konto auf zwei Drittel; bei J > 30, 1/3 Chance und unter 23 Spielern ein Jugendspieler mit J/2
+    // Jugend (0x0CE84): J = Konto/12, Konto auf zwei Drittel; bei J > 30, 1/3 Chance und unter
+    // 23 Spielern ein Jugendspieler mit J/2
     let j = div(m.u8(482) | (m.u8(483) << 8), 12);
     j = j + div(j, -3);
-    let account = j * 12;
+    const account = j * 12;
+    m.setU8(482, account & 0xff);
+    m.setU8(483, (account >> 8) & 0xff);
     if (j > 30 && rng(0, 2) === 0 && g.squadOf(i).length < 23) {
       j >>= 1;
       const idx = freePlayer(g, rng);
@@ -165,58 +250,27 @@ export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaenger
         p.setU8(30, rng(45, 55));
         p.setU8(29, rng(jj - 3, jj + 3));
         p.setU8(28, rng(jj - 3, jj + 3));
-        p.setU8(31, clamp(p.u8(32) * 14 + rng(0, 10), 0, 99));
-        if (addToSquad(g, i, idx, rng) >= 0) events.push({ manager: i, text: `${T("ui.jugendaufstieg").slice(0, -1)}: ${p.displayName}.` });
+        // Byte 36 bekommt zuerst den Managerindex (0x0D05D), erst die Aufnahme setzt den Verein
+        // und löscht dabei die alten Saisonwerte des Datensatzes (0x22750) - der Positionswert
+        // (Byte 31) des früheren Spielers bleibt stehen
+        p.setU8(36, i);
+        const place = jugendInKader(g, i, idx, rng);
+        p.setU8(33, i);
+        if (place >= 0) events.push({ manager: i, text: `${T("ui.jugendaufstieg").slice(0, -1)}: ${p.displayName}.` });
       }
     }
-    m.setU8(482, account & 0xff);
-    m.setU8(483, (account >> 8) & 0xff);
-  });
+    if (i === 0) jahrgangswechsel(g, rng);
 
-  // Karriereende (0x0D475 bis 0x0D65B): eine Schleife über alle 150 Spieler, einmal je Manager.
-  //
-  // * Kaderspieler des Managers, der gerade dran ist, hängen die Schuhe an den Nagel, wenn ihr
-  //   Vertrag ausläuft (Byte 11 = 0) **und** sie ihr Karriereende angekündigt haben (Byte 24
-  //   Bit 7, `retirementAnnouncements`) - ohne Ablöse, der Datensatz wird neu belegt
-  //   (0x0D511 bis 0x0D5B8). Nach dem Alter allein geht kein Kaderspieler: in den
-  //   Originalspielständen stehen 58 35-Jährige in Managerkadern.
-  // * Spieler ohne Verein gehen bei Alter > random(32,34). Das wird in jedem Durchgang neu
-  //   gewürfelt, und es gibt so viele Durchgänge wie Manager (0x0D4E6, 0x0D50C) - im Pool der
-  //   Originalspielstände ist keiner älter als 34.
-  // * Spieler anderer Manager und des Transfermarkts überspringt der Durchgang (0x0D4D4).
-  //
-  // Bis GitLab #81 gingen bei uns Kaderspieler nach dem Alter und Spieler ohne Verein nie.
-  // Unmittelbar davor werden alle Spieler ein Jahr älter (0x0D3F0 bis 0x0D472): das
-  // Karriereende vergleicht also schon das neue Alter. Deshalb ist in den Originalspielständen
-  // kein Spieler ohne Verein älter als 34 - ein 35-Jähriger liegt immer über random(32,34).
-  for (let x = 1; x < 151; x++) {
-    const p = g.players.at(x);
-    if (!p.isEmpty) p.setU8(26, p.u8(26) + 1);
-  }
-  const neuBelegen = (p: ReturnType<typeof g.players.at>) => {
-    // Reihenfolge der Würfel wie bei 0x0D5BE: erst das Alter, dann der Grundwert
-    p.setU8(26, rng(18, 25));
-    const jj = rng(30, 92);
-    p.setU8(28, rng(jj - 5, jj + 5));
-    p.setU8(32, rng(0, 6));
-    p.setU8(29, rng(jj - 5, jj + 5));
-  };
-  const fundort = (x: number): { manager: number; place: number } | undefined => {
-    for (let mi = 0; mi < 5; mi++) {
-      const n = mi === 4 ? 12 : 25;
-      const basis = mi === 4 ? 100 : mi * 25;
-      for (let place = 0; place < n; place++) {
-        const l = g.lineups.at(basis + place);
-        if (!l.isEmpty && l.playerIndex === x) return { manager: mi, place };
-      }
-    }
-    return undefined;
-  };
-  managers.forEach((_, i) => {
+    // Karriereende (0x0D475 bis 0x0D65B): eine Schleife über alle 150 Spieler je Manager.
+    // * Kaderspieler dieses Managers hängen die Schuhe an den Nagel, wenn ihr Vertrag ausläuft
+    //   (Byte 11 = 0) **und** sie ihr Karriereende angekündigt haben (Byte 24 Bit 7) - ohne
+    //   Ablöse, der Datensatz wird neu belegt (0x0D511 bis 0x0D5B8).
+    // * Spieler ohne Verein gehen bei Alter > random(32,34), in jedem Durchgang neu gewürfelt.
+    // * Spieler anderer Manager und des Transfermarkts überspringt der Durchgang (0x0D4D4).
     for (let x = 1; x < 151; x++) {
       const p = g.players.at(x);
       if (p.isEmpty) continue;
-      const wo = fundort(x);
+      const wo = fundort(g, x);
       if (wo && wo.manager !== i) continue;
       const grenze = rng(32, 34);
       if (!wo) {
@@ -229,10 +283,19 @@ export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaenger
       const alter = p.u8(26);
       removeFromSquad(g, i, wo.place);
       neuBelegen(p);
-      // Wortlaut und Zeilenschnitt des Originals (Meldungsvorlage 3 bei 0x4E0AE, GitLab #58):
-      // "<Name> hängt den / Fußballjob im Alter von / <Alter> Jahren an den Nagel."
+      // Wortlaut und Zeilenschnitt des Originals (Meldungsvorlage 3 bei 0x4E0AE, GitLab #58)
       const nagel = texte("ui.karriereende");
       events.push({ manager: i, text: `${name} ${nagel[0]} ${nagel[1]} ${alter} ${nagel[2]}`, meldung: [`${name} ${nagel[0]}`, nagel[1], `${alter} ${nagel[2]}`] });
+    }
+  });
+
+  // Saisonwerte der Managerkader (0x0D9A6): Karten (Byte 0..2), Tore und Einsätze der Saison
+  // (3..8) auf den Plätzen 0..23. Die Karrieresummen (Wörter 28..38) bleiben - in RIED-2TE bis
+  // RIED-6TE wachsen sie über jeden Saisonwechsel weiter.
+  managers.forEach((_, i) => {
+    for (let place = 0; place < 24; place++) {
+      const l = g.lineups.at(i * 25 + place);
+      for (let b = 0; b <= 8; b++) l.setU8(b, 0);
     }
   });
 
