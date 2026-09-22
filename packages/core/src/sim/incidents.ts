@@ -92,9 +92,10 @@ export function bookForfeit(g: GameState, manager: number): void {
 
 /**
  * Ereignisse einer Spielminute für einen Managerverein; gebucht werden sie sofort im Kader
- * (Karten, Sperre, Verletzung, Nummer 0). Liefert die neuen Ereignisse.
+ * (Karten, Sperre, Verletzung, Nummer 0). Liefert die neuen Ereignisse. `kp` meldet die drei
+ * Würfe dem bytegenauen Vergleich (sim/originaltag.ts, Kontrollpunkte 18 bis 20).
  */
-export function minuteIncidents(g: GameState, manager: number, minute: number, st: IncidentState, rng: Rng): Incident[] {
+export function minuteIncidents(g: GameState, manager: number, minute: number, st: IncidentState, rng: Rng, kp?: (punkt: number) => void): Incident[] {
   const m = g.managers.at(manager);
   const level = g.save.plain[LEVEL_OFFSET];
   const x = clamp(40 - m.u8(317), 0, 40);
@@ -113,6 +114,7 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
     out.push(inc);
   };
   // Rote Karte (0x05FE5 Block 1, einmal je Spiel)
+  if (!st.redUsed) kp?.(18);
   if (!st.redUsed && rng(0, 70 * x + 50 * (level + 5)) === 0) {
     st.redUsed = true;
     const i = pickStarter(g, manager, rng);
@@ -128,6 +130,7 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
     }
   }
   // Gelbe Karte (Block 2, Foulbudget)
+  if (st.foulsLeft > 0) kp?.(19);
   if (st.foulsLeft > 0 && rng(0, 5 * level + 2 * x + 37) === 0) {
     st.foulsLeft--;
     let i = pickStarter(g, manager, rng);
@@ -160,6 +163,7 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
     }
   }
   // Verletzung (Block 3)
+  kp?.(20);
   if (rng(0, 55 * x + 60 * level + 200) === 0) {
     const i = pickStarter(g, manager, rng);
     if (i >= 0) {

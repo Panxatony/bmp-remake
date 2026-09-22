@@ -36,10 +36,13 @@ export function pickPlayer(g: GameState, manager: number, mode: number, flag: nu
     else w = rng(120, 170);
     w += div(p.u8(31), 25) * (6 - mode) * 7;
     w += 46 * l.u8(3);
-    const line = Math.abs(l.fieldLine);
-    w += (mode >= 1 ? 300 : 0) + (7 - line) * 200;
-    if (line < 2) w += 1200;
-    w += 5 * (Math.abs(l.u8(19) - 3) - 2 * (mode >= 1 ? 1 : 0));
+    // 0x05ED2/0x05F18: `cmp mode,1; sbb; neg` ist 1 für den Schützen (mode 0), nicht für die
+    // Vorlage; der Betrag danach gilt der x-Position (Byte 25), nicht Byte 19 (#99)
+    const schuetze = mode < 1 ? 1 : 0;
+    const y = (l.u8(26) << 24) >> 24;
+    w += schuetze * 300 + (7 - Math.abs(y)) * 200;
+    if (y < 2) w += 1200;
+    w += 5 * (Math.abs(((l.u8(25) << 24) >> 24) - 3) - 2 * schuetze);
     if (mode !== 0 || flag !== 0) w += 5 * (5 - positionFit(l, p)) + (35 - lineDist(l, p));
     else w += 5 * positionFit(l, p) + lineDist(l, p);
     let ok = rng(0, 3500) < w;

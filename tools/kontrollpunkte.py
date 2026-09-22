@@ -19,7 +19,11 @@ an derselben Stelle wie vorher (das Programm reloziert sich selbst über diese S
 Stummel ist `call protokoll` mit zwei Datenwörtern: Segmentabstand zum Ziel und Ziel-Offset.
 Das Ziel wird zur Laufzeit aus CS errechnet - der Code braucht keine eigenen Relokationen.
 
-Aufruf: tools/kontrollpunkte.py <Testkopie.EXE>   (ändert die Datei)
+Aufruf: tools/kontrollpunkte.py [--spur 12] [--still 2,7] <Testkopie.EXE>   (ändert die Datei)
+  --spur: Punkte, ab denen bis zum nächsten Punkt jeder random-Aufruf notiert wird
+  --still: Punkte ohne Eintrag (sie schalten nur die Spur aus)
+  --ring 1: Protokoll im Kreis (die letzten 160 Einträge bleiben)
+  --halt: nach diesen Punkten nichts mehr schreiben; --ohne: Punkte gar nicht einbauen
 """
 import os
 import subprocess
@@ -33,7 +37,9 @@ CAVE_LEN = 0x32AAE - 0x3260C  # bis zum lret der Routine
 DGROUP, DATA = 0x4CB3, 0x4238
 LOG = 0x8686                  # 4238:8686 = Kaderplatz 75
 MAX_EINTRAEGE = 160
-SPUR_AB = 12                  # ab diesem Kontrollpunkt bis zum nächsten jeden random-Aufruf notieren
+# Schalter im Kennungswort des Stummels: SPUR schaltet die random-Spur bis zum nächsten
+# Kontrollpunkt ein, STILL schreibt keinen Eintrag (der Punkt schaltet die Spur nur aus)
+SPUR, STILL, HALT = 0x4000, 0x2000, 0x1000
 RANDOM_CHKSTK = 0x837C        # lcall chkstk in random (0x08377)
 
 # Kennung, lineare Adresse des Fernaufrufs, Zielsegment, Zieloffset
@@ -51,7 +57,23 @@ PUNKTE = [
     (11, 0x1E101, 0x2277, 0x1E38), # Markterneuerung 0x245A8
     (12, 0x1E10F, 0x08BC, 0x0B5F), # Hauptmenü eines Zugs 0x0971F
     (13, 0x1D7FF, 0x0F9D, 0x0002), # Spielstärke Flag 1 je Manager 0x0F9D2
+    (14, 0x57BD, 0x0F9D, 0x0C3B),  # Torwürfel 0x1060B, Heimchance Liga
+    (15, 0x5810, 0x0F9D, 0x0C3B),  # Torwürfel 0x1060B, Gastchance Liga
+    (16, 0x108EF, 0x1A58, 0x0CA3), # Chancenhandler 0x1B223 aus dem Torwürfel (Managerspiel)
+    (17, 0x10925, 0x1A58, 0x009D), # nach dem Chancenhandler (0x1A61D)
+    (18, 0x607E, 0x076B, 0x0CC7),  # Karten/Verletzungen 0x05FE5: Wurf Rot
+    (19, 0x611E, 0x076B, 0x0CC7),  # Wurf Gelb
+    (20, 0x623C, 0x076B, 0x0CC7),  # Wurf Verletzung
+    (21, 0x5BD6, 0x06C7, 0x083C),  # Halbzeitende der Live-Schleife (Rahmen 0x06C7:083C)
 ]
+# --ring: das Protokoll läuft im Kreis (älteste Einträge werden überschrieben); die Einträge
+# tragen den Zustand, der Leser ordnet sie nach der Wurfzahl
+RING = False
+# Vorgabe: Spur ab dem Hauptmenü; mit --spur/--still auf der Kommandozeile anders
+SPUR_PUNKTE = {12}
+STILL_PUNKTE: set = set()
+HALT_PUNKTE: set = set()   # nach diesem Punkt (mit Eintrag) schreibt das Protokoll nichts mehr
+OHNE_PUNKTE: set = {3, 5}  # gar nicht einbauen (alle 21 Stummel passen nicht in die Lücke)
 
 
 def exepack_relokationen(b: bytes) -> set:
@@ -97,6 +119,7 @@ def asm(src: str, org: int) -> bytes:
 
 
 def quelltext_protokoll() -> str:
+    ring_oder_voll = f"  jb 2f\n  xor si, si\n  mov word ptr es:[{LOG:#x}], si\n2:" if RING else "  jae voll"
     return f""".code16
 .intel_syntax noprefix
 .text
@@ -114,6 +137,8 @@ protokoll:
   mov ax, cs
   add ax, word ptr cs:[si]
   mov word ptr cs:[ziel+2], ax
+  cmp byte ptr cs:[halt], 0
+  jne voll
   mov ax, cs
   add ax, {(DGROUP - CAVE_SEG) & 0xFFFF:#x}
   mov es, ax
@@ -124,13 +149,20 @@ protokoll:
   mov es, ax
   mov ax, word ptr cs:[si+4]
   mov byte ptr cs:[spur], 0
-  cmp ax, {SPUR_AB}
-  jne 1f
+  test ax, {SPUR:#x}
+  jz 1f
   mov byte ptr cs:[spur], 1
 1:
+  test ax, {STILL:#x}
+  jnz voll
+  test ax, {HALT:#x}
+  jz 3f
+  mov byte ptr cs:[halt], 1
+3:
+  and ax, 0xfff
   mov si, word ptr es:[{LOG:#x}]
   cmp si, {MAX_EINTRAEGE}
-  jae voll
+{ring_oder_voll}
   inc word ptr es:[{LOG:#x}]
   shl si, 1
   shl si, 1
@@ -149,6 +181,8 @@ voll:
   jmp dword ptr cs:[ziel]
 ziel:
   .word 0, 0
+halt:
+  .byte 0
 spur:
   .byte 0
 """
@@ -192,10 +226,18 @@ weiter:
 """
 
 
+def aktive() -> list:
+    return [p for p in PUNKTE if p[0] not in OHNE_PUNKTE]
+
+
+def kennung(k: int) -> int:
+    return k | (SPUR if k in SPUR_PUNKTE else 0) | (STILL if k in STILL_PUNKTE else 0) | (HALT if k in HALT_PUNKTE else 0)
+
+
 def quelltext_stummel(protokoll: int) -> str:
     stummel = "\n".join(
-        f"stummel{k}:\n  call protokoll\n  .word {(seg - CAVE_SEG) & 0xFFFF:#x}, {off:#x}\n  .word {k}"
-        for k, _, seg, off in PUNKTE)
+        f"stummel{k}:\n  call protokoll\n  .word {(seg - CAVE_SEG) & 0xFFFF:#x}, {off:#x}\n  .word {kennung(k):#x}"
+        for k, _, seg, off in aktive())
     return f""".code16
 .intel_syntax noprefix
 .set protokoll, {protokoll:#x}
@@ -205,10 +247,27 @@ def quelltext_stummel(protokoll: int) -> str:
 
 
 def main() -> None:
-    pfad = sys.argv[1]
+    global SPUR_PUNKTE, STILL_PUNKTE, RING, HALT_PUNKTE, OHNE_PUNKTE
+    args = sys.argv[1:]
+    liste = lambda v: {int(x) for x in v.split(",") if x}
+    while len(args) > 1 and args[0].startswith("--"):
+        if args[0] == "--spur":
+            SPUR_PUNKTE = liste(args[1])
+        elif args[0] == "--still":
+            STILL_PUNKTE = liste(args[1])
+        elif args[0] == "--halt":
+            HALT_PUNKTE = liste(args[1])
+        elif args[0] == "--ohne":
+            OHNE_PUNKTE = liste(args[1])
+        elif args[0] == "--ring":
+            RING = args[1] == "1"
+        else:
+            raise SystemExit(f"unbekannt: {args[0]}")
+        args = args[2:]
+    pfad = args[0]
     b = bytearray(open(pfad, "rb").read())
     rel = exepack_relokationen(bytes(b))
-    for k, addr, seg, off in PUNKTE:
+    for k, addr, seg, off in aktive():
         if addr + 3 not in rel:
             raise SystemExit(f"Segmentwort bei {addr + 3:#x} wird nicht reloziert")
     # Der Entpacker addiert beim Start das Ladesegment auf jedes Wort seiner Liste - darauf darf
@@ -245,8 +304,8 @@ def main() -> None:
     b[o:o + 5] = bytes([0x9A]) + r_org.to_bytes(2, "little") + CAVE_SEG.to_bytes(2, "little")
     s_code = asm(quelltext_stummel(p_org), s_org)
     stummel = {}
-    for k, _, seg, off in PUNKTE:
-        muster = ((seg - CAVE_SEG) & 0xFFFF).to_bytes(2, "little") + off.to_bytes(2, "little") + k.to_bytes(2, "little")
+    for k, _, seg, off in aktive():
+        muster = ((seg - CAVE_SEG) & 0xFFFF).to_bytes(2, "little") + off.to_bytes(2, "little") + kennung(k).to_bytes(2, "little")
         i = s_code.find(muster)
         if i < 3 or s_code[i - 3] != 0xE8:
             raise SystemExit(f"Stummel {k} nicht gefunden")
@@ -255,14 +314,14 @@ def main() -> None:
     b[HDR + s_start:HDR + s_start + len(s_code)] = s_code
     code = p_code + s_code
     org = p_org
-    for k, addr, seg, off in PUNKTE:
+    for k, addr, seg, off in aktive():
         o = HDR + addr
         alt = bytes([0x9A]) + off.to_bytes(2, "little") + seg.to_bytes(2, "little")
         if bytes(b[o:o + 5]) != alt:
             raise SystemExit(f"unerwartete Bytes bei {addr:#x}: {b[o:o + 5].hex()}")
         b[o:o + 5] = bytes([0x9A]) + stummel[k].to_bytes(2, "little") + CAVE_SEG.to_bytes(2, "little")
     open(pfad, "wb").write(b)
-    print(f"{pfad}: {len(PUNKTE)} Kontrollpunkte, Protokollierer {len(p_code)} Bytes bei {CAVE_SEG:04x}:{p_org:04x}, Stummel {len(s_code)} Bytes bei {CAVE_SEG:04x}:{s_org:04x}, Spur {len(r_code)} Bytes bei {CAVE_SEG:04x}:{r_org:04x}")
+    print(f"{pfad}: {len(aktive())} Kontrollpunkte, Protokollierer {len(p_code)} Bytes bei {CAVE_SEG:04x}:{p_org:04x}, Stummel {len(s_code)} Bytes bei {CAVE_SEG:04x}:{s_org:04x}, Spur {len(r_code)} Bytes bei {CAVE_SEG:04x}:{r_org:04x}")
 
 
 if __name__ == "__main__":

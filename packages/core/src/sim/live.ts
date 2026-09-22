@@ -11,7 +11,7 @@
  * dann die Chancen der Minute (0x1060B). Deshalb ist die Minute zweigeteilt: `beginMinute`
  * und `chances`; `step` macht beides.
  */
-import { chanceCounts, chanceMinutes, goalDice, type MatchEvent, type MatchResult, type Rng, type TeamStrength } from "./match.ts";
+import { chanceCounts, chanceMinutes, chancenFolge, chancenplaetze, goalDice, type Chancenplatz, type MatchEvent, type MatchResult, type Rng, type TeamStrength } from "./match.ts";
 
 export interface LiveChance {
   minute: number;
@@ -26,7 +26,7 @@ export class LiveMatch {
   hg = 0;
   ag = 0;
   events: MatchEvent[] = [];
-  private pending: { minute: number; side: "home" | "away" }[] = [];
+  private pending: Chancenplatz[] = [];
   /** Chancenzahl der laufenden Halbzeit, wie zu ihrem Beginn gewürfelt (4238:21DA). */
   private halbzeitChancen: [number, number] = [0, 0];
   /** Nach einer Neuauslosung je Manager fortgeschrieben (4238:21DA gilt je Manager). */
@@ -80,8 +80,8 @@ export class LiveMatch {
       this.halbzeit = half;
       this.halbzeitChancen = [n.home, n.away];
       this.chancenJeManager.clear();
-      for (const m of chanceMinutes(n.home, from, to, this.rng, !this.pokal)) this.pending.push({ minute: m, side: "home" });
-      for (const m of chanceMinutes(n.away, from, to, this.rng, !this.pokal)) this.pending.push({ minute: m, side: "away" });
+      const heim = chanceMinutes(n.home, from, to, this.rng, !this.pokal);
+      this.pending.push(...chancenplaetze(heim, chanceMinutes(n.away, from, to, this.rng, !this.pokal)));
       this.sortPending();
     }
     return true;
@@ -108,30 +108,36 @@ export class LiveMatch {
       const gespielt = this.events.filter((e) => e.side === seite && e.minute >= from && e.minute < this.minute).length;
       rest[i] = Math.max(0, alt[i] - gespielt + neu[i]);
       this.pending = this.pending.filter((c) => c.side !== seite);
-      for (const m of chanceMinutes(rest[i], this.minute, to, this.rng, !this.pokal)) this.pending.push({ minute: m, side: seite });
+      chanceMinutes(rest[i], this.minute, to, this.rng, !this.pokal).forEach((minute, slot) => minute > 0 && this.pending.push({ minute, side: seite, slot }));
     }
     this.chancenJeManager.set(manager, rest);
     this.sortPending();
   }
 
-  /** Die Chancen der laufenden Minute auswürfeln (0x1060B). */
-  chances(): LiveChance[] {
+  /**
+   * Die Chancen der laufenden Minute auswürfeln (0x1060B). `nachChance` läuft gleich nach jedem
+   * Torwürfel: dort ruft das Original den Chancenhandler (0x108EF -> 0x1B223), noch vor dem
+   * Würfel der nächsten Chance.
+   */
+  chances(nachChance?: (c: LiveChance) => void, vorWuerfel?: (side: "home" | "away") => void): LiveChance[] {
     const out: LiveChance[] = [];
     while (this.pending.length && this.pending[0].minute === this.minute) {
       const c = this.pending.shift()!;
       // In der Verlängerung liest das Original das Ergebnisbyte, in dem die Markierung +10 schon
       // steht: der Torwürfel bekommt den Heimwert um 10 erhöht (wie `extraTime`).
       const hg = this.minute > 90 ? this.hg + 10 : this.hg;
+      vorWuerfel?.(c.side);
       const goal = goalDice(this.home, this.away, c.side, this.minute, hg, this.ag, this.rng);
       if (goal) c.side === "home" ? this.hg++ : this.ag++;
       this.events.push({ minute: this.minute, side: c.side, goal });
       out.push({ minute: this.minute, side: c.side, goal });
+      nachChance?.({ minute: this.minute, side: c.side, goal });
     }
     return out;
   }
 
   private sortPending(): void {
-    this.pending.sort((a, b) => a.minute - b.minute || (a.side === "home" ? -1 : 1));
+    this.pending.sort(chancenFolge);
   }
 
   result(): MatchResult {

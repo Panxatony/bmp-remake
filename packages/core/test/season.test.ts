@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { texte, SaveFile, GameState, fixtures, applyResult, updatePositions, playMatchday, afterMatch, dailyTraining, trainingInjuries, injuries, bookGoal, attendance, bookAttendance, monthlyIncome, monthlyExpenses, loanTotal, bookMonth, dailyFinance, playCupDay, cupPairs, cupRound, CUP_OUT, newSeason, tableOrder, playerValue, promoteRelegate, swapClubs, salaryDemand, mulberryRng, dayIndex, seasonDay, dateOfSeasonDay, seasonStartYear, setDayIndex } from "../src/index.ts";
+import { texte, SaveFile, GameState, fixtures, applyResult, updatePositions, playMatchday, afterMatch, dailyTraining, trainingInjuries, injuries, bookGoal, attendance, bookAttendance, monthlyIncome, monthlyExpenses, loanTotal, bookMonth, dailyFinance, playCupDay, cupPairs, cupRound, newSeason, tableOrder, playerValue, promoteRelegate, swapClubs, salaryDemand, mulberryRng, dayIndex, seasonDay, dateOfSeasonDay, seasonStartYear, setDayIndex } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (n: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, n)))));
@@ -226,9 +226,10 @@ test("DFB-Pokal: TEST1 spielt die dritte Runde (vier Paarungen), Sieger werden n
   const winners = played.map((m) => m.winner);
   const next = cupPairs(g, 3).flat();
   assert.deepEqual(next.slice().sort(), winners.slice().sort());
+  // Der Rundenabschluss 0x192FC schreibt nur dem Sieger Runde + 1 (0x19410); der Verlierer
+  // behält die erreichte Runde - die 30 setzt nur die Auslosung der ersten Runde
   const normi = g.managers.at(0).u8(306);
-  assert.ok(normi === 4 || normi === CUP_OUT, `Pokalrunde ${normi}`);
-  assert.equal(normi === 4, winners.includes(15));
+  assert.equal(normi, winners.includes(15) ? 4 : 3, `Pokalrunde ${normi}`);
   for (const m of played) if (m.penalties) assert.notEqual(m.penalties[0], m.penalties[1]);
 });
 

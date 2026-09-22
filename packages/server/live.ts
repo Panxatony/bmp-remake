@@ -334,14 +334,19 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
   let maxMinute = 0;
   let schritte = 0;
   do {
+  // Erst die Uhr aller Spiele: zu Halbzeitbeginn würfelt das Original die Chancen jeder Paarung
+  // (0x05449), bevor die erste Minute irgendeines Spiels läuft (#99)
+  const laufend = new Set<LiveEntry>();
   for (const e of state.entries) {
     if (e.forfeit !== undefined) {
       maxMinute = Math.max(maxMinute, 90);
       continue;
     }
-    const laeuft = e.match.beginMinute();
+    if (e.match.beginMinute()) laufend.add(e);
     maxMinute = Math.max(maxMinute, e.match.minute);
-    if (!laeuft) continue;
+  }
+  for (const e of state.entries) {
+    if (!laufend.has(e)) continue;
     // Karten und Verletzungen je Minute (0x05FE5) vor den Chancen der Minute; danach Stärke neu
     // (0x0F9D2). Nach glatt Rot oder Verletzung werden die Chancen des Spiels neu ausgelost
     // (0x0657F) - einmal je Minute, für den letzten betroffenen Manager in Managerreihenfolge.
@@ -360,7 +365,7 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
       if (fresh.some((i) => i.kind === "red" || i.kind === "injury")) neuAuslosen = Math.max(neuAuslosen ?? -1, manager);
     }
     if (neuAuslosen !== undefined) e.match.neuAuslosen(neuAuslosen);
-    for (const c of e.match.chances()) {
+    e.match.chances((c) => {
       // Buchung wie im Original in der Chancenminute (0x5FE5 -> 0x1B223): Schütze, Statistik,
       // Bewertung. Mit Torszenen spielt das Original die Szene **vor** der Buchung (0x1B7FE ->
       // 0x1502C): war es ein Elfmeter, zählt keine Vorlage (GitLab #85).
@@ -370,7 +375,7 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
       const booked = bookEvents(g, e.home, e.away, { home: e.match.hg, away: e.match.ag, events: [{ minute: c.minute, side: c.side, goal: c.goal }] }, matchType, rng, [szene?.elfmeter ?? false]);
       e.scorers.push(...booked);
       if (szene) queueScene(state, e, c, szene.id, booked[0]);
-    }
+    });
   }
     if (++schritte > 200) break;
   } while (ziel > 0 && maxMinute < ziel);

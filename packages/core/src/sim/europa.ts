@@ -22,7 +22,7 @@
 import type { GameState } from "../records.ts";
 import { texte } from "../data/texte.ts";
 import type { Rng, MatchResult, TeamStrength } from "./match.ts";
-import { simulateMatch, chanceCounts, chanceMinutes, goalDice } from "./match.ts";
+import { simulateMatch, chanceCounts, chanceMinutes, chancenplaetze, goalDice } from "./match.ts";
 import { matrixFor, bookEvents, afterMatch, moralWeg } from "./matchday.ts";
 import { attendance, bookGate, pokalZuschlag, ERSATZ_PREIS, FINALE_KULISSE, FINALE_PAUSCHALE, ligaBand } from "./attendance.ts";
 import { riotCheck } from "./finance.ts";
@@ -49,7 +49,7 @@ export const DFB_FINALIST = 2344;
 export const ORDER_LIST = 28244;
 export const PLAYOFF_FIRST_LEG = 28007;
 export const PLAYOFF_RESULT = 34367;
-/** Manager Byte 306 + Pokal: laufende Runde (1-basiert), 30 = ausgeschieden. */
+/** Manager Byte 306 + Pokal: erreichte Runde (1-basiert; der Verlierer behält sie, 0x19410), 30 = nicht qualifiziert (Auslosung 0x186E8). */
 export const CUP_OUT = 30;
 /** Paare je Runde (4cb3:07D6), Index = Rundennummer. */
 export const ROUND_PAIRS = [32, 16, 8, 4, 2, 1];
@@ -247,10 +247,8 @@ export function extraTime(home: TeamStrength, away: TeamStrength, r: MatchResult
     [106, 120],
   ] as const) {
     const n = chanceCounts(home, away, from, to, rng);
-    const list: { minute: number; side: "home" | "away" }[] = [];
-    for (const m of chanceMinutes(n.home, from, to, rng, false)) list.push({ minute: m, side: "home" });
-    for (const m of chanceMinutes(n.away, from, to, rng, false)) list.push({ minute: m, side: "away" });
-    list.sort((a, b) => a.minute - b.minute || (a.side === "home" ? -1 : 1));
+    const heim = chanceMinutes(n.home, from, to, rng, false);
+    const list = chancenplaetze(heim, chanceMinutes(n.away, from, to, rng, false));
     for (const c of list) {
       const goal = goalDice(home, away, c.side, c.minute, r.home + 10, r.away, rng);
       if (goal) c.side === "home" ? r.home++ : r.away++;

@@ -142,19 +142,49 @@ export function chanceCounts(home: TeamStrength, away: TeamStrength, from: numbe
 }
 
 /**
- * Chancenminuten im Fenster (0x043FF), höchstens 8. In der Liga verschieden (bis zu 100 Würfe);
- * im Pokal (Wettbewerb 10 und darüber: DFB-Pokal, Europapokal, Relegation) prüft das Original
- * keine Doppelten - dort gibt es auch zwei Chancen in derselben Minute.
+ * Chancenminuten im Fenster (0x043FF), höchstens 8 Plätze; der Index ist der Platz. In der Liga
+ * verschieden: gezogen wird, bis die Minute frei ist, höchstens 100-mal - danach bleibt der Platz
+ * leer (0, 0x044F4), auch wenn der hundertste Wurf gepasst hätte. Im Pokal (Wettbewerb 10 und
+ * darüber: DFB-Pokal, Europapokal, Relegation) prüft das Original keine Doppelten - dort gibt es
+ * auch zwei Chancen in derselben Minute.
  */
 export function chanceMinutes(count: number, from: number, to: number, rng: Rng, verschieden = true): number[] {
   const out: number[] = [];
   const n = Math.min(count, 8);
   for (let i = 0; i < n; i++) {
-    let m = rng(from, to);
-    for (let tries = 0; verschieden && tries < 100 && out.includes(m); tries++) m = rng(from, to);
-    out.push(m);
+    let m: number;
+    let tries = 0;
+    do {
+      m = rng(from, to);
+      tries++;
+    } while (verschieden && out.includes(m) && tries < 100);
+    out.push(tries >= 100 ? 0 : m);
   }
   return out;
+}
+
+export interface Chancenplatz {
+  minute: number;
+  side: "home" | "away";
+  /** Platz 0..7 in der Minutenliste der Seite */
+  slot: number;
+}
+
+/**
+ * Chancen einer Halbzeit in der Reihenfolge der Live-Schleife (0x0576E): je Minute die Plätze
+ * 0..7, bei jedem Platz erst Heim, dann Gast. Zwei Chancen derselben Minute kommen also in der
+ * Reihenfolge ihrer Plätze - nicht alle Heimchancen vor den Gastchancen (#99). Leere Plätze
+ * (Minute 0) fallen weg.
+ */
+export function chancenplaetze(home: number[], away: number[]): Chancenplatz[] {
+  const list: Chancenplatz[] = [];
+  home.forEach((minute, slot) => minute > 0 && list.push({ minute, side: "home", slot }));
+  away.forEach((minute, slot) => minute > 0 && list.push({ minute, side: "away", slot }));
+  return list.sort(chancenFolge);
+}
+
+export function chancenFolge(a: Chancenplatz, b: Chancenplatz): number {
+  return a.minute - b.minute || a.slot - b.slot || (a.side === "home" ? -1 : 1) - (b.side === "home" ? -1 : 1);
 }
 
 /** Torwürfel in einer Chancenminute (0x1060C). */
@@ -202,10 +232,8 @@ export function simulateMatch(home: TeamStrength, away: TeamStrength, rng: Rng, 
     [46, 90],
   ] as const) {
     const n = chanceCounts(home, away, from, to, rng);
-    const list: { minute: number; side: "home" | "away" }[] = [];
-    for (const m of chanceMinutes(n.home, from, to, rng, !pokal)) list.push({ minute: m, side: "home" });
-    for (const m of chanceMinutes(n.away, from, to, rng, !pokal)) list.push({ minute: m, side: "away" });
-    list.sort((a, b) => a.minute - b.minute || (a.side === "home" ? -1 : 1));
+    const heim = chanceMinutes(n.home, from, to, rng, !pokal);
+    const list = chancenplaetze(heim, chanceMinutes(n.away, from, to, rng, !pokal));
     for (const c of list) {
       const goal = goalDice(home, away, c.side, c.minute, hg, ag, rng);
       if (goal) c.side === "home" ? hg++ : ag++;
