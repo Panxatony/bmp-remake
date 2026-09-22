@@ -45,7 +45,7 @@ für jeden Startspieler:
     positionFit(spieler) > 2      -> malus[l] += random(2, 6)
     abstandZurLinie(spieler) > 25 -> malus[l] += random(2, 6)
     // Summen
-    teMinusKo += te - ko
+    koMinusTe += ko - te        (0x0FB1F, einzige Schreibstelle von -0x26)
     sumKo[l] += ko + einsaetze/6 - frische/20 + 3
     sumTe[l] += te + tore - 1   (plus obige Zuschläge von 15)
     sumFo[l] += fo
@@ -54,27 +54,30 @@ für jeden Startspieler:
 // Einsatzregler wirkt auf den Malus
 für l in 0..2: sumTe[l] += (stufe - 5) * malus[l] * 20 / 100
 starter == 0: alle Summen 0
-moral = (starter < 8) ? 100 : 0   -> Manager Byte 317 (nur wenn nicht fixiert)
+moral = (starter < 8) ? 100 : 0   -> Manager Byte 317, in jeder Rechnung (starter = Nummer 1..11,
+                                     ohne Blick auf Sperre oder Verletzung)
 weniger als 11 Starter: fehlende Plätze zählen reihum als Linie mit
-stufe == 0 und tw > 8: sumTe[0] -= 100 * teMinusKo? (Torwart-Sonderfall, unsicher)
+stufe == 0 und tw > 8: sumTe[2] += -100 * W   (0x0FD4E; W = Wort -0x2A, das die Routine nie
+                                                beschreibt: Stapelrest, nicht nachbildbar, entfällt)
 torwartModus > 0: k = torwartModus - 1
     sumTe[0]  *= random(10k+5, 20k+5) / 100
     sumTe[1]  *= random(10, 40) / 100
     sumKo[0]  *= random(5(k+2), 30k+20) / 100
-alle Summen auf 0..32000 begrenzen
+sumTe[0], sumTe[1], sumKo[0] auf 0..32000 begrenzen (nur diese drei, 0x0FDEE..0x0FE16)
 // Besetzungsprüfung
-plusMit < 1 und plusAbw > 0: plusAng += plusMit - 1
-plusAng > 0: plusAbw += plusMit - 1
+plusMit < 1:
+    plusAbw > 0: plusAng += plusMit - 1
+    plusAng > 0: plusAbw += plusMit - 1
 plusAbw < -1 und random(7,10) > plusAbw + 10: plusMit -= random(3,5)
 für l in 0..2:
     sumTe[l] += stufe
     sumKo[l] != 0: sumKo[l] += einsatz - 16
     sumTe[l] != 0 und stufe < 4:
-        sumTe[l] += (plus[l] * anzahl[l] + 3 * TAB_6F3A[manager]) * 10
+        sumTe[l] += (plus[l] * anzahl[l] + 3 * wechsel[manager]) * 10   (4238:90C6)
         sumKo[l] += 5 * (plus[l] * anzahl[l])
     negative Summen auf 0
-teMinusKo = clamp(teMinusKo / 9, -4, 4) ; teMinusKo < 0: 0
-neueMoral = clamp(teMinusKo/9 (auf 0..4) + einsatz, 0, 40) -> Manager Byte 317 (wenn dort nicht 100 steht)
+z = clamp(koMinusTe / 9, -4, 4) ; z < 0: 0
+neueMoral = clamp(z + einsatz, 0, 40) -> Manager Byte 317 (wenn dort nicht 100 steht)
 // Ergebnis in den Vereinsdatensatz
 für l in 0..2:
     anzahl[l] <= 1: ko = te = fo = 0
@@ -105,8 +108,11 @@ Abgleich: TEST1, TEST2 und RIED-CLI enthalten genau diese Anzeigewerte
 (Flag 1, mit Frische, Einsätzen, Toren, Fehlbesetzung, Einsatzregler und
 Einsatzregler) stehen nie im Spielstand, weil danach wieder ein Anzeigeaufruf
 folgt; sie lassen sich nur über wiederholte Spieltage statistisch prüfen.
-Die Tabelle 0x6F3A (4238:90C6, je Manager ein Byte) liegt hinter den Kaderplätzen
-außerhalb des Spielstands und ist in der TypeScript-Fassung 0.
+Die Tabelle 4238:90C6 (je Manager ein Byte, nur zur Laufzeit) zählt die Auswechslungen im
+Spiel (0x20E86). Zurückgesetzt wird sie im Tagesablauf erst **nach** der Stärkerechnung vor dem
+Spiel (0x1D7FF, dann 0x1D838): die Anfangsstärke rechnet mit den Wechseln des vorigen Spiels,
+Neuberechnungen im Spiel mit denen des laufenden. Der Server führt sie in `Room.letzteWechsel`
+bzw. `LiveState.subs` (nach einem Neustart 0, wie das Original nach dem Laden).
 
 ## Unsicher
 

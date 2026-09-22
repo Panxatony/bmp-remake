@@ -38,14 +38,17 @@ test("Spielereignisse: Spielerwahl nur Starter, Karten und Verletzungen in plaus
   assert.ok(red > 0 && injury > 0);
 });
 
-test("0:2-Wertung bei weniger als acht einsatzfähigen Startern", () => {
+test("0:2-Wertung bei weniger als acht Spielern mit Nummer 1..11 (0x0FBCB)", () => {
   const g = load("TEST4.MAN");
   assert.equal(isForfeit(g, 0), false);
   const squad = g.squadOf(0);
-  // vier Starter sperren
-  let n = 0;
-  for (const l of squad) if (l.number >= 1 && l.number <= 11 && n < 4) { l.setU8(9, l.u8(9) | 1); l.setU8(13, 2); n++; }
+  // Vier Starter sperren: sie behalten ihre Nummer, das Original zählt sie mit
+  const starter = squad.filter((l) => l.number >= 1 && l.number <= 11).slice(0, 4);
+  for (const l of starter) { l.setU8(9, l.u8(9) | 1); l.setU8(13, 2); }
   assert.equal(fitStarters(g, 0), 7);
+  assert.equal(isForfeit(g, 0), false, "Gesperrte mit Nummer zählen");
+  // Ohne Nummer (wie nach Platzverweis oder Verletzung) fehlen sie
+  for (const l of starter) l.setU8(10, 0);
   assert.ok(isForfeit(g, 0));
   const m = g.managers.at(0);
   const bal = m.balance;
@@ -74,10 +77,13 @@ test("Moral: die Stärkerechnung schreibt Byte 317, Karten und Verletzungen hän
   const hoch = matchStrength(g, 0, mulberryRng(5)).moralNeu;
   assert.ok(hoch > s.moralNeu, `${hoch} nicht über ${s.moralNeu}`);
   assert.ok(hoch <= 40, "auf 40 begrenzt");
-  // Die 100 der 0:2-Wertung bleibt stehen
-  m.setU8(317, 100);
+  // Die 100 der 0:2-Wertung setzt die Rechnung selbst, sobald weniger als acht Spieler eine
+  // Nummer 1..11 tragen (0x0FCFE), und überschreibt sie dann nicht mit der Moral
+  const weg = g.squadOf(0).filter((l) => l.number >= 1 && l.number <= 11).slice(0, 4);
+  for (const l of weg) l.setU8(10, 0);
   matchStrength(g, 0, mulberryRng(5));
-  assert.equal(m.u8(317), 100, "die Wertungsmarke wird nicht überschrieben");
+  assert.equal(m.u8(317), 100, "Wertungsmarke");
+  for (const [i, l] of weg.entries()) l.setU8(10, i + 1);
 
   // Der Wert geht als x = 40 - Byte 317 in die Würfe ein, und getroffen wird bei random(0, ...)
   // gleich 0: je höher er steht, desto enger das Fenster und desto mehr Karten und
