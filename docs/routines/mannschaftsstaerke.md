@@ -41,7 +41,7 @@ für jeden Startspieler:
     linie 4..5: plusMit += 2 ; linie == 6: plusMit += 1, plusAng += 1 ; linie 7: plusAng += 2
     linie == 1 und rolle == 3 und positionFit < 2 und te - 10 > ko: sumTe[l] += 15
     linie == 0 und rolle == 3: torwartModus = (pos / 25 == 0) ? 0 : 2   // Torwart im Sturm?
-    // Fehlbesetzung
+    // Fehlbesetzung - nur Linie >= 3 (Mittelfeld, Angriff); Abwehr und Torwart würfeln nicht
     positionFit(spieler) > 2      -> malus[l] += random(2, 6)
     abstandZurLinie(spieler) > 25 -> malus[l] += random(2, 6)
     // Summen
