@@ -11,14 +11,19 @@
  * Mechanik (Flag-Bit 1 und Byte 13). Dass es Doping ist und keine Verletzung, steht in zwei
  * eigenen Bytes des Kaderplatzes:
  *
- *     Byte 5: Bit 0..1 Zustand (0 nichts, 1 Kur, 2 Dopingsperre), Bit 2..5 Einsätze unter Doping
- *     Byte 8: Bit 0..3 gewährter Aufschlag auf Kondition/Technik/Form,
- *             Bit 4..7 gewährter Aufschlag auf die Frische, in Zweierschritten
+ *     Byte 44: Bit 0..1 Zustand (0 nichts, 1 Kur, 2 Dopingsperre), Bit 2..5 Einsätze unter Doping
+ *     Byte 45: Bit 0..3 gewährter Aufschlag auf Kondition/Technik/Form,
+ *              Bit 4..7 gewährter Aufschlag auf die Frische, in Zweierschritten
  *
- * Beide Bytes sind in allen 40 vorliegenden Spielständen des Originals über alle 1879 belegten
- * Kaderplätze 0 und gehören zu keinem mehrbyteigen Feld (Byte 4 Pokaltore, 6/7 Einsätze,
- * 9 Flags). Ein Stand des Originals liest sich damit als "niemand gedopt", und die Angaben
- * wandern beim Transfer mit dem Spieler mit - eine Sperre nimmt er also zum neuen Verein mit.
+ * Beide Bytes sind in allen vorliegenden Spielständen des Originals über alle 1927 belegten
+ * Kaderplätze 0, und kein Befehl des Originals greift auf Kaderoffset 44..47 zu. Ein Stand des
+ * Originals liest sich damit als "niemand gedopt", und die Angaben wandern beim Transfer mit
+ * dem Spieler mit - eine Sperre nimmt er also zum neuen Verein mit.
+ *
+ * Bis September 2026 lagen die Angaben in Byte 5 und 8. Die sind im Original aber nicht frei:
+ * Byte 5 zählt die Europapokaltore der Saison (0x1BA9C), Byte 8 die Europapokaleinsätze
+ * (0x1CC11) - beides war nur in keinem Spielstand zu sehen, weil dort kein Managerverein im
+ * Europapokal spielte. `migriereDopingBytes` zieht alte Stände einmalig um (GitLab #88).
  *
  * Der Aufschlag wird so bemessen, dass er nirgends an die Obergrenze stößt (99 bzw. 150).
  * Dadurch lässt er sich später auf den Punkt genau wieder abziehen, ohne dass die Werte vorher
@@ -54,33 +59,58 @@ export const DOPING_APPS_MAX = 15;
 export const DOPE_NONE = 0;
 export const DOPE_ON = 1;
 export const DOPE_BANNED = 2;
+/** Kaderbyte für Zustand und Einsätze unter Doping */
+export const DOPING_ZUSTAND = 44;
+/** Kaderbyte für die gewährten Aufschläge */
+export const DOPING_AUFSCHLAG = 45;
+
+/**
+ * Einmaliger Umzug der Dopingangaben aus den alten Bytes 5/8 nach 44/45 (GitLab #88), für
+ * Stände der Version 2026 von vor dem Umzug. Nicht beim Laden aufrufen: danach stehen in
+ * Byte 5/8 Europapokaltore und -einsätze, die dürfen nicht als Doping gelesen werden.
+ * Liefert die Zahl der umgezogenen Kaderplätze.
+ */
+export function migriereDopingBytes(g: GameState): number {
+  let n = 0;
+  for (let i = 0; i < 125; i++) {
+    const l = g.lineups.at(i);
+    if (l.isEmpty || l.u8(DOPING_ZUSTAND) !== 0 || l.u8(DOPING_AUFSCHLAG) !== 0) continue;
+    if (l.u8(5) === 0 && l.u8(8) === 0) continue;
+    l.setU8(DOPING_ZUSTAND, l.u8(5));
+    l.setU8(DOPING_AUFSCHLAG, l.u8(8));
+    l.setU8(5, 0);
+    l.setU8(8, 0);
+    n++;
+  }
+  return n;
+}
 
 /** Zustand: 0 nichts, 1 Kur, 2 Dopingsperre. */
 export function dopeState(l: Lineup): number {
-  return l.u8(5) & 3;
+  return l.u8(DOPING_ZUSTAND) & 3;
 }
 
 /** Einsätze unter Doping. */
 export function dopeApps(l: Lineup): number {
-  return (l.u8(5) >> 2) & 0xf;
+  return (l.u8(DOPING_ZUSTAND) >> 2) & 0xf;
 }
 
 function setState(l: Lineup, state: number, apps: number): void {
-  l.setU8(5, (state & 3) | ((Math.min(DOPING_APPS_MAX, apps) & 0xf) << 2));
+  l.setU8(DOPING_ZUSTAND, (state & 3) | ((Math.min(DOPING_APPS_MAX, apps) & 0xf) << 2));
 }
 
 /** Gewährter Aufschlag auf Kondition, Technik und Form. */
 export function dopeBonus(l: Lineup): number {
-  return l.u8(8) & 0xf;
+  return l.u8(DOPING_AUFSCHLAG) & 0xf;
 }
 
 /** Gewährter Aufschlag auf die Frische. */
 export function dopeFresh(l: Lineup): number {
-  return ((l.u8(8) >> 4) & 0xf) * 2;
+  return ((l.u8(DOPING_AUFSCHLAG) >> 4) & 0xf) * 2;
 }
 
 function setBonus(l: Lineup, bonus: number, fresh: number): void {
-  l.setU8(8, (bonus & 0xf) | ((div(fresh, 2) & 0xf) << 4));
+  l.setU8(DOPING_AUFSCHLAG, (bonus & 0xf) | ((div(fresh, 2) & 0xf) << 4));
 }
 
 export const isDoped = (l: Lineup): boolean => dopeState(l) === DOPE_ON;
