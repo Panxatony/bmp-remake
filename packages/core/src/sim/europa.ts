@@ -23,7 +23,7 @@ import type { GameState } from "../records.ts";
 import { texte } from "../data/texte.ts";
 import type { Rng, MatchResult, TeamStrength } from "./match.ts";
 import { simulateMatch, chanceCounts, chanceMinutes, goalDice } from "./match.ts";
-import { matrixFor, bookEvents, afterMatch } from "./matchday.ts";
+import { matrixFor, bookEvents, afterMatch, moralWeg } from "./matchday.ts";
 import { attendance, bookGate, pokalZuschlag, ERSATZ_PREIS, FINALE_KULISSE, FINALE_PAUSCHALE, ligaBand } from "./attendance.ts";
 import { riotCheck } from "./finance.ts";
 import { addBalance } from "./transfer.ts";
@@ -325,7 +325,7 @@ export function shootout(rng: Rng, managerInvolved: boolean, protokoll?: Elfmete
  * Elfmetertreffer zählen zu den Toren wie im Original). Verlängerung gibt es im DFB-Pokal
  * bei Gleichstand, im Europapokal nur im Rückspiel, wenn 0x19208 "offen" meldet.
  */
-export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: boolean, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined, nachspiel?: NachspielQuelle): CupMatch {
+export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: boolean, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined, nachspiel?: NachspielQuelle, vorbereitet = false): CupMatch {
   const p = g.save.plain;
   const home = p[area(cup) + idx];
   const away = p[area(cup) + idx + 1];
@@ -400,7 +400,8 @@ export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: 
     const att = attendance(g, { manager: ma, home, away, importance: 1, fremdesStadion: true, preis, level: p[LEVEL_OFFSET], staerkeHeim: hs, staerkeGast: as }, rng);
     bookGate(g, ma, att, 2, preis);
   }
-  for (const mi of [mh, ma]) if (mi !== undefined) afterMatch(g, mi, matchType, rng);
+  // Mit Live-Konferenz lief der Kaderteil schon beim Anpfiff (GitLab #89, V10)
+  for (const mi of [mh, ma]) if (mi !== undefined) vorbereitet ? moralWeg(g, mi) : afterMatch(g, mi, matchType, rng);
   return match;
 }
 
@@ -489,12 +490,12 @@ export function afterCupDay(g: GameState, cups: number[], seasonDayNow: number, 
 }
 
 /** Spieltag der drei Europapokale (Kalenderflag 0x70): alle Paare der laufenden Runde. */
-export function playEuropaDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined, nachspiel?: NachspielQuelle): { matches: CupMatch[]; finals: CupFinal[]; gezogen: number[] } {
+export function playEuropaDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined, nachspiel?: NachspielQuelle, vorbereitet = false): { matches: CupMatch[]; finals: CupFinal[]; gezogen: number[] } {
   const matches: CupMatch[] = [];
   for (const cup of [1, 2, 3]) {
     const n = ROUND_PAIRS[Math.min(cupRoundOf(g, cup), 5)];
     const second = legPlayed(g, cup);
-    for (let i = 0; i < n; i++) matches.push(playCupMatch(g, cup, 2 * i, second, seasonDayNow, rng, sim, zuschauer, nachspiel));
+    for (let i = 0; i < n; i++) matches.push(playCupMatch(g, cup, 2 * i, second, seasonDayNow, rng, sim, zuschauer, nachspiel, vorbereitet));
   }
   const gezogen: number[] = [];
   const finals = afterCupDay(g, [1, 2, 3], seasonDayNow, rng, false, gezogen);
@@ -506,7 +507,7 @@ export function playEuropaDay(g: GameState, seasonDayNow: number, rng: Rng, sim:
  * und Rückspiel über Bereich 1, Platz 0 (Hinspiel beim Zweitligisten). Der Ausgang steht in
  * 34367 (1 = der Zweitligist steigt auf), das Hinspiel in 28007.
  */
-export function playPlayoffDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, nachspiel?: NachspielQuelle): CupMatch {
+export function playPlayoffDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, nachspiel?: NachspielQuelle, vorbereitet = false): CupMatch {
   const p = g.save.plain;
   p[CUP_ROUND + 1] = 5;
   const a = area(1);
@@ -518,7 +519,7 @@ export function playPlayoffDay(g: GameState, seasonDayNow: number, rng: Rng, sim
   const third = p[ORDER_LIST + 22];
   p[a] = second ? bl16 : third;
   p[a + 1] = second ? third : bl16;
-  const match = playCupMatch(g, 1, 0, second, seasonDayNow, rng, sim, undefined, nachspiel);
+  const match = playCupMatch(g, 1, 0, second, seasonDayNow, rng, sim, undefined, nachspiel, vorbereitet);
   afterCupDay(g, [1], seasonDayNow, rng, true);
   if (p[LEG_FLAG] === 0) p[PLAYOFF_RESULT] = decideTie(g, 1, 0, seasonDayNow);
   else for (let i = 0; i < 2; i++) p[PLAYOFF_FIRST_LEG + i] = p[legArea(1) + i];
