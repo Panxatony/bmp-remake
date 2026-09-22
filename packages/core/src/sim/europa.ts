@@ -195,9 +195,16 @@ export function decideTie(g: GameState, cup: number, idx: number, seasonDayNow: 
   const p = g.save.plain;
   let h2 = p[resultArea(cup) + idx];
   while (h2 > 9) h2 -= 10;
-  const a2 = p[resultArea(cup) + idx + 1];
-  const f1 = p[legArea(cup) + idx]; // Tore des jetzigen Gastgebers im Hinspiel (auswärts)
-  const f2 = p[legArea(cup) + idx + 1]; // Tore des jetzigen Gastes im Hinspiel (zu Hause)
+  // f1: Tore des jetzigen Gastgebers im Hinspiel (auswärts), f2: die des jetzigen Gastes
+  return tieBreak(p[legArea(cup) + idx], p[legArea(cup) + idx + 1], h2, p[resultArea(cup) + idx + 1], seasonDayNow);
+}
+
+/**
+ * Derselbe Entscheid aus vier Zahlen statt aus dem Spielstand. Die Konferenz braucht ihn nach
+ * der 90. Minute, wenn das Ergebnis noch nirgends steht (GitLab #72), und die Relegation hält
+ * ihr Hinspiel an einer eigenen Stelle.
+ */
+export function tieBreak(f1: number, f2: number, h2: number, a2: number, seasonDayNow: number): number {
   if (seasonDayNow > 315 && f2 + a2 - f1 === h2) return 30;
   if (f2 + a2 > f1 + h2) return 1;
   if (a2 + f2 - h2 !== f1) return 0;
@@ -218,6 +225,8 @@ export interface CupMatch {
   result: MatchResult;
   extraTime: boolean;
   penalties?: [number, number];
+  /** Schuss für Schuss, nur wenn ein Managerverein beteiligt ist (GitLab #72) */
+  elfmeter?: Elfmeter[];
   /** Sieger; beim Hinspiel undefiniert */
   winner?: number;
   attendance?: number;
@@ -245,12 +254,40 @@ export function extraTime(home: TeamStrength, away: TeamStrength, r: MatchResult
 }
 
 /**
- * Elfmeterschießen (0x666D). Ohne Managerbeteiligung: beide Seiten random(2,5) Treffer,
- * neu gewürfelt bis ungleich. Mit Managerbeteiligung (animiert): fünf Schützen je Seite,
- * Treffer bei random(0,2) = 2, Abbruch sobald entschieden, danach abwechselnd bis zur
- * Entscheidung; die zuerst schießende Seite ist random(0,1).
+ * Was die Live-Konferenz nach der 90. Minute schon gespielt hat (GitLab #72). Ohne diese
+ * Quelle rechnet die Buchung Verlängerung und Elfmeterschießen selbst - so wie bisher.
  */
-export function shootout(rng: Rng, managerInvolved: boolean): [number, number] {
+export interface Nachspiel {
+  /** Ergebnis nach der Verlängerung */
+  verlaengerung?: { home: number; away: number };
+  penalties?: [number, number];
+  elfmeter?: Elfmeter[];
+}
+
+export type NachspielQuelle = (home: number, away: number) => Nachspiel | undefined;
+
+/** Ein Schuss im Elfmeterschießen, für die Anzeige Schuss für Schuss (GitLab #72). */
+export interface Elfmeter {
+  /** 0 = Heim, 1 = Gast */
+  seite: 0 | 1;
+  tor: boolean;
+  /** Stand nach diesem Schuss */
+  stand: [number, number];
+}
+
+/**
+ * Elfmeterschießen (0x666D). Ohne Managerbeteiligung: beide Seiten random(2,5) Treffer,
+ * neu gewürfelt bis ungleich. Mit Managerbeteiligung (im Original auf eigener Tafel gezeigt):
+ * fünf Schützen je Seite, Abbruch sobald entschieden, danach abwechselnd bis zur Entscheidung;
+ * die zuerst schießende Seite ist random(0,1).
+ *
+ * Getroffen wird bei random(0,2) **ungleich 0**: 0x6999 wirft die 0 bis 2 und macht bei
+ * 0x69A3 aus der 2 eine 1, 0x6A04 zählt jede 1 als Tor. Zwei von drei Elfmetern sitzen also.
+ * Bis GitLab #72 stand hier die Gegenprobe (nur die 2 zählt), das war ein Drittel.
+ *
+ * Das Protokoll sammelt jeden Schuss in der Reihenfolge, in der er fällt.
+ */
+export function shootout(rng: Rng, managerInvolved: boolean, protokoll?: Elfmeter[]): [number, number] {
   if (!managerInvolved) {
     let h: number;
     let a: number;
@@ -260,13 +297,15 @@ export function shootout(rng: Rng, managerInvolved: boolean): [number, number] {
     } while (h === a);
     return [h, a];
   }
-  const score = [0, 0];
+  const score: [number, number] = [0, 0];
   const first = rng(0, 1);
   let side = first;
   let round = 0;
   for (;;) {
     if (round >= 5 && score[0] !== score[1] && side === first) break;
-    if (rng(0, 2) === 2) score[side]++;
+    const tor = rng(0, 2) !== 0;
+    if (tor) score[side]++;
+    protokoll?.push({ seite: side as 0 | 1, tor, stand: [score[0], score[1]] });
     if (side !== first) round++;
     side ^= 1;
     if (round > 30) break;
@@ -280,7 +319,7 @@ export function shootout(rng: Rng, managerInvolved: boolean): [number, number] {
  * Elfmetertreffer zählen zu den Toren wie im Original). Verlängerung gibt es im DFB-Pokal
  * bei Gleichstand, im Europapokal nur im Rückspiel, wenn 0x19208 "offen" meldet.
  */
-export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: boolean, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined): CupMatch {
+export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: boolean, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined, nachspiel?: NachspielQuelle): CupMatch {
   const p = g.save.plain;
   const home = p[area(cup) + idx];
   const away = p[area(cup) + idx + 1];
@@ -299,17 +338,28 @@ export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: 
   const undecided = () => (cup === 0 ? p[ro] % 10 === p[ro + 1] : secondLeg && decideTie(g, cup, idx, seasonDayNow) === 30);
   let extra = false;
   let penalties: [number, number] | undefined;
+  // Nur mit Managerbeteiligung wird Schuss für Schuss gezeigt (0x666D fragt das zuerst ab),
+  // dann aber allen Mitspielern - so entschieden in GitLab #72
+  const gezeigt = managerOf.has(home) || managerOf.has(away);
+  const elfmeter: Elfmeter[] = [];
+  // Hat die Konferenz Verlängerung und Elfmeterschießen schon gezeigt, wird genau das gebucht
+  const nach = nachspiel?.(home, away);
   if (undecided()) {
     extra = true;
-    extraTime(hs, as, result, rng);
+    if (nach?.verlaengerung) {
+      result.home = nach.verlaengerung.home;
+      result.away = nach.verlaengerung.away;
+    } else extraTime(hs, as, result, rng);
     write(10, [0, 0]);
     if (undecided()) {
-      penalties = shootout(rng, managerOf.has(home) || managerOf.has(away));
+      penalties = nach?.penalties ?? shootout(rng, gezeigt, elfmeter);
+      if (nach?.elfmeter) elfmeter.push(...nach.elfmeter);
       write(30, penalties);
     }
   }
   const leg = cup === 0 ? 0 : secondLeg ? 2 : 1;
   const match: CupMatch = { cup, leg, home, away, result, extraTime: extra, penalties, scorers: [] };
+  if (elfmeter.length > 0) match.elfmeter = elfmeter;
   if (cup === 0) match.winner = p[ro] % 10 > p[ro + 1] ? home : away;
   else if (secondLeg) match.winner = decideTie(g, cup, idx, seasonDayNow) === 1 ? away : home;
   const matchType = cup === 0 ? 1 : 2;
@@ -422,12 +472,12 @@ export function afterCupDay(g: GameState, cups: number[], seasonDayNow: number, 
 }
 
 /** Spieltag der drei Europapokale (Kalenderflag 0x70): alle Paare der laufenden Runde. */
-export function playEuropaDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined): { matches: CupMatch[]; finals: CupFinal[]; gezogen: number[] } {
+export function playEuropaDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined, nachspiel?: NachspielQuelle): { matches: CupMatch[]; finals: CupFinal[]; gezogen: number[] } {
   const matches: CupMatch[] = [];
   for (const cup of [1, 2, 3]) {
     const n = ROUND_PAIRS[Math.min(cupRoundOf(g, cup), 5)];
     const second = legPlayed(g, cup);
-    for (let i = 0; i < n; i++) matches.push(playCupMatch(g, cup, 2 * i, second, seasonDayNow, rng, sim, zuschauer));
+    for (let i = 0; i < n; i++) matches.push(playCupMatch(g, cup, 2 * i, second, seasonDayNow, rng, sim, zuschauer, nachspiel));
   }
   const gezogen: number[] = [];
   const finals = afterCupDay(g, [1, 2, 3], seasonDayNow, rng, false, gezogen);
@@ -439,7 +489,7 @@ export function playEuropaDay(g: GameState, seasonDayNow: number, rng: Rng, sim:
  * und Rückspiel über Bereich 1, Platz 0 (Hinspiel beim Zweitligisten). Der Ausgang steht in
  * 34367 (1 = der Zweitligist steigt auf), das Hinspiel in 28007.
  */
-export function playPlayoffDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim): CupMatch {
+export function playPlayoffDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, nachspiel?: NachspielQuelle): CupMatch {
   const p = g.save.plain;
   p[CUP_ROUND + 1] = 5;
   const a = area(1);
@@ -451,7 +501,7 @@ export function playPlayoffDay(g: GameState, seasonDayNow: number, rng: Rng, sim
   const third = p[ORDER_LIST + 22];
   p[a] = second ? bl16 : third;
   p[a + 1] = second ? third : bl16;
-  const match = playCupMatch(g, 1, 0, second, seasonDayNow, rng, sim);
+  const match = playCupMatch(g, 1, 0, second, seasonDayNow, rng, sim, undefined, nachspiel);
   afterCupDay(g, [1], seasonDayNow, rng, true);
   if (p[LEG_FLAG] === 0) p[PLAYOFF_RESULT] = decideTie(g, 1, 0, seasonDayNow);
   else for (let i = 0; i < 2; i++) p[PLAYOFF_FIRST_LEG + i] = p[legArea(1) + i];

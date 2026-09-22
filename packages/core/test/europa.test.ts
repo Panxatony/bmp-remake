@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import {
   SaveFile, GameState, mulberryRng, dayIndex, seasonDay, setDayIndex,
   generateOffers, stadiumValue, signShirt, signBoard, monthlyAdvertising, seasonEndAdvertising, offerAmount, offerYears, shirtContract, boardContract, advertisingAmount,
-  playCupMatch, playEuropaDay, playPlayoffDay, initialDraw, decideTie, europeanParticipants, currentPairs, cupRoundOf, legPlayed, orderList, clearCupResults,
+  playCupMatch, shootout, type Elfmeter, playEuropaDay, playPlayoffDay, initialDraw, decideTie, europeanParticipants, currentPairs, cupRoundOf, legPlayed, orderList, clearCupResults,
   CUP_TABLE, CUP_ROUND, LEG_FLAG, HOLDER, DFB_WINNER, PLAYOFF_RESULT, ROUND_PAIRS, CUP_OUT, playCupDay, newSeason, tableOrder, texte, seasonEvents, releaseExpiring, playerValue
 } from "../src/index.ts";
 
@@ -263,4 +263,34 @@ test("Pokaleinnahmen: der Gast bekommt seine Hälfte auch beim Rechnerverein (Gi
   assert.equal(geld(0) - stand[0], daheim.gate, "der Gastgeber bucht seine Hälfte");
   assert.equal(geld(1) - stand[1], daheim.gate, "der Gast bekommt dieselbe Hälfte");
   assert.equal(daheim.gate, Math.trunc((daheim.attendance! * 19) / 2), "Preis des Heimvereins");
+});
+
+test("Elfmeterschießen: zwei von drei Schüssen sitzen, Protokoll passt zum Stand (GitLab #72)", () => {
+  // 0x6999 wirft random(0,2), 0x69A3 macht aus der 2 eine 1, 0x6A04 zählt jede 1 als Tor:
+  // getroffen wird bei 1 und 2, also in zwei von drei Fällen.
+  let schuesse = 0;
+  let tore = 0;
+  for (let seed = 0; seed < 400; seed++) {
+    const log: Elfmeter[] = [];
+    const [h, a] = shootout(mulberryRng(seed), true, log);
+    assert.notEqual(h, a, `Wurf ${seed}: unentschieden`);
+    assert.deepEqual(log[log.length - 1].stand, [h, a], `Wurf ${seed}: Protokoll endet anders`);
+    // Beide Seiten kommen abwechselnd dran, die erste ist ausgelost
+    const erste = log[0].seite;
+    log.forEach((s, i) => assert.equal(s.seite, ((erste + i) % 2) as 0 | 1, `Wurf ${seed}, Schuss ${i}`));
+    assert.ok(log.length >= 10, `Wurf ${seed}: nur ${log.length} Schüsse`);
+    schuesse += log.length;
+    tore += log.filter((s) => s.tor).length;
+  }
+  const quote = tore / schuesse;
+  assert.ok(quote > 0.6 && quote < 0.73, `Trefferquote ${quote.toFixed(3)} statt zwei Dritteln`);
+
+  // Ohne Managerbeteiligung bleibt es beim kurzen Zweig 0x66C0: je random(2,5), bis ungleich
+  for (let seed = 0; seed < 50; seed++) {
+    const log: Elfmeter[] = [];
+    const [h, a] = shootout(mulberryRng(seed), false, log);
+    assert.equal(log.length, 0, "ohne Manager kein Protokoll");
+    assert.notEqual(h, a);
+    for (const n of [h, a]) assert.ok(n >= 2 && n <= 5, `${n} Treffer`);
+  }
 });

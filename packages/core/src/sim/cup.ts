@@ -5,7 +5,7 @@
  */
 import type { GameState } from "../records.ts";
 import type { Rng } from "./match.ts";
-import { CUP_TABLE, CUP_ROUND, ROUND_PAIRS, playCupMatch, afterCupDay, type CupMatch, type CupFinal } from "./europa.ts";
+import { CUP_TABLE, CUP_ROUND, ROUND_PAIRS, playCupMatch, afterCupDay, type CupMatch, type CupFinal, type NachspielQuelle } from "./europa.ts";
 import { seasonDay, dayIndex } from "./calendar.ts";
 import type { MatchSim } from "./live.ts";
 
@@ -25,11 +25,11 @@ export function cupPairs(g: GameState, round: number): [number, number][] {
 }
 
 /** Spielt die anstehende DFB-Pokalrunde, setzt Managerrunden und lost die nächste Runde. */
-export function playCupDay(g: GameState, rng: Rng, sim?: MatchSim, zuschauer?: (home: number, away: number) => number | undefined): CupMatch[] & { finals?: CupFinal[]; gezogen?: number[] } {
+export function playCupDay(g: GameState, rng: Rng, sim?: MatchSim, zuschauer?: (home: number, away: number) => number | undefined, nachspiel?: NachspielQuelle): CupMatch[] & { finals?: CupFinal[]; gezogen?: number[] } {
   const day = seasonDay(dayIndex(g));
   const n = ROUND_PAIRS[Math.min(g.save.plain[CUP_ROUND], 5)];
   const out: CupMatch[] & { finals?: CupFinal[]; gezogen?: number[] } = [];
-  for (let i = 0; i < n; i++) out.push(playCupMatch(g, 0, 2 * i, false, day, rng, sim, zuschauer));
+  for (let i = 0; i < n; i++) out.push(playCupMatch(g, 0, 2 * i, false, day, rng, sim, zuschauer, nachspiel));
   // gezogen: [0], wenn danach die nächste Runde ausgelost wurde - nach dem Finale bleibt es leer
   out.gezogen = [];
   out.finals = afterCupDay(g, [0], day, rng, false, out.gezogen);

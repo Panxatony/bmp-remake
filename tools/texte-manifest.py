@@ -51,6 +51,7 @@ GRUPPEN = [
     ("packages/core/src/sim/display.ts", "export const STRENGTH_MODES = [", None, "staerken.modi", "] as const;"),
     ("packages/core/src/sim/display.ts", "export const SQUAD_HELP = [", None, "ui.kaderhilfe", "\n];"),
     ("packages/core/src/sim/display.ts", "export const LIVE_TEXTS = [", None, "ui.konferenz", "\n];"),
+    ("packages/core/src/sim/display.ts", "export const SHOOTOUT_TEXTS = [", None, "ui.elfmeter", "\n];"),
     ("packages/core/src/sim/display.ts", "export const TENDENCY_WORDS = [", None, "ui.tendenz", "\n];"),
     ("packages/core/src/sim/display.ts", "export const ROUND_NAMES = [", None, "pokal.runden", "];"),
     ("packages/core/src/sim/finance.ts", "export const CHRISTMAS_LINES = [", None, "finanzen.weihnachten", "\n];"),

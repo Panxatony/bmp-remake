@@ -375,5 +375,8 @@ export const squadHelp = (): string[] => texte("ui.kaderhilfe");
 /** Meldungen der Live-Konferenz unter der Torszene (0x05186 ff.). */
 export const liveTexts = (): string[] => texte("ui.konferenz");
 
+/** Tafel des Elfmeterschießens (0x6733): Überschrift und das Wort zwischen den Vereinen. */
+export const shootoutTexts = (): string[] => texte("ui.elfmeter");
+
 /** Tendenz in Worten und die Beschriftung der Erschöpfung (Hilfszeile der Kaderliste). */
 export const tendencyWords = (): string[] => texte("ui.tendenz");
