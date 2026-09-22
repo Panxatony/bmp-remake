@@ -447,13 +447,6 @@ Stellen geschrieben - Abschluss (0x292AC), Monatsablauf (0x11EC0) und dieses Sai
 ## Live-Konferenz und Torszenen (Live-Schleife 0x05404, Chancenhandler 0x1B223, Szenenlader 0x1502C, Wiedergabe 0x0C7C4; server/live.ts, web/scene.ts)
 
 Ablauf im Original: alle Spiele des Tages laufen minutenweise gleichzeitig; zu Beginn jeder
-Vor dem Anpfiff zeigt das Original eine ganze Seite in Schwarz-Rot-Gold (0x31FA): Bildschirm in
-Palettenfarbe 11, darauf drei Kästen von x 1 bis 318 - schwarz y 1..79, rot (18) y 80..160, gold
-(19) y 161..238 -, und darüber in der großen Schrift 3 mittig zwischen x 0 und 319 mit Grundlinie
-y 128 in Weiß die Art des Spieltags (0x32F2), danach 50 Ticks Standzeit. Der Text kommt aus
-0x1D866: sind Ligabits gesetzt "Ligaspiel", sonst beim Pokalbit "DFB-Pokal", sonst bei den
-Europabits "Europapokal"; das Original spielt die drei nacheinander ab.
-
 Halbzeit werden die Chancenminuten gewürfelt (0x102BA), in der Chancenminute entscheidet der
 Torwürfel (0x1060C) mit den aktuellen Stärken. Ist ein Managerverein beteiligt, zeigt das
 Spiel "Chance für ..." und eine Torszene; der Schütze wird sofort gebucht (0x1B223). Ein
@@ -462,6 +455,26 @@ Klick auf ein Vereinslogo der Tafeln (0x6414, Rechtecke aus 4cb3:0632/063C: Tafe
 Managers (0x1C4F5); beim Verlassen wird die Stärke mit dem Spielweg neu berechnet
 (0x21190). Auswechslungen je Spiel: ein Torwart, zwei Feldspieler (Zähler 4238:5396/5397,
 "Keine Auswechslung mehr möglich"); der Eingewechselte bekommt einen Einsatz.
+
+Reihenfolge je Spiel und Minute (0x05404): erst Karten und Verletzungen (0x05FE5), dann die
+Chancen dieser Minute (0x1060B), Heim vor Gast. Gibt es glatt Rot oder eine Verletzung - nicht
+bei Gelb oder Gelb-Rot -, lost 0x0657F die Chancen des Spiels für den Rest der Halbzeit neu aus:
+0x102BA würfelt mit den neuen Stärken die Chancenzahl der ganzen Halbzeit (ohne Minuten), je
+Seite wird verrechnet `rest = alt - gespielt + neu'` mit `neu' = neu - alt`, wenn `neu >= alt`,
+sonst `neu' = neu` (*Eigenheit*: die geschwächte Seite bekommt so eher mehr Chancen); `alt` ist
+die Zahl vom Halbzeitbeginn bzw. der letzten Neuauslosung dieses Managers (4238:21DA),
+`gespielt` zählt die Chancen seit Halbzeitbeginn (4238:5710 Heim, 5778 Gast). Die Minuten
+werden ab der laufenden Minute bis zum Halbzeitende neu verteilt (0x043FF); die alten
+verfallen, und eine neue Chance in der laufenden Minute kommt sofort dran. Trifft es in
+derselben Minute mehrere Manager, gilt der letzte in Managerreihenfolge. Im Pokal
+(Wettbewerb 10 und darüber, auch Relegation) zieht 0x043FF die Minuten ohne Doppelprüfung.
+
+Vor dem Anpfiff zeigt das Original eine ganze Seite in Schwarz-Rot-Gold (0x31FA): Bildschirm in
+Palettenfarbe 11, darauf drei Kästen von x 1 bis 318 - schwarz y 1..79, rot (18) y 80..160, gold
+(19) y 161..238 -, und darüber in der großen Schrift 3 mittig zwischen x 0 und 319 mit Grundlinie
+y 128 in Weiß die Art des Spieltags (0x32F2), danach 50 Ticks Standzeit. Der Text kommt aus
+0x1D866: sind Ligabits gesetzt "Ligaspiel", sonst beim Pokalbit "DFB-Pokal", sonst bei den
+Europabits "Europapokal"; das Original spielt die drei nacheinander ab.
 
 Bildschirm: je Managerspiel eine Tafel aus PIC/38.VGA (153×113: punktierter Kopf mit den
 Vereinsnamen in Gelb, großen Ziffern aus der Ziffernzeile derselben Grafik ab Zeile 113,

@@ -187,7 +187,7 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
   managers.forEach((m, i) => managerOf.set(m.clubIndex, i));
   const entries: LiveEntry[] = [];
   const add = (kind: LiveEntry["kind"], home: number, away: number, extra: Partial<LiveEntry>) => {
-    entries.push({ key: `${home}-${away}`, kind, home, away, match: new LiveMatch(matrixFor(g, home, rng), matrixFor(g, away, rng), rng), managerHome: managerOf.get(home), managerAway: managerOf.get(away), scorers: [], ...extra });
+    entries.push({ key: `${home}-${away}`, kind, home, away, match: new LiveMatch(matrixFor(g, home, rng), matrixFor(g, away, rng), rng, undefined, kind !== "league"), managerHome: managerOf.get(home), managerAway: managerOf.get(away), scorers: [], ...extra });
   };
   const postponed: number[][] = [[], [], []];
   for (let league = 0; league < 3; league++) {
@@ -300,10 +300,16 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
       maxMinute = Math.max(maxMinute, 90);
       continue;
     }
-    const chances = e.match.step();
+    const laeuft = e.match.beginMinute();
     maxMinute = Math.max(maxMinute, e.match.minute);
-    // Karten und Verletzungen je Minute (0x05FE5); danach Stärke neu (0x0F9D2)
-    for (const [manager, st, side] of [[e.managerHome, e.incidentHome, "home"], [e.managerAway, e.incidentAway, "away"]] as const) {
+    if (!laeuft) continue;
+    // Karten und Verletzungen je Minute (0x05FE5) vor den Chancen der Minute; danach Stärke neu
+    // (0x0F9D2). Nach glatt Rot oder Verletzung werden die Chancen des Spiels neu ausgelost
+    // (0x0657F) - einmal je Minute, für den letzten betroffenen Manager in Managerreihenfolge.
+    let neuAuslosen: number | undefined;
+    // Die Manager kommen wie in 0x05FE5 in ihrer Reihenfolge dran, nicht Heim vor Gast
+    const seiten = ([[e.managerHome, e.incidentHome, "home"], [e.managerAway, e.incidentAway, "away"]] as const).slice().sort((a, b) => (a[0] ?? 99) - (b[0] ?? 99));
+    for (const [manager, st, side] of seiten) {
       if (manager === undefined || !st) continue;
       const fresh = minuteIncidents(g, manager, e.match.minute, st, rng);
       if (fresh.length === 0) continue;
@@ -312,8 +318,10 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
         if (side === "home") e.match.home = matchStrength(g, manager, rng);
         else e.match.away = matchStrength(g, manager, rng);
       }
+      if (fresh.some((i) => i.kind === "red" || i.kind === "injury")) neuAuslosen = Math.max(neuAuslosen ?? -1, manager);
     }
-    for (const c of chances) {
+    if (neuAuslosen !== undefined) e.match.neuAuslosen(neuAuslosen);
+    for (const c of e.match.chances()) {
       // Buchung wie im Original in der Chancenminute (0x5FE5 -> 0x1B223): Schütze, Statistik,
       // Bewertung. Mit Torszenen spielt das Original die Szene **vor** der Buchung (0x1B7FE ->
       // 0x1502C): war es ein Elfmeter, zählt keine Vorlage (GitLab #85).
