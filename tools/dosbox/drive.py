@@ -148,7 +148,9 @@ def day(max_steps=200):
             time.sleep(2.5)
             continue
         if st == "live":
-            if not configured:
+            # Für den bytegenauen Vergleich (#99) bleiben die Optionen unberührt: der Zeitpunkt des
+            # Klicks hängt an der Uhr, und die Torszenen verbrauchen Würfel
+            if not configured and not os.environ.get("DRIVE_NO_OPTIONS"):
                 click(160, 120)  # Klick aufs Spielfeld öffnet die Optionen
                 time.sleep(2.5)
                 if probe(screen()) == "optionen":

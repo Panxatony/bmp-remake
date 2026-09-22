@@ -93,3 +93,15 @@ test("Stärke 0x0F9D2: Moral aus Kondition minus Technik, Wechsel heben die Tech
   const leicht = [teamStrength({ ...inp, stufe: 4, wechsel: 0 }, mulberryRng(3)), teamStrength({ ...inp, stufe: 4, wechsel: 2 }, mulberryRng(3))];
   assert.deepEqual(leicht[0].te, leicht[1].te, "Stufe-Byte 4 (Level 1): ohne Wirkung");
 });
+
+test("Zufall des Originals: rand() von Microsoft C und random(lo,hi) mit 16 Bit (#99)", async () => {
+  const { originalRng } = await import("../src/index.ts");
+  const r = originalRng(1);
+  // Die bekannte Folge von rand() nach srand(1)
+  assert.deepEqual([0, 1, 2, 3, 4].map(() => r(0, 32767)), [41, 18467, 6334, 26500, 19169]);
+  assert.equal(r.zaehler(), 5);
+  // random(lo,hi) = lo + rand % (hi - lo + 1)
+  const a = originalRng(0x1234);
+  const b = originalRng(0x1234);
+  for (let i = 0; i < 50; i++) assert.equal(a(3, 9), 3 + (b(0, 32767) % 7));
+});
