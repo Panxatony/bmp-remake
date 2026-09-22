@@ -192,3 +192,37 @@ export function declineOffer(g: GameState, offer: ContractOffer): void {
   const l = g.lineups.at(offer.manager * 25 + offer.place);
   l.setU8(24, 100);
 }
+
+/**
+ * Tägliche Pflege des Verhandlungszählers (Kaderbyte 24) in der Tagesroutine, 0x0E5DC bis
+ * 0x0E64C:
+ *
+ * * Steht dort ein Wert **über 99** - gesetzt beim "verlängert nicht"-Hinweis (100 + Stufe)
+ *   und beim Ablehnen eines eigenen Angebots (100) -, kommt der Spieler mit `random(0,5) = 0`,
+ *   also einem Sechstel je Tag, auf `random(9,17)` zurück und verhandelt wieder. **Die Absage
+ *   ist im Original nicht endgültig.**
+ * * Sonst zählt der Wert täglich um eins herunter, bis er 0 erreicht.
+ *
+ * Nicht nachgebaut: Das Original knüpft die Rückkehr daran, dass zu dem Spieler noch ein
+ * Meldungszeiger im Kaderfeld 48/50 steht (ein Fernzeiger auf den Meldungstext, 0x0E5FC), und
+ * räumt die Meldung dabei weg (0x30954). Unsere Meldungen hängen nicht am Kaderplatz, deshalb
+ * gilt die Rückkehr hier ohne diese Bedingung - der Hinweis bleibt stehen (GitLab #80).
+ *
+ * Liefert die Kaderplätze, die wieder verhandeln.
+ */
+export function contractCooldown(g: GameState, manager: number, rng: Rng): number[] {
+  const zurueck: number[] = [];
+  for (let place = 0; place < 25; place++) {
+    const l = g.lineups.at(manager * 25 + place);
+    if (l.isEmpty) continue;
+    const b = l.u8(24);
+    if (b & 0x80) continue;
+    if (b > 99) {
+      if (rng(0, 5) === 0) {
+        l.setU8(24, rng(9, 17));
+        zurueck.push(place);
+      }
+    } else if (b !== 0) l.setU8(24, b - 1);
+  }
+  return zurueck;
+}

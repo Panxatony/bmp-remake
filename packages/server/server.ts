@@ -72,6 +72,7 @@ import {
   newSeason,
   releaseExpiring,
   contractOffers,
+  contractCooldown,
   contractRefusalAnnouncements,
   acceptOffer,
   declineOffer,
@@ -1778,6 +1779,12 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
       for (const ev of dailyTransfers(g, i, seasonDay(kNeu), r.rng)) {
         r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${ev.lines.join(" ")}`);
         pushMessage(r, i, ev.lines, dtNeu);
+      }
+      // Verhandlungszähler pflegen (0x0E5DC): eine Absage hält nicht ewig, mit einem Sechstel
+      // je Tag verhandelt der Spieler wieder (GitLab #80)
+      for (const platz of contractCooldown(g, i, r.rng)) {
+        const l = g.lineups.at(i * 25 + platz);
+        r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${g.players.at(l.playerIndex).displayName} verhandelt wieder`);
       }
       // Ankündigung, dass ein Spieler im letzten Vertragsjahr nicht verlängert (0x0E9C1,
       // GitLab #59) - die Vorwarnung zum Vertragsende
