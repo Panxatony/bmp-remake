@@ -173,23 +173,63 @@ export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaenger
     m.setU8(483, (account >> 8) & 0xff);
   });
 
-  // Rücktritte (0x0D475): Kaderspieler mit Alter > random(32,34) beenden die Karriere; der Datensatz wird neu belegt
+  // Karriereende (0x0D475 bis 0x0D65B): eine Schleife über alle 150 Spieler, einmal je Manager.
+  //
+  // * Kaderspieler des Managers, der gerade dran ist, hängen die Schuhe an den Nagel, wenn ihr
+  //   Vertrag ausläuft (Byte 11 = 0) **und** sie ihr Karriereende angekündigt haben (Byte 24
+  //   Bit 7, `retirementAnnouncements`) - ohne Ablöse, der Datensatz wird neu belegt
+  //   (0x0D511 bis 0x0D5B8). Nach dem Alter allein geht kein Kaderspieler: in den
+  //   Originalspielständen stehen 58 35-Jährige in Managerkadern.
+  // * Spieler ohne Verein gehen bei Alter > random(32,34). Das wird in jedem Durchgang neu
+  //   gewürfelt, und es gibt so viele Durchgänge wie Manager (0x0D4E6, 0x0D50C) - im Pool der
+  //   Originalspielstände ist keiner älter als 34.
+  // * Spieler anderer Manager und des Transfermarkts überspringt der Durchgang (0x0D4D4).
+  //
+  // Bis GitLab #81 gingen bei uns Kaderspieler nach dem Alter und Spieler ohne Verein nie.
+  // Unmittelbar davor werden alle Spieler ein Jahr älter (0x0D3F0 bis 0x0D472): das
+  // Karriereende vergleicht also schon das neue Alter. Deshalb ist in den Originalspielständen
+  // kein Spieler ohne Verein älter als 34 - ein 35-Jähriger liegt immer über random(32,34).
+  for (let x = 1; x < 151; x++) {
+    const p = g.players.at(x);
+    if (!p.isEmpty) p.setU8(26, p.u8(26) + 1);
+  }
+  const neuBelegen = (p: ReturnType<typeof g.players.at>) => {
+    // Reihenfolge der Würfel wie bei 0x0D5BE: erst das Alter, dann der Grundwert
+    p.setU8(26, rng(18, 25));
+    const jj = rng(30, 92);
+    p.setU8(28, rng(jj - 5, jj + 5));
+    p.setU8(32, rng(0, 6));
+    p.setU8(29, rng(jj - 5, jj + 5));
+  };
+  const fundort = (x: number): { manager: number; place: number } | undefined => {
+    for (let mi = 0; mi < 5; mi++) {
+      const n = mi === 4 ? 12 : 25;
+      const basis = mi === 4 ? 100 : mi * 25;
+      for (let place = 0; place < n; place++) {
+        const l = g.lineups.at(basis + place);
+        if (!l.isEmpty && l.playerIndex === x) return { manager: mi, place };
+      }
+    }
+    return undefined;
+  };
   managers.forEach((_, i) => {
-    for (let place = 0; place < 25; place++) {
-      const l = g.lineups.at(i * 25 + place);
-      if (l.isEmpty) continue;
-      const p = g.players.at(l.playerIndex);
-      if (p.u8(26) <= rng(32, 34)) continue;
+    for (let x = 1; x < 151; x++) {
+      const p = g.players.at(x);
+      if (p.isEmpty) continue;
+      const wo = fundort(x);
+      if (wo && wo.manager !== i) continue;
+      const grenze = rng(32, 34);
+      if (!wo) {
+        if (p.u8(26) > grenze) neuBelegen(p);
+        continue;
+      }
+      const l = g.lineups.at(i * 25 + wo.place);
+      if (l.u8(11) !== 0 || !(l.u8(24) & 0x80)) continue;
       const name = p.displayName;
       const alter = p.u8(26);
-      removeFromSquad(g, i, place);
-      place--; // der Kader ist aufgeschoben, hier steht jetzt der nächste Spieler
-      const jj = rng(30, 92);
-      p.setU8(26, rng(18, 25));
-      p.setU8(28, rng(jj - 5, jj + 5));
-      p.setU8(32, rng(0, 6));
-      p.setU8(29, rng(jj - 5, jj + 5));
-      // Wortlaut und Zeilenschnitt des Originals (Meldungsvorlage 0x4E0AE, GitLab #58):
+      removeFromSquad(g, i, wo.place);
+      neuBelegen(p);
+      // Wortlaut und Zeilenschnitt des Originals (Meldungsvorlage 3 bei 0x4E0AE, GitLab #58):
       // "<Name> hängt den / Fußballjob im Alter von / <Alter> Jahren an den Nagel."
       const nagel = texte("ui.karriereende");
       events.push({ manager: i, text: `${name} ${nagel[0]} ${nagel[1]} ${alter} ${nagel[2]}`, meldung: [`${name} ${nagel[0]}`, nagel[1], `${alter} ${nagel[2]}`] });

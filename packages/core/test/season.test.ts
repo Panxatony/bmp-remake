@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, fixtures, applyResult, updatePositions, playMatchday, afterMatch, dailyTraining, trainingInjuries, injuries, bookGoal, attendance, bookAttendance, monthlyIncome, monthlyExpenses, loanTotal, bookMonth, dailyFinance, playCupDay, cupPairs, cupRound, CUP_OUT, newSeason, tableOrder, playerValue, promoteRelegate, swapClubs, salaryDemand, mulberryRng, dayIndex, seasonDay, dateOfSeasonDay, seasonStartYear, setDayIndex } from "../src/index.ts";
+import { texte, SaveFile, GameState, fixtures, applyResult, updatePositions, playMatchday, afterMatch, dailyTraining, trainingInjuries, injuries, bookGoal, attendance, bookAttendance, monthlyIncome, monthlyExpenses, loanTotal, bookMonth, dailyFinance, playCupDay, cupPairs, cupRound, CUP_OUT, newSeason, tableOrder, playerValue, promoteRelegate, swapClubs, salaryDemand, mulberryRng, dayIndex, seasonDay, dateOfSeasonDay, seasonStartYear, setDayIndex } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (n: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, n)))));
@@ -321,5 +321,88 @@ test("Liga des Managers wandert beim Auf- und Abstieg mit (GitLab #76)", () => {
     h.activeManagers().forEach((mg, i) => {
       assert.equal(h.managers.at(i).u8(312), liga(mg.clubIndex), `Saison ${saison}, Manager ${i}, Verein ${mg.clubIndex}`);
     });
+  }
+});
+
+test("Tagesroutine (#83): Komfort nur in der Bundesliga, Krawall schadet Komfort 390, ab Tag 322 Ruhe", () => {
+  const g = load("RIED-CLI.MAN");
+  const m = g.managers.at(0);
+  const i32 = (o: number, v: number) => { for (let i = 0; i < 4; i++) m.setU8(o + i, (v >>> (8 * i)) & 0xff); };
+  const tag = { day: 12, month0: 10, year: 1997 };
+  const null0 = (lo: number) => lo; // jeder Wurf ist der kleinste, also 0
+
+  // F2: die Abnutzung von Komfort 398 gilt nur in der Bundesliga (0x0E49B)
+  i32(398, 4);
+  m.setU8(312, 1);
+  assert.equal(dailyFinance(g, 0, tag, null0).some((e) => e.kind === "komfort"), false, "Zweitligist nutzt nicht ab");
+  assert.equal(m.i32(398), 4);
+  m.setU8(312, 0);
+  assert.equal(dailyFinance(g, 0, tag, null0).some((e) => e.kind === "komfort"), true, "Bundesligist nutzt ab");
+  assert.equal(m.i32(398), 3);
+
+  // F1: nach Krawall sinkt Komfort 390 (0x0E3BC) - mit dem kleinsten Wurf trifft es
+  i32(390, 4);
+  m.setU8(318, m.u8(318) | 1);
+  dailyFinance(g, 0, tag, null0);
+  assert.equal(m.i32(390), 3, "Komfort 390 nach Krawall um eins gesunken");
+  // ... aber nie unter 1
+  i32(390, 1);
+  m.setU8(318, m.u8(318) | 1);
+  dailyFinance(g, 0, tag, null0);
+  assert.equal(m.i32(390), 1);
+  // Ohne Treffer (größter Wurf) bleibt er stehen
+  i32(390, 4);
+  m.setU8(318, m.u8(318) | 1);
+  dailyFinance(g, 0, tag, (_lo: number, hi: number) => hi);
+  assert.equal(m.i32(390), 4, "kein Treffer, kein Schaden am Komfort");
+
+  // F6: ab Saisontag 322 kein Krawallschaden und keine Abnutzung (die Tagesroutine entfällt)
+  i32(398, 4);
+  m.setU8(318, m.u8(318) | 1);
+  const vorher = m.i32(496);
+  const ev = dailyFinance(g, 0, tag, null0, undefined, false);
+  assert.equal(ev.some((e) => e.kind === "riot" || e.kind === "komfort"), false);
+  assert.equal(m.i32(496), vorher, "kein Schaden gebucht");
+  assert.equal(m.u8(318) & 1, 1, "der Krawall bleibt vorgemerkt");
+});
+
+test("Karriereende am Saisonende wie im Original (0x0D475, #81)", () => {
+  const g = load("RIED-CLI.MAN");
+  const p = g.save.plain;
+  void p;
+  // Zwei Kaderspieler: einer hat angekündigt und sein Vertrag läuft aus, einer ist nur alt
+  const kader = g.squadOf(0);
+  const ankuendiger = kader[2];
+  const alter = kader[3];
+  const idxA = ankuendiger.playerIndex;
+  const idxB = alter.playerIndex;
+  ankuendiger.setU8(11, 1); // läuft nach dem Herunterzählen aus
+  ankuendiger.setU8(24, 0x80);
+  g.players.at(idxA).setU8(26, 29); // nicht einmal alt
+  alter.setU8(11, 3);
+  alter.setU8(24, 0);
+  g.players.at(idxB).setU8(26, 36); // sehr alt, aber ohne Ankündigung
+  // Ein Spieler ohne Verein, 34 Jahre: geht bei random(32,34) < 34
+  const imKader = new Set<number>();
+  for (let s = 0; s < 125; s++) { const l = g.lineups.at(s); if (!l.isEmpty) imKader.add(l.playerIndex); }
+  let pool = 1;
+  while (imKader.has(pool)) pool++;
+  g.players.at(pool).setU8(26, 34);
+
+  const events = newSeason(g, mulberryRng(8));
+  const indizes = new Set(g.squadOf(0).map((l) => l.playerIndex));
+  assert.equal(indizes.has(idxA), false, "wer angekündigt hat und ausläuft, geht");
+  assert.ok(events.some((e) => e.manager === 0 && e.text.includes(texte("ui.karriereende")[2])), "mit der Meldung");
+  assert.equal(indizes.has(idxB), true, "ein 36-Jähriger mit Vertrag bleibt");
+  // Neu belegt nach dem Altern (0x0D420 vor 0x0D5BE): also 18 bis 25
+  assert.ok(g.players.at(idxA).u8(26) >= 18 && g.players.at(idxA).u8(26) <= 25, "Datensatz neu belegt");
+  // Wie in allen Originalspielständen: danach ist kein Spieler ohne Verein älter als 34 - erst
+  // wird gealtert, und ein 35-Jähriger liegt immer über random(32,34)
+  for (let x = 1; x < 151; x++) {
+    if (g.squadOf(0).some((l) => l.playerIndex === x)) continue;
+    let inKader = false;
+    for (let s = 0; s < 125; s++) if (!g.lineups.at(s).isEmpty && g.lineups.at(s).playerIndex === x) inKader = true;
+    if (inKader) continue;
+    assert.ok(g.players.at(x).u8(26) <= 34, `Poolspieler ${x} ist ${g.players.at(x).u8(26)}`);
   }
 });
