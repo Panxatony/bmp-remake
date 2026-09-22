@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, matchIncidents, matchStrength, pickStarter, fitStarters, isForfeit, playMatchday, FORFEIT_FINE } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, matchIncidents, minuteIncidents, newIncidentState, matchStrength, pickStarter, fitStarters, isForfeit, playMatchday, FORFEIT_FINE } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -103,4 +103,31 @@ test("Moral bleibt nicht im Spielstand stehen: nach dem Spieltag steht Byte 317 
   for (let i = 0; i < g.activeManagers().length; i++) {
     assert.equal(g.managers.at(i).u8(317), 0, `Manager ${i}`);
   }
+});
+
+test("Höchstens ein Platzverweis je Spiel, Gelb-Rot eingeschlossen (0x0618F, 0x06177, #84)", () => {
+  let mitGelbRot = 0;
+  for (let seed = 0; seed < 400; seed++) {
+    const g = load("TEST4.MAN");
+    g.managers.at(0).setU8(317, 40); // x = 0: Karten so häufig wie möglich
+    const inc = matchIncidents(g, 0, mulberryRng(1000 + seed));
+    const verweise = inc.filter((i) => i.kind === "red" || i.kind === "yellowred").length;
+    assert.ok(verweise <= 1, `Spiel ${seed}: ${verweise} Platzverweise`);
+    if (inc.some((i) => i.kind === "yellowred")) mitGelbRot++;
+  }
+  assert.ok(mitGelbRot > 0, "Gelb-Rot kommt überhaupt vor");
+});
+
+test("Unter vier Spielern auf dem Platz keine Ereignisse mehr (0x06319, #84)", () => {
+  const g = load("TEST4.MAN");
+  const kader = g.squadOf(0);
+  let aufDemPlatz = 0;
+  for (const l of kader) {
+    if (l.number >= 1 && l.number <= 11) {
+      if (aufDemPlatz >= 3) l.setU8(10, 0);
+      else aufDemPlatz++;
+    }
+  }
+  const st = newIncidentState();
+  assert.equal(minuteIncidents(g, 0, 10, st, (lo: number) => lo).length, 0);
 });
