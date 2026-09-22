@@ -33,6 +33,33 @@ export function mulberryRng(seed: number): Rng {
   };
 }
 
+/**
+ * Der Zufall des Originals (GitLab #99): rand() von Microsoft C (0x3B7CE) -
+ * Zustand = Zustand·214013 + 2531011 (32 Bit), Ergebnis Bits 16..30 - und random(lo, hi)
+ * = lo + rand % (hi - lo + 1) mit 16-Bit-Arithmetik (0x08377, idiv mit Vorzeichen). `srand(k)`
+ * setzt den Zustand auf k (0x3B7BC). Für den bytegenauen Vergleich mit einer Testkopie des
+ * Originals, die jeden Tag mit demselben Startwert beginnt (tools/seed-patch.py).
+ * `zaehler` zählt die Würfe mit - so lässt sich eine Abweichung eingrenzen.
+ */
+export function originalRng(seed: number): Rng & { zustand(): number; zaehler(): number } {
+  let s = seed >>> 0;
+  let n = 0;
+  const s16 = (v: number) => (v << 16) >> 16;
+  const f = ((lo: number, hi: number) => {
+    s = (Math.imul(s, 214013) + 2531011) >>> 0;
+    n++;
+    const r = (s >>> 16) & 0x7fff;
+    const l = s16(lo);
+    const span = s16(s16(hi) - l + 1);
+    if (span === 0) return l; // Division durch 0 bricht im Original ab; hier nur der Vollständigkeit halber
+    // idiv: Rest hat das Vorzeichen des Dividenden (r ist nie negativ)
+    return s16(l + (r % span));
+  }) as Rng & { zustand(): number; zaehler(): number };
+  f.zustand = () => s;
+  f.zaehler = () => n;
+  return f;
+}
+
 /** Ganzzahldivision mit Rundung zur Null (C-Semantik). */
 const div = (a: number, b: number): number => Math.trunc(a / b);
 
