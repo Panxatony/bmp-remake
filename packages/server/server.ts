@@ -96,6 +96,7 @@ import {
   FLAG_LEAGUE,
   type Rng,
   type MatchResult,
+  type TeamStrength,
   type Nachspiel,
   simulateMatch,
   parseMana,
@@ -1134,7 +1135,7 @@ function startLiveDay(r: Room): void {
       clearInterval(r.liveTimer);
       const st2 = r.live;
       st2.booked = true;
-      advanceDay(r, { results: liveResults(st2), postponed: st2.postponed, scorers: scorerLines(st2), events: matchEvents(st2), attendance: liveAttendances(st2), nachspiele: liveNachspiele(st2), booking: { forfeit: (m) => forfeitsOf(st2).has(m), incidents: (m) => incidentsOf(st2, m), vorbereitet: true }, einsaetzeVorher: st2.einsaetzeVorher });
+      advanceDay(r, { results: liveResults(st2), postponed: st2.postponed, scorers: scorerLines(st2), events: matchEvents(st2), attendance: liveAttendances(st2), nachspiele: liveNachspiele(st2), booking: { forfeit: (m) => forfeitsOf(st2).has(m), incidents: (m) => incidentsOf(st2, m), vorbereitet: true }, einsaetzeVorher: st2.einsaetzeVorher, staerke: new Map(st2.entries.map((e) => [e.key, [e.match.home, e.match.away] as const])) });
       nachTageswechsel(r);
       // Hat schon jeder bestätigt, verschwindet die Anzeige sofort
       if (!st2.paused) r.live = undefined;
@@ -1457,7 +1458,7 @@ function logCupMatches(r: Room, title: string, matches: CupMatch[], finals: CupF
 }
 
 /** Spielt die Ereignisse des aktuellen Kalendertags und schaltet auf den nächsten; mit live gespielten Ergebnissen, wenn vorhanden. */
-function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postponed: number[][]; einsaetzeVorher?: number[][]; scorers?: Map<string, { minute: number; side: "home" | "away"; name: string }[]>; events?: Map<string, { minute: number; side: "home" | "away"; goal: boolean }[]>; attendance?: Map<string, number>; booking?: LiveBooking; nachspiele?: Map<string, Nachspiel> }): void {
+function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStrength, TeamStrength]>; results: Map<string, MatchResult>; postponed: number[][]; einsaetzeVorher?: number[][]; scorers?: Map<string, { minute: number; side: "home" | "away"; name: string }[]>; events?: Map<string, { minute: number; side: "home" | "away"; goal: boolean }[]>; attendance?: Map<string, number>; booking?: LiveBooking; nachspiele?: Map<string, Nachspiel> }): void {
   const g = r.game;
   const k = dayIndex(g);
   const flag = calendarFlag(g, k);
@@ -1540,6 +1541,8 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
           cards: (p.incidents ?? []).filter((x) => x.kind !== "injury").length,
           // Die Bewertungen des Spiels; ohne sie stünde in der Zeitung für jeden dieselbe Note
           bewertungen: new Map(p.bewertungen?.find((x) => x.manager === i)?.werte ?? []),
+          // Die Matrix, mit der die Konferenz zuletzt gespielt hat (im Original im Vereinssatz)
+          staerke: ((st) => (st ? new Map([[p.home, st[0]], [p.away, st[1]]]) : undefined))(live?.staerke?.get(`${p.home}-${p.away}`)),
         }, r.rng);
         r.zeitung.set(i, composeZeitung(report, r.rng));
       });

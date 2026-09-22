@@ -23,6 +23,12 @@ export const PUNKTE = {
   15: "Torwürfel Gast",
   16: "Chancenhandler",
   17: "nach Chancenhandler",
+  18: "Wurf Rot",
+  19: "Wurf Gelb",
+  20: "Wurf Verletzung",
+  21: "Halbzeitende",
+  22: "Tabelle nach 90",
+  23: "KI-Torschützen",
 };
 
 /** Einträge des Protokolls: Kennung und Zustand des Generators. */

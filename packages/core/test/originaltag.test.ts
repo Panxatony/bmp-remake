@@ -62,6 +62,21 @@ test("Originaltag TEST4: beide Halbzeiten bis zum Schlusspfiff", { skip: !exists
   assert.deepEqual(lauf.slice(0, bisSchluss.length), bisSchluss);
 });
 
+// Nach dem Schlusspfiff (kontrollpunkte.py mit 21, 22, 23, 8, 9): Tabelle mit Grundzuschlag,
+// Torschützen der KI-Vereine, Stärke bei der Ergebnisübersicht, dann die Sportzeitung - die
+// Finanzen des Saisontags (Punkt 8) beginnen genau dort, wo die Zeitung endet
+const BUCHUNG = resolve(import.meta.dirname, "../../../tools/dosbox/KP-TEST4-BUCHUNG.MAN");
+test("Originaltag TEST4: Ligabuchung und Zeitung nach dem Schlusspfiff", { skip: !existsSync(BUCHUNG) || !existsSync(join(BMP_DIR, "TEST4.MAN")) }, () => {
+  const orig = protokoll(SaveFile.decode(new Uint8Array(readFileSync(BUCHUNG))).plain);
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+  const punkte = originaltag(g, originalRng(0x1234)).punkte;
+  const ids = new Set([1, 21, 22, 23]);
+  const bisFinanzen = orig.slice(0, orig.findIndex((p) => p.punkt === 8));
+  assert.deepEqual(punkte.filter((p) => ids.has(p.punkt)), bisFinanzen);
+  const finanzen = orig.find((p) => p.punkt === 8);
+  assert.equal(punkte.find((p) => p.punkt === 25)?.wurf, finanzen?.wurf, "Zeitung endet vor den Finanzen des Saisontags");
+});
+
 // Ringprotokoll (kontrollpunkte.py --ring 1 --halt 21): die letzten 160 Punkte der ersten
 // Halbzeit - Karten, Verletzungen, Torwürfel, Chancenhandler - nach Wurfzahl geordnet
 const RING = resolve(import.meta.dirname, "../../../tools/dosbox/KP-TEST4-RING.MAN");

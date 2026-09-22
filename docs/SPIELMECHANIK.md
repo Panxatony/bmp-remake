@@ -1364,6 +1364,23 @@ Die Seite nutzt eine eigene 16-stufige Graupalette (Index bitverkehrt: 0, 130, 6
 Remake: Erzeugung nach jedem Ligaspieltag für beteiligte Manager (Server, Laufzeitdaten
 `zeitung`), Anzeige über ZEITUNG in der Ergebnistafel, Option "Zeitung" in den Einstellungen.
 
+Wurf für Wurf gegen das Original geprüft (GitLab #99, Spielberichte per Speicherabzug):
+
+- Verlaufskurve: 120 Minutenwerte; je Tor (Liste 0x13) und je vergebener Chance (Liste 0x3B) in
+  Minute m die Gewichte 3,4,5,7,9,10,9,7,5,4,3 (4cb3:937E) auf m-5..m+5 (nur 1..119), eigene
+  Seite dazu, Gegner (Seitenbyte 100) ab. Die Summe wird **durch 120 geteilt** und nach oben auf
+  2 begrenzt (0x2F843).
+- Momentum 0x57A0: 1 bei Summe > 0; sonst wird random(0,1) gewürfelt und nur bei Summe 0 und
+  Wurf ungleich 0 gilt 1.
+- Chancenzahl (Byte 6) wird vorher auf 3..10 begrenzt (0x2F85F).
+- Noten: die Zeitung geht **alle** Kaderplätze durch und prüft die ungekappte Bewertung: über 25
+  (nicht Torwart) random(1,2) besser, der erste unter -15 (auch Torwart) random(1,2) schlechter.
+- Artikel 16 = frühes Gegentor, 17 = frühes eigenes Tor (vor Minute 8; das erste frühe Tor
+  entscheidet), 18 = letztes Tor nach Minute 80 zum Ausgleich oder zur Führung.
+- Artikelspalte 0x2EFAB: Wort für Wort ab (13, 60), Zeilenbreite 180, Zeilenhöhe 7; ist die Zeile
+  nach einem Artikel tiefer als 148, werden die übrigen Artikel gar nicht erst ausgefüllt (und
+  würfeln nicht).
+
 ## Highscore (0x34616, Punkte 0x34CDA/0x34B14, Datei 0x34474; sim/highscore.ts)
 
 Beim Saisonwechsel (0x1E871) wird je Manager ein Eintrag gebildet und in die Datei HIGH.0x
