@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, contractCheck, retirementAnnouncements, contractOffers, contractCooldown, contractScore, salaryDemand, playerValue, LEAGUES } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, contractCheck, retirementAnnouncements, contractOffers, contractCooldown, contractScore, salaryDemand, playerValue, LEAGUES, acceptOffer, declineOffer } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -165,4 +165,20 @@ test("Liegendes Angebot verfällt mit einem Sechstel je Tag (GitLab #80, Deutung
   l.setU8(24, 0x80 | 12);
   contractCooldown(g, 0, klein);
   assert.equal(l.u8(24), 0x80 | 12, "mit offenem Angebot passiert nichts");
+});
+
+test("Vertragsdialog: nach Annahme wie nach Ablehnung ruht das Thema random(10,18) Tage (0x26195, #95)", () => {
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+  const l = g.lineups.at(3);
+  for (let s = 1; s <= 20; s++) {
+    l.setU8(24, 0x80 | 103);
+    const offer = { manager: 0, place: 3, playerIndex: l.playerIndex, name: "X", yearsFrom: 1, yearsTo: 3, salary: 12345 };
+    acceptOffer(g, offer, mulberryRng(s));
+    assert.ok(l.u8(24) >= 10 && l.u8(24) <= 18, `angenommen: ${l.u8(24)}`);
+    assert.equal(l.u8(11), 3);
+    assert.equal(l.i32(40), 12345);
+    l.setU8(24, 103);
+    declineOffer(g, offer, mulberryRng(s));
+    assert.ok(l.u8(24) >= 10 && l.u8(24) <= 18, `abgelehnt: ${l.u8(24)}`);
+  }
 });

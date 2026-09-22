@@ -194,35 +194,46 @@ export function contractOffers(g: GameState, manager: number, rng: Rng): Contrac
 }
 
 /**
- * Angebot annehmen: Vertragsjahre und Gehalt setzen. Kaderbyte 24 bleibt auf 100 + Jahre, bis
- * `contractCooldown` es zurücksetzt - was der Vertragsdialog 0x251FF beim Annehmen damit macht,
- * klärt dessen Zweigbuch (#82).
+ * Angebot annehmen: Vertragsjahre und Gehalt setzen. Danach sperrt der Vertragsdialog weitere
+ * Gespräche: Kaderbyte 24 = random(10,18) (0x26195), das löscht auch die Rücktrittsmarke (Bit 7)
+ * und die 100 + Jahre des Angebots. Die Meldung des Spielers räumt das Original dabei weg
+ * (0x2617A); unsere Meldungen hängen nicht am Kaderplatz.
  */
-export function acceptOffer(g: GameState, offer: ContractOffer): void {
+export function acceptOffer(g: GameState, offer: ContractOffer, rng: Rng): void {
   const l = g.lineups.at(offer.manager * 25 + offer.place);
   l.setU8(11, offer.yearsTo);
   for (let i = 0; i < 4; i++) l.setU8(40 + i, (offer.salary >>> (8 * i)) & 0xff);
-  l.setU8(24, l.u8(24) & 0x7f);
+  vertragsgespraechSperren(g, offer.manager, offer.place, rng);
 }
 
 /** Eigenes Angebot vom Spieler abgelehnt (0x251FF ab 0x2616F): Angebot erlischt, Byte 24 = random(10,18). */
 export function rejectOffer(g: GameState, offer: ContractOffer, rng: Rng): void {
-  const l = g.lineups.at(offer.manager * 25 + offer.place);
-  l.setU8(24, rng(10, 18));
+  vertragsgespraechSperren(g, offer.manager, offer.place, rng);
 }
 
-/** Angebot ablehnen: Byte 24 = 100, das Angebot liegt nicht mehr (verfällt über `contractCooldown`). */
-export function declineOffer(g: GameState, offer: ContractOffer): void {
-  const l = g.lineups.at(offer.manager * 25 + offer.place);
-  l.setU8(24, 100);
+/**
+ * Angebot ablehnen, also den Dialog ohne Einigung verlassen: auch das endet bei 0x26165 mit
+ * Byte 24 = random(10,18). (Bis #95 stand hier 100, das dann nur mit 1/6 je Tag verfiel.)
+ */
+export function declineOffer(g: GameState, offer: ContractOffer, rng: Rng): void {
+  vertragsgespraechSperren(g, offer.manager, offer.place, rng);
+}
+
+/**
+ * Ende jedes Vertragsdialogs außer dem Sonderzustand 3 (0x26165 bis 0x261A8): Kaderbyte 24 =
+ * random(10,18) - ob mit Einigung oder ohne. Der Wert zählt täglich herunter (0x0E5DC); erst
+ * bei 0 bietet der Spieler wieder an.
+ */
+export function vertragsgespraechSperren(g: GameState, manager: number, place: number, rng: Rng): void {
+  g.lineups.at(manager * 25 + place).setU8(24, rng(10, 18));
 }
 
 /**
  * Tägliche Pflege des Verhandlungszählers (Kaderbyte 24) in der Tagesroutine, 0x0E5DC bis
  * 0x0E64C:
  *
- * * Steht dort ein Wert **über 99** - ein liegendes Verlängerungsangebot (100 + Jahre) oder
- *   ein abgelehntes (100) -, **verfällt** es mit `random(0,5) = 0`, also einem Sechstel je Tag:
+ * * Steht dort ein Wert **über 99** - ein liegendes Verlängerungsangebot (100 + Jahre) -,
+ *   **verfällt** es mit `random(0,5) = 0`, also einem Sechstel je Tag:
  *   der Wert geht auf `random(9,17)`, und der Spieler kann wieder anbieten. (In #80 hatte ich
  *   das als "Absage" gedeutet; das Verhalten stimmte, die Deutung nicht - siehe #81.)
  * * Sonst zählt der Wert täglich um eins herunter, bis er 0 erreicht.

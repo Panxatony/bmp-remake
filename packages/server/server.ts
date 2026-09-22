@@ -2623,7 +2623,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     }
     l.setU8(11, years);
     for (let i = 0; i < 4; i++) l.setU8(40 + i, (salary >>> (8 * i)) & 0xff);
-    l.setU8(24, l.u8(24) & 0x7f);
+    // Auch nach einer Einigung ruht das Thema eine Weile (0x26195)
+    l.setU8(24, room.rng(10, 18));
     room.log.push(`${room.game.managers.at(manager).displayName}: Vertrag mit ${name} auf ${years} Jahre verlängert (${salary} DM)`);
     if (offen) {
       // Kasten des Originals nach einer Einigung am Saisonende (0x0DDF0)
@@ -2672,9 +2673,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     }
     room.offers.splice(idx, 1);
     if (body.accept) {
-      acceptOffer(room.game, offer);
+      acceptOffer(room.game, offer, room.rng);
       room.log.push(`${room.game.managers.at(manager).displayName}: Vertrag mit ${offer.name} bis ${offer.yearsTo} Jahre verlängert (${offer.salary} DM)`);
-    } else declineOffer(room.game, offer);
+    } else declineOffer(room.game, offer, room.rng);
     room.version++;
     broadcast(room);
     return json(res, 200, { ok: true });

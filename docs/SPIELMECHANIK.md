@@ -1882,7 +1882,10 @@ Jahre 2/3/4 (random(0,100) über 70 bzw. 90), Byte 24 = 100 + Jahre, Meldung Vor
 "$ bietet an,^von # auf #^Jahre zu verlängern." Ohne Antwort verfällt das Angebot mit 1/6 je
 Tag (0xE5DC: Byte 24 auf random(9,17), danach täglich herunter).
 Die Verhandlung läuft im Vertragsdialog 0x251FF: Angebot unter der Forderung → "So dumm
-ist $ leider nicht", sonst "Ihr Angebot wurde angenommen". Forderung (0x25C27): v =
+ist $ leider nicht", sonst "Ihr Angebot wurde angenommen". **Jeder** Ausgang des Dialogs -
+Einigung wie Absage oder Abbruch - setzt Byte 24 = random(10,18) (0x26195) und räumt die
+Meldung des Spielers weg; danach zählt der Wert täglich herunter (GitLab #95). Am Saisonende
+ist nach einer Absage Schluss: der Dialog kehrt zurück, und der Spieler geht (0x0DC66). Forderung (0x25C27): v =
 Marktwert mit Flags 5 (also die Gehaltsbasis), prog = 100 - 100·nächster Spieltag/Spieltage
 der Liga, t = 100·(Jahre - 1) + prog (0x25C90 ff.), q = ((t/6 + 122)·8)/10, Forderung =
 v·(q + 4)/100, nach Saisontag 321 zusätzlich ·(152 - Alter)/100, mindestens das bisherige
