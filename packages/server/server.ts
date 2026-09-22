@@ -1133,7 +1133,7 @@ function startLiveDay(r: Room): void {
       clearInterval(r.liveTimer);
       const st2 = r.live;
       st2.booked = true;
-      advanceDay(r, { results: liveResults(st2), postponed: st2.postponed, scorers: scorerLines(st2), events: matchEvents(st2), attendance: liveAttendances(st2), nachspiele: liveNachspiele(st2), booking: { forfeit: (m) => forfeitsOf(st2).has(m), incidents: (m) => incidentsOf(st2, m) } });
+      advanceDay(r, { results: liveResults(st2), postponed: st2.postponed, scorers: scorerLines(st2), events: matchEvents(st2), attendance: liveAttendances(st2), nachspiele: liveNachspiele(st2), booking: { forfeit: (m) => forfeitsOf(st2).has(m), incidents: (m) => incidentsOf(st2, m), vorbereitet: true }, einsaetzeVorher: st2.einsaetzeVorher });
       nachTageswechsel(r);
       // Hat schon jeder bestätigt, verschwindet die Anzeige sofort
       if (!st2.paused) r.live = undefined;
@@ -1456,7 +1456,7 @@ function logCupMatches(r: Room, title: string, matches: CupMatch[], finals: CupF
 }
 
 /** Spielt die Ereignisse des aktuellen Kalendertags und schaltet auf den nächsten; mit live gespielten Ergebnissen, wenn vorhanden. */
-function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postponed: number[][]; scorers?: Map<string, { minute: number; side: "home" | "away"; name: string }[]>; events?: Map<string, { minute: number; side: "home" | "away"; goal: boolean }[]>; attendance?: Map<string, number>; booking?: LiveBooking; nachspiele?: Map<string, Nachspiel> }): void {
+function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postponed: number[][]; einsaetzeVorher?: number[][]; scorers?: Map<string, { minute: number; side: "home" | "away"; name: string }[]>; events?: Map<string, { minute: number; side: "home" | "away"; goal: boolean }[]>; attendance?: Map<string, number>; booking?: LiveBooking; nachspiele?: Map<string, Nachspiel> }): void {
   const g = r.game;
   const k = dayIndex(g);
   const flag = calendarFlag(g, k);
@@ -1477,7 +1477,8 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
   const nachspiel = (home: number, away: number) => live?.nachspiele?.get(`${home}-${away}`);
   const names = (c: number) => g.clubs.at(c).displayName;
   // Einsätze vor dem Tag: daran erkennt die Dopingprüfung, wer gespielt hat (#3)
-  const einsaetzeVorher = g.activeManagers().map((_, i) => g.squadOf(i).map((l) => l.leagueApps + l.cupApps));
+  // Mit Konferenz zählt der Kaderteil die Einsätze schon beim Anpfiff - dann gilt deren Stand
+  const einsaetzeVorher = live?.einsaetzeVorher ?? g.activeManagers().map((_, i) => g.squadOf(i).map((l) => l.u8(6) + l.u8(7) + l.u8(8)));
   // Die Sportzeitung gehört zum Spieltag, an dem sie entstanden ist: sie wird an jedem Spieltag
   // geleert - auch an Pokal- und Europapokaltagen, sonst stünde dort die Ausgabe des letzten
   // Ligaspieltags noch einmal in der Seitenfolge. An Tagen ohne Spiele bleibt sie stehen und
@@ -1571,19 +1572,19 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
     if (postponed.length) r.log.push(`  verlegt: ${postponed.map((m) => `${names(g.pairings(league)[m][0])} - ${names(g.pairings(league)[m][1])}`).join(", ")}`);
   }
   if (flag & 8) {
-    const played = playCupDay(g, r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), nachspiel);
+    const played = playCupDay(g, r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), nachspiel, live?.booking?.vorbereitet ?? false);
     logCupMatches(r, "DFB-Pokal", played, played.finals ?? [], live?.scorers);
     zeremonieAnsetzen(r, played.gezogen ?? []);
   }
   // Tagesverteiler 0x1D8D1: genau Flag 0x10 ist die Relegation, sonst ein Europapokaltag
   if ((flag & 0x70) === 0x10) {
-    const m = playPlayoffDay(g, seasonDay(k), r.rng, sim, nachspiel);
+    const m = playPlayoffDay(g, seasonDay(k), r.rng, sim, nachspiel, live?.booking?.vorbereitet ?? false);
     r.log.push(`Relegation, ${m.leg === 1 ? "Hinspiel" : "R}ckspiel"}: ${names(m.home)} - ${names(m.away)} ${resultText(m)}${m.attendance ? ` (${m.attendance} Zuschauer)` : ""}`);
     if (m.winner !== undefined) r.log.push(`  ${names(m.winner)} spielt n{chste Saison in der Bundesliga`);
     // Das Relegationsspiel läuft in der Konferenz wie jedes andere; Ergebnis und Ausgang stehen
     // danach im Spielplan und im Verlauf. Das Original meldet nichts (GitLab #54).
   } else if (flag & 0x70) {
-    const { matches, finals, gezogen } = playEuropaDay(g, seasonDay(k), r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), nachspiel);
+    const { matches, finals, gezogen } = playEuropaDay(g, seasonDay(k), r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), nachspiel, live?.booking?.vorbereitet ?? false);
     logCupMatches(r, "Europapokal", matches, finals, live?.scorers);
     zeremonieAnsetzen(r, gezogen);
   }
@@ -1879,7 +1880,7 @@ function advanceDay(r: Room, live?: { results: Map<string, MatchResult>; postpon
   // Doping (Version 2026, #3): nach den Spielen wird für jeden gedopten Spieler gewürfelt, der
   // eingesetzt war. Wer auffliegt, ist Wochen gesperrt, der Verein zahlt, und alle erfahren es.
   g.activeManagers().forEach((m, i) => {
-    const jetzt = g.squadOf(i).map((l) => l.leagueApps + l.cupApps);
+    const jetzt = g.squadOf(i).map((l) => l.u8(6) + l.u8(7) + l.u8(8));
     const vorher = einsaetzeVorher[i] ?? [];
     const erwischt = dopeMatchday(g, i, (place) => (jetzt[place] ?? 0) > (vorher[place] ?? 0), r.rng);
     for (const ev of erwischt) {

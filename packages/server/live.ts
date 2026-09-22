@@ -9,6 +9,7 @@
 import {
   attendance,
   pokalZuschlag,
+  kaderVorbereitung,
   dfbFinale,
   FINALE_KULISSE,
   minuteIncidents,
@@ -150,6 +151,12 @@ export interface LiveState {
    */
   verletzung?: { manager: number; name: string };
   subs: Record<number, { goalkeeper: number; field: number }>;
+  /**
+   * Einsätze je Kaderplatz vor dem Anpfiff (Liga, Pokal, Europapokal). Der Kaderteil der
+   * Spielvorbereitung zählt sie schon beim Anpfiff hoch; die Dopingprüfung nach dem Tag erkennt
+   * daran, wer gespielt hat.
+   */
+  einsaetzeVorher: number[][];
   /** Laufende Elfmetertafel und die, die danach noch kommen (GitLab #72) */
   elfmeter?: Elfmetertafel;
   elfmeterQueue: Elfmetertafel[];
@@ -197,6 +204,7 @@ export function wechselZahl(subs: LiveState["subs"] | undefined, manager: number
  */
 export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempoMs: number, wechselVorher?: LiveState["subs"]): LiveState {
   const managers = g.activeManagers();
+  const einsaetzeVorher = managers.map((_, i) => g.squadOf(i).map((l) => l.u8(6) + l.u8(7) + l.u8(8)));
   const managerOf = new Map<number, number>();
   managers.forEach((m, i) => managerOf.set(m.clubIndex, i));
   const entries: LiveEntry[] = [];
@@ -262,6 +270,14 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
         break;
       }
     }
+    // Kaderteil der Spielvorbereitung wie im Original vor dem Anpfiff (0x1C632 ab 0x1CBB9,
+    // GitLab #89 V10): für die Manager des Spiels in ihrer Reihenfolge, bis zu dem, der 0:2
+    // verliert - die Routine kehrt bei ihm sofort zurück
+    const matchType = e.kind === "league" ? 0 : e.cup === 0 ? 1 : 2;
+    for (const mi of [e.managerHome, e.managerAway].filter((x) => x !== undefined).sort((a, b) => a - b)) {
+      if (mi === e.forfeit) break;
+      kaderVorbereitung(g, mi, matchType, rng);
+    }
     if (e.forfeit !== undefined) {
       e.match.hg = e.forfeit === e.managerHome ? 0 : 2;
       e.match.ag = e.forfeit === e.managerHome ? 2 : 0;
@@ -276,7 +292,7 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
   // Spieltags (0x1D866: erst die Ligen, dann der DFB-Pokal, dann Europa) und wartet 50 Ticks.
   const announce = flag & 7 ? "Ligaspiel" : flag & FLAG_CUP ? "DFB-Pokal" : flag & FLAG_EUROPE ? "Europapokal" : undefined;
   const halt = announce ? ANNOUNCE_MS : 1500;
-  return { dayIndex: k, flag, entries, postponed, minute: 0, paused: false, sceneQueue: [], holdUntil: now + halt, nextMinuteAt: now + halt, finished: false, tempoMs, scenesOn: true, news: [], subs: {}, elfmeterQueue: [], announce, announceUntil: announce ? now + halt : undefined };
+  return { dayIndex: k, flag, entries, postponed, minute: 0, paused: false, sceneQueue: [], holdUntil: now + halt, nextMinuteAt: now + halt, finished: false, tempoMs, scenesOn: true, news: [], subs: {}, einsaetzeVorher, elfmeterQueue: [], announce, announceUntil: announce ? now + halt : undefined };
 }
 
 /** Ein Zeitschritt; true, wenn sich etwas geändert hat. */

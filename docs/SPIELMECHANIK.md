@@ -153,8 +153,12 @@ Buchstabentabellen mit `Verein = Ligabasis + Buchstabe`.
 
 Läuft im Original **vor** dem Anpfiff (Spieltagstreiber 0x46DB ruft sie bei 0x4914 für die
 Liga und 0x4A33 für die Pokalbereiche, danach erst die Live-Schleife); die Anfangsstärke steht
-da schon fest (Tagesablauf 0x1D7BA). Portiert als `afterMatch` (matchday.ts) nach dem Spiel,
-die Einnahmen in `bookGate`/`bookAttendance`/`pokalZuschlag` (attendance.ts). Je Paarung geht
+da schon fest (Tagesablauf 0x1D7FF). Der Kaderteil läuft auch im Remake beim Anpfiff
+(`kaderVorbereitung` aus `startLive`, GitLab #89 V10): Frischebonus und Einsätze wirken bei
+Neuberechnungen im Spiel, Byte 21 trägt nach dem Spiel die Bewertungen; die Dopingprüfung
+vergleicht deshalb mit den Einsätzen von vor dem Anpfiff. Ohne Konferenz (Tests) läuft er als
+`afterMatch` nach dem Spiel. Die Einnahmen stehen in `bookGate`/`bookAttendance`/`pokalZuschlag`
+(attendance.ts). Je Paarung geht
 sie die Manager der Reihe nach durch:
 
 - **0:2-Prüfung** (Byte 317 = 100, weniger als acht einsatzfähige Starter): außer ab dem

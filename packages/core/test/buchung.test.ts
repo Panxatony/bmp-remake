@@ -152,3 +152,19 @@ test("Zuschauer: Endspurt erst in den letzten fünf Spieltagen, Gästebonus nur 
   // Heim auf Platz 9, Gast auf 3: der Gästebonus allein greift nicht
   assert.equal(zu(tage - 3, 9, 3), zu(tage - 6, 9, 3));
 });
+
+test("Kaderteil vor dem Anpfiff: Moral bleibt, die Buchung mit Konferenz zählt nicht doppelt (#89 V10)", async () => {
+  const { kaderVorbereitung } = await import("../src/index.ts");
+  const g = load("TEST4.MAN");
+  const m = g.managers.at(0);
+  m.setU8(317, 23);
+  const starter = g.squadOf(0).filter((l) => l.number >= 1 && l.number <= 11);
+  const vorher = starter.map((l) => l.u8(6));
+  kaderVorbereitung(g, 0, 0, mulberryRng(2));
+  assert.equal(m.u8(317), 23, "die Moral gilt im Spiel");
+  assert.deepEqual(starter.map((l) => l.u8(6)), vorher.map((v) => v + 1));
+  const club = m.clubIndex;
+  playMatchday(g, club < 18 ? 0 : 1, mulberryRng(4), [], undefined, undefined, { forfeit: () => false, incidents: () => [], vorbereitet: true });
+  assert.deepEqual(starter.map((l) => l.u8(6)), vorher.map((v) => v + 1), "kein zweiter Einsatz");
+  assert.equal(m.u8(317), 0, "nach dem Spiel weg");
+});

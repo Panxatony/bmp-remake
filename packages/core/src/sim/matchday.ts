@@ -96,6 +96,8 @@ export interface LiveBooking {
   forfeit: (manager: number) => boolean;
   /** Karten und Verletzungen, die in der Konferenz schon gebucht sind */
   incidents: (manager: number) => Incident[];
+  /** Der Kaderteil der Spielvorbereitung lief schon beim Anpfiff (`kaderVorbereitung`) */
+  vorbereitet?: boolean;
 }
 
 export function playMatchday(g: GameState, league: number, rng: Rng, postponed: number[] = [], sim: MatchSim = (_h, _a, hs, as, r) => simulateMatch(hs, as, r), attendanceOf?: (home: number, away: number) => number | undefined, live?: LiveBooking): PlayedMatch[] {
@@ -189,7 +191,10 @@ function spieleEins(
       for (const l of g.squadOf(i)) if (!l.isEmpty) werte.push([l.playerIndex, (l.u8(21) << 24) >> 24]);
       (played.bewertungen ??= []).push({ manager: i, werte });
     });
-    for (const mi of bearbeitet) afterMatch(g, mi, 0, rng);
+    for (const mi of bearbeitet) {
+      if (live?.vorbereitet) moralWeg(g, mi);
+      else afterMatch(g, mi, 0, rng);
+    }
     return played;
   }
 }
@@ -257,11 +262,26 @@ export function bookEvents(g: GameState, home: number, away: number, result: Mat
  *   in Byte 6/7/8 und im 16-Bit-Zähler bei 28/30/32. Frische wird auf 50..150 begrenzt.
  */
 export function afterMatch(g: GameState, manager: number, matchType: number, rng: Rng): void {
-  // Die Moral gilt nur für dieses Spiel. Im Original steht sie danach noch im Speicher, bis
-  // die nächste Anzeigerechnung sie bei 0x0FCFE wieder auf 0 setzt - und weil vor dem Speichern
-  // immer eine Anzeige kommt, steht in **jedem** Spielstand des Originals eine 0 (in allen
-  // vorhandenen nachgesehen). Wir räumen sie deshalb gleich hier weg (GitLab #73).
+  moralWeg(g, manager);
+  kaderVorbereitung(g, manager, matchType, rng);
+}
+
+/**
+ * Die Moral gilt nur für dieses Spiel. Im Original steht sie danach noch im Speicher, bis die
+ * nächste Anzeigerechnung sie bei 0x0FCFE wieder auf 0 setzt - und weil vor dem Speichern immer
+ * eine Anzeige kommt, steht in **jedem** Spielstand des Originals eine 0 (in allen vorhandenen
+ * nachgesehen). Wir räumen sie deshalb nach dem Spiel weg (GitLab #73).
+ */
+export function moralWeg(g: GameState, manager: number): void {
   g.managers.at(manager).setU8(317, 0);
+}
+
+/**
+ * Der Kaderteil der Spielvorbereitung allein (ab 0x1CBB9). Die Live-Konferenz ruft ihn wie das
+ * Original **vor** dem Anpfiff (GitLab #89, V10): Frischebonus und Einsätze wirken dann schon bei
+ * Neuberechnungen der Stärke im Spiel, und Byte 21 trägt nach dem Spiel die Bewertungen.
+ */
+export function kaderVorbereitung(g: GameState, manager: number, matchType: number, rng: Rng): void {
   if (matchType === 0) {
     for (let k = 0; k < MARKET_SIZE; k++) {
       const l = g.lineups.at(100 + k);
