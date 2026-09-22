@@ -157,7 +157,11 @@ function spieleEins(
       }
       bearbeitet.push(mi);
     }
-    const result = forfeit !== undefined ? { home: forfeit === mHome ? 0 : 2, away: forfeit === mHome ? 2 : 0, events: [] } : sim(home, away, matrixFor(g, home, rng), matrixFor(g, away, rng), rng);
+    // Wie vor dem Anpfiff im Original (0x1D7FF): die Spielmatrizen stehen danach im Vereinssatz,
+    // auch die Zuschauerrechnung sieht sie
+    const hs = matrixFor(g, home, rng);
+    const as = matrixFor(g, away, rng);
+    const result = forfeit !== undefined ? { home: forfeit === mHome ? 0 : 2, away: forfeit === mHome ? 2 : 0, events: [] } : sim(home, away, hs, as, rng);
     if (forfeit !== undefined) bookForfeit(g, forfeit);
     writeResult(g, league, md, m, result.home, result.away);
     applyResult(g, home, away, result.home, result.away);
@@ -172,7 +176,7 @@ function spieleEins(
       if (incidents.length) played.incidents = incidents;
     }
     if (bearbeitet.includes(mHome)) {
-      const att = attendanceOf?.(home, away) ?? attendance(g, { manager: mHome, home, away, level: g.save.plain[34062] }, rng);
+      const att = attendanceOf?.(home, away) ?? attendance(g, { manager: mHome, home, away, level: g.save.plain[34062], staerkeHeim: hs, staerkeGast: as }, rng);
       bookAttendance(g, mHome, att, away);
       played.attendance = att;
       played.gate = bookGate(g, mHome, att);
