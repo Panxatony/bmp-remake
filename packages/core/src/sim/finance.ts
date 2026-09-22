@@ -181,12 +181,15 @@ export function dailyFinance(g: GameState, manager: number, date: { day: number;
       const o = 508 + (lender * 3 + slot) * 18;
       const amount = m.i32(o);
       if (amount === 0) continue;
-      let dueDay = m.u8(o + 9);
-      if (dueDay > daysInMonth) dueDay = daysInMonth;
-      // Im Original hängt der Zinstermin am Aufnahmetag: je nachdem, welche Tage im Kalender
-      // vorkommen, zahlt der eine fünfmal je Saison Zinsen und der andere einmal. Die Version
-      // 2026 bucht die Zinsen für alle zum selben Termin wie die Monatsabrechnung.
-      if (date.day !== (fester ? daysInMonth : dueDay)) continue;
+      // Im Original hängt der Zinstermin am Aufnahmetag (Byte 9). Dazu bucht es die Zinsen am
+      // Monatsletzten ein zweites Mal, wenn der laufende Monat kürzer ist als der Monat der
+      // Rückzahlung (Byte 11) - 0x12151 vergleicht die Monatslängen, nicht den Termin. Wer im
+      // Juli zurückzahlt, zahlt also im Februar und in den 30-Tage-Monaten doppelt. Die Version
+      // 2026 bucht die Zinsen für alle einmal zum Termin der Monatsabrechnung.
+      const termin = fester
+        ? date.day === daysInMonth
+        : date.day === m.u8(o + 9) || (DAYS_IN_MONTH[m.u8(o + 11)] > daysInMonth && date.day === daysInMonth);
+      if (!termin) continue;
       const interest = m.i32(o + 4);
       writeI32(g, manager, 496, m.i32(496) - interest);
       events.push({ kind: "interest", text: `Zinsen ${interest} DM für Kredit über ${amount} DM`, amount: interest });
