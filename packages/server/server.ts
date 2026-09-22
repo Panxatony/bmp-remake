@@ -1039,6 +1039,10 @@ function vertragsendeFreigeben(r: Room, manager: number, playerIndex: number): v
   if (erg.free) {
     r.freeAgents.push({ ...erg.free, bids: [] });
     r.freeAgentsDay = dayIndex(r.game);
+    // Die anderen Manager erfahren davon und können bieten; der abgebende nicht
+    r.game.activeManagers().forEach((_, i) => {
+      if (i !== manager && !isAi(r.game, i)) pushMessage(r, i, ["Abl|sefrei zu haben:", erg.free!.name]);
+    });
   }
 }
 
@@ -2613,10 +2617,13 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const name = room.game.players.at(l.playerIndex).displayName;
     const offen = room.vertragsende.find((v) => v.manager === manager && v.playerIndex === l.playerIndex);
     if (!contractCheck(room.game, manager, place, years, salary, room.rng)) {
-      // Am Saisonende darf der Manager nachbessern, solange er den Spieler nicht gehen lässt;
-      // in der Saison sperrt die Absage den Platz für eine Weile (Byte 24)
-      if (!offen) l.setU8(24, room.rng(10, 18));
       room.log.push(`${room.game.managers.at(manager).displayName}: ${name} lehnt ${salary} DM für ${years} Jahre ab`);
+      if (offen) {
+        // Am Saisonende gibt es wie im Original nur einen Versuch: nach der Absage kehrt der
+        // Vertragsdialog zurück, und der Spieler geht (0x0DC66). In der Version 2026 ist er
+        // danach ablösefrei, und die anderen Manager können bieten (GitLab #95, D3).
+        vertragsendeFreigeben(room, manager, l.playerIndex);
+      } else l.setU8(24, room.rng(10, 18));
       room.version++;
       broadcast(room);
       return json(res, 200, { ok: false, message: `${name} ${texte("ui.keinInteresse").join(" ")}` });
@@ -3253,6 +3260,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const spieler = Number(body.playerIndex) | 0;
     const agent = room.freeAgents.find((a) => a.playerIndex === spieler);
     if (!agent) return json(res, 404, { error: "Der Spieler ist nicht mehr frei" });
+    // Wer den Spieler gerade hat gehen lassen, bietet nicht mit
+    if (agent.from === manager) return json(res, 400, { error: "Das war Ihr Spieler - bieten k|nnen nur die anderen" });
     if (isBlocked(room.game, manager)) return json(res, 400, { error: "Kaufsperre: Ihr Konto stand am Monatsende zu tief im Minus" });
     const salary = Math.max(0, Math.trunc(Number(body.salary)));
     agent.bids = agent.bids.filter((b) => b.manager !== manager);
