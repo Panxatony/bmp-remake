@@ -10,7 +10,7 @@ import { simulateMatch } from "./match.ts";
 import { strengthInput, teamStrength } from "./strength.ts";
 import { applyResult, updatePositions } from "./standings.ts";
 import { fixtures, LEAGUES } from "./fixtures.ts";
-import { bookGoal, bookMissedChance, bookDefence } from "./goals.ts";
+import { bookChance, bookDefence } from "./goals.ts";
 import { attendance, bookAttendance, bookGate } from "./attendance.ts";
 import { bookHistory } from "./history.ts";
 import { isForfeit, bookForfeit, matchIncidents, type Incident } from "./incidents.ts";
@@ -206,29 +206,26 @@ export function playReplays(
 }
 
 /** Tore und Chancen der Managervereine buchen (Schützen, Statistik, Bewertung). */
-export function bookEvents(g: GameState, home: number, away: number, result: MatchResult, matchType: number, rng: Rng): PlayedMatch["scorers"] {
+export function bookEvents(g: GameState, home: number, away: number, result: MatchResult, matchType: number, rng: Rng, elfmeter?: boolean[]): PlayedMatch["scorers"] {
   const managerOf = new Map<number, number>();
   g.activeManagers().forEach((mg, i) => managerOf.set(mg.clubIndex, i));
   const scorers: PlayedMatch["scorers"] = [];
-  for (const e of result.events) {
+  result.events.forEach((e, k) => {
     const attacker = managerOf.get(e.side === "home" ? home : away);
     const defender = managerOf.get(e.side === "home" ? away : home);
     if (attacker !== undefined) {
-      if (e.goal) {
-        const rec = bookGoal(g, attacker, matchType, rng);
-        if (rec) {
-          // Das Original nennt unter der Szene auch die Torzahl des Schützen und den
-          // Vorlagengeber ("Torsch}tze: GUTBERIET (2) / nach Vorlage von BREITZKE")
-          const squad = g.squadOf(attacker);
-          const l = squad[rec.scorer];
-          const tore = l ? l.leagueGoals + l.cupGoals : 0;
-          const vorlage = rec.assist >= 0 && squad[rec.assist] ? g.players.at(squad[rec.assist].playerIndex).displayName : undefined;
-          scorers.push({ minute: e.minute, side: e.side, name: rec.scorerName, goals: tore, assist: vorlage });
-        }
-      } else bookMissedChance(g, attacker, rng);
-    }
-    if (defender !== undefined) bookDefence(g, defender, e.goal);
-  }
+      const rec = bookChance(g, attacker, e.goal, matchType, rng, elfmeter?.[k] ?? false);
+      if (rec && e.goal) {
+        // Das Original nennt unter der Szene auch die Torzahl des Schützen und den
+        // Vorlagengeber ("Torsch}tze: GUTBERIET (2) / nach Vorlage von BREITZKE")
+        const squad = g.squadOf(attacker);
+        const l = squad[rec.scorer];
+        const tore = l ? l.leagueGoals + l.cupGoals + l.u8(5) : 0;
+        const vorlage = rec.assist >= 0 && !(elfmeter?.[k] ?? false) && squad[rec.assist] ? g.players.at(squad[rec.assist].playerIndex).displayName : undefined;
+        scorers.push({ minute: e.minute, side: e.side, name: rec.scorerName, goals: tore, assist: vorlage });
+      }
+    } else if (defender !== undefined) bookDefence(g, defender, e.goal);
+  });
   return scorers;
 }
 

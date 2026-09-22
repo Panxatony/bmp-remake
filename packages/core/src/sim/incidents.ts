@@ -147,6 +147,8 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
         record(i, "yellowred", 1);
       } else {
         l.setU8(1, l.u8(1) + 1);
+        // Auch Gelb kostet 10 Bewertungspunkte (0x1C1AC); fehlte bis GitLab #85
+        l.setU8(21, (l.u8(21) - 10) & 0xff);
         st.yellows.add(i);
         record(i, "yellow", 0);
       }
