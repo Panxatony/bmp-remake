@@ -274,7 +274,9 @@ Letzte fünf Spieltage bei Preis < 22: letzter Spieltag ausverkauft, sonst + Kap
 bei Heimplatz unter 7 (2. Liga: 5), + Kapazität/5 bei Gastplatz unter 7, + Kapazität/4 im
 Abstiegskampf. Preis > 10: + 900·(10 - Preis). Deckel: att·Preis ≤ (2·mult - [mult = 4])
 ·100000 (Bundesliga 700000 DM), Schritte von 1000; mindestens 501; höchstens Kapazität
-(Sitz + Steh; Pokal: random(K - K/3, K + K/3)·10 mit K = 4500/2200/1200/600 je Ligaband).
+(Sitz + Steh; bei Argument +0x10 = 1 stattdessen random(K - K/3, K + K/3)·10 mit
+K = 4500/2200/1200/600 je Ligaband - das gilt nur für Heimvereine des Rechners, siehe
+Pokaleinnahmen. Argument +0x12 setzt den Eintrittspreis an die Stelle von Byte 266).
 Buchung: Historie Byte 330 + Zähler 314 (in Tausend), gesamt 484, Rekord 488 mit Gegner
 500, Minuskulisse 492 mit Gegner 504. Geprüft: Nürnberg - Schalke 24000 (ausverkauft) in
 allen zehn Läufen, Buchung byte-genau gegen RUNA0. Bedeutungswert (0x1C737): Liga und DFB-Pokal 1, Europapokal 2, bei 4cb3:0009 > 4
@@ -352,10 +354,23 @@ Im Rückspiel entscheidet 0x19208: mehr Gesamttore, sonst mehr Auswärtstore, so
 (30): Verlängerung, dann Elfmeterschießen; nach Saisontag 315 zählt nur das eine Spiel.
 Sieger nach vorn, Manager Byte 306 + Pokal = Runde + 1, Verlierer bleiben auf 30. Nach dem
 Finale: DFB-Pokalsieger + 1 nach 2340 und Finalist + 1 nach 2344, Europapokalsieger + 1
-(nur deutsche Vereine, sonst 0) nach 2341..2343 als Titelverteidiger. Zuschauer der
-Managervereine mit Pokalkapazität und Bedeutung 1 (DFB) bzw. 2 (Europapokal, 3 im
-Finale), Einnahmen je zur Hälfte; Torschützen und Einsätze zählen im DFB-Pokal als
-Pokal (Byte 4/7), im Europapokal nicht.
+(nur deutsche Vereine, sonst 0) nach 2341..2343 als Titelverteidiger. Zuschauer im eigenen
+Stadion mit Bedeutung 1 (DFB) bzw. 2 (Europapokal, 3 im Finale); Torschützen und Einsätze
+zählen im DFB-Pokal als Pokal (Byte 4/7), im Europapokal nicht.
+
+Einnahmen im Pokal (Buchungsschleife 0x1C632 über alle Manager, Teiler 2 ab 0x1C655 nur für
+Pokalspiele): der Heimverein bekommt Kulisse · eigener Preis (Byte 266) / 2 bei 0x1C93A, der
+Gast dieselbe Kulisse · den Preis **des Heimvereins** / 2 bei 0x1C9DC (Satzindex -0x1e). In
+der Liga entfällt der Gastanteil, weil der Teiler dort 1 ist (0x1C9AD). Gehört der
+Heimverein dem Rechner, würfelt 0x1CA12 einen Ersatz aus: Preis = 16/14/10/8 je Ligaband
+(DGROUP 0x5390) + random(0,1), Kulisse aus 0x10BB0 mit dem Satz des Gastes, aber der
+ausgewürfelten Kapazität random(K - K/3, K + K/3)·10 mit K = 4500/2200/1200/600 (DGROUP
+0x2C8, Argument +0x10). Diese Ersatzkapazität gilt **nur** dann - im eigenen Heimspiel zählt
+auch im Pokal das gebaute Stadion, denn 0x1C781 übergibt +0x10 = 0. Zuschauerhistorie,
+Rekorde und Randale hängen am Heimspiel und bleiben beim Gast aus. Original-Eigenheit, nicht
+nachgebaut: steht der Gastmanager in der Managerliste **vor** dem Heimmanager, ist die
+Kulisse beim Gastanteil noch 0 und er bekommt den ausgewürfelten Ersatz statt der echten
+Zahl (GitLab #75).
 
 Europapokalteilnehmer am Saisonende (0x18B12, aus der Tabellenreihenfolge 28244): Meister
 und, wenn vorhanden, der Titelverteidiger des Landesmeisterpokals (ist er der Meister, der

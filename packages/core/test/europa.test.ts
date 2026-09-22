@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import {
   SaveFile, GameState, mulberryRng, dayIndex, seasonDay, setDayIndex,
   generateOffers, stadiumValue, signShirt, signBoard, monthlyAdvertising, seasonEndAdvertising, offerAmount, offerYears, shirtContract, boardContract, advertisingAmount,
-  playEuropaDay, playPlayoffDay, initialDraw, decideTie, europeanParticipants, currentPairs, cupRoundOf, legPlayed, orderList, clearCupResults,
+  playCupMatch, playEuropaDay, playPlayoffDay, initialDraw, decideTie, europeanParticipants, currentPairs, cupRoundOf, legPlayed, orderList, clearCupResults,
   CUP_TABLE, CUP_ROUND, LEG_FLAG, HOLDER, DFB_WINNER, PLAYOFF_RESULT, ROUND_PAIRS, CUP_OUT, playCupDay, newSeason, tableOrder, texte, seasonEvents, releaseExpiring, playerValue
 } from "../src/index.ts";
 
@@ -232,4 +232,35 @@ test("DFB-Pokal-Finale setzt Pokalsieger und Finalist; Saisonwechsel lost alle v
   assert.equal(new Set(Array.from(p.subarray(CUP_TABLE + 32, CUP_TABLE + 64))).size, 32);
   assert.equal(tableOrder(g, 0).length, 18);
   void HOLDER; void ROUND_PAIRS; void clearCupResults;
+});
+
+test("Pokaleinnahmen: der Gast bekommt seine Hälfte auch beim Rechnerverein (GitLab #75)", () => {
+  const g = load("RUNA0.MAN");
+  const p = g.save.plain;
+  const geld = (m: number) => g.managers.at(m).i32(496);
+  const tag = seasonDay(dayIndex(g));
+
+  // Auswärts bei einem Amateurverein: im Original (0x1CA12 bis 0x1CA87) würfelt die
+  // Spielvorbereitung Kulisse und Eintrittspreis aus und bucht dem Gast die Hälfte.
+  p[CUP_TABLE] = 60; // Amateur-Oberliga, kein Managerverein
+  p[CUP_TABLE + 1] = 15; // Verein des ersten Managers
+  const zaehler = g.managers.at(0).u8(314);
+  const vorher = geld(0);
+  const auswaerts = playCupMatch(g, 0, 0, false, tag, mulberryRng(11));
+  const anteil = geld(0) - vorher;
+  assert.ok(anteil > 0, `Gast geht leer aus: ${anteil} DM`);
+  // Hälfte von Kulisse mal Ligasatz (8 oder 9 DM in der Oberliga), Kulisse höchstens 6000·10
+  assert.ok(anteil <= (9 * 60000) / 2, `${anteil} DM sind zu viel für eine Oberligakulisse`);
+  assert.equal(auswaerts.attendance, undefined, "kein Heimspiel, also keine Zuschauerzahl");
+  assert.equal(g.managers.at(0).u8(314), zaehler, "die Zuschauerhistorie bleibt dem Heimverein");
+
+  // Manager gegen Manager: beide bekommen dieselbe Hälfte, gerechnet mit dem Preis des
+  // Heimvereins (19 DM) - nicht jeder mit seinem eigenen (0x1C9DC nimmt den Satz über -0x1e).
+  p[CUP_TABLE] = 15;
+  p[CUP_TABLE + 1] = 21;
+  const stand = [geld(0), geld(1)];
+  const daheim = playCupMatch(g, 0, 0, false, tag, mulberryRng(12));
+  assert.equal(geld(0) - stand[0], daheim.gate, "der Gastgeber bucht seine Hälfte");
+  assert.equal(geld(1) - stand[1], daheim.gate, "der Gast bekommt dieselbe Hälfte");
+  assert.equal(daheim.gate, Math.trunc((daheim.attendance! * 19) / 2), "Preis des Heimvereins");
 });
