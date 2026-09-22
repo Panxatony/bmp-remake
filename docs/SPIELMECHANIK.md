@@ -343,10 +343,19 @@ nach dem Rundenabschluss auf den geraden Plätzen, werden zusammengeschoben, mit
 Zufallstauschen random(1,n)-1 gemischt und paarweise gelesen; DFB-Pokal wieder mit
 Heimrecht für Unterklassige.
 
-Spielablauf: 1..45, 46..90. DFB-Pokal: bei Gleichstand Verlängerung 91..105 und 106..120,
-danach Elfmeterschießen (0x666D: ohne Managerbeteiligung beide Seiten random(2,5) Treffer,
-neu gewürfelt bis ungleich; mit Managerbeteiligung random(0,1) beginnt, fünf Schützen je
-Seite mit Treffer bei random(0,2) = 2, Abbruch sobald entschieden, sonst abwechselnd).
+Spielablauf: 1..45, 46..90. In der Verlängerung geht der Heimwert mit der Markierung +10 in
+den Torwürfel: das Original liest dort das Ergebnisbyte, in dem sie schon steht. DFB-Pokal:
+bei Gleichstand Verlängerung 91..105 und 106..120, danach Elfmeterschießen (0x666D: ohne
+Managerbeteiligung beide Seiten random(2,5) Treffer, neu gewürfelt bis ungleich; mit
+Managerbeteiligung random(0,1) beginnt, fünf Schützen je Seite, Abbruch sobald entschieden,
+sonst abwechselnd). **Getroffen wird bei random(0,2) ungleich 0**, also in zwei von drei
+Fällen: 0x6999 wirft die Zahl, 0x69A3 macht aus der 2 eine 1, und 0x6A04 zählt jede 1 als
+Tor (bis GitLab #72 stand hier die Gegenprobe - nur die 2 -, das war ein Drittel).
+Mit Managerbeteiligung zeigt das Original das Schießen auf einer eigenen Tafel (0x6733): die
+Tafel in Schwarz-Rot-Gold wie vor dem Anpfiff, darauf "Elfmeterschiessen" bei y=50, der
+Heimverein bei 100, "gegen" bei 128 und der Gast bei 156. Jeder Schuss läuft danach über
+dieselbe Szenenausgabe wie eine Chance der Konferenz (0x1B223, Text "Elfmeter für ") und
+wird mit 0x632C wieder abgeräumt; die Anordnung der Schüsse ist nicht nachgemessen.
 Europapokal: Hin- und Rückspiel an den Kalendertagen mit Flag 0x70 (1/5, 15/19, 31/35,
 63/67, 77/81, auch das Finale). Nach dem Hinspiel (Flag 28241 + Pokal - 1 = 0) speichert
 der Rundenabschluss das Ergebnis gespiegelt in 28137 (Gast, Heim) und tauscht die Paare.

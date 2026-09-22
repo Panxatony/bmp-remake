@@ -26,13 +26,24 @@ export class LiveMatch {
   home: TeamStrength;
   away: TeamStrength;
   private rng: Rng;
-  readonly halves: readonly (readonly [number, number])[];
+  halves: (readonly [number, number])[];
 
   constructor(home: TeamStrength, away: TeamStrength, rng: Rng, halves: readonly (readonly [number, number])[] = [[1, 45], [46, 90]]) {
     this.home = home;
     this.away = away;
     this.rng = rng;
-    this.halves = halves;
+    this.halves = halves.slice();
+  }
+
+  /**
+   * Verlängerung anhängen (0x18E46, in europa.ts als `extraTime` für die Buchung): zwei Blöcke
+   * 91..105 und 106..120, deren Chancen zu Beginn des jeweiligen Blocks gewürfelt werden - also
+   * dieselbe Zufallsfolge wie dort. Der Aufrufer prüft vorher, ob es überhaupt unentschieden
+   * steht (GitLab #72).
+   */
+  verlaengern(): void {
+    if (this.halves.length > 2) return;
+    this.halves.push([91, 105], [106, 120]);
   }
 
   get finished(): boolean {
@@ -53,7 +64,10 @@ export class LiveMatch {
     const out: LiveChance[] = [];
     while (this.pending.length && this.pending[0].minute === this.minute) {
       const c = this.pending.shift()!;
-      const goal = goalDice(this.home, this.away, c.side, this.minute, this.hg, this.ag, this.rng);
+      // In der Verlängerung liest das Original das Ergebnisbyte, in dem die Markierung +10 schon
+      // steht: der Torwürfel bekommt den Heimwert um 10 erhöht (wie `extraTime`).
+      const hg = this.minute > 90 ? this.hg + 10 : this.hg;
+      const goal = goalDice(this.home, this.away, c.side, this.minute, hg, this.ag, this.rng);
       if (goal) c.side === "home" ? this.hg++ : this.ag++;
       this.events.push({ minute: this.minute, side: c.side, goal });
       out.push({ minute: this.minute, side: c.side, goal });

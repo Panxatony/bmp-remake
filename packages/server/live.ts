@@ -25,6 +25,13 @@ import {
   CUP_ROUND,
   legPlayed,
   orderList,
+  seasonDay,
+  shootout,
+  tieBreak,
+  FIRST_LEG,
+  PLAYOFF_FIRST_LEG,
+  type Elfmeter,
+  type Nachspiel,
   LEG_FLAG,
   FLAG_LEAGUE,
   FLAG_CUP,
@@ -50,9 +57,20 @@ export interface LiveEntry {
   /** Spieltag der Liga (1-basiert), beim Anpfiff festgehalten: danach zeigt nextMatchday weiter */
   spieltag?: number;
   cup?: number;
+  /** Platz im Pokalbereich (Byteindex), für den Hin-/Rückspielentscheid */
+  idx?: number;
+  /** Europapokal und Relegation: heute läuft das Rückspiel */
+  secondLeg?: boolean;
   home: number;
   away: number;
   match: LiveMatch;
+  /**
+   * Stand nach 90 Minuten, festgehalten wenn verlängert wird: die Buchung braucht ihn, weil
+   * sie daran erkennt, dass das Spiel offen war, und die Markierung +10 setzt (GitLab #72).
+   */
+  ergebnis90?: { home: number; away: number };
+  penalties?: [number, number];
+  elfmeter?: Elfmeter[];
   managerHome?: number;
   managerAway?: number;
   /** Zuschauer des Heimspiels eines Managers, beim Start berechnet und bei der Buchung übernommen */
@@ -82,6 +100,21 @@ export interface Scene {
   assist?: string;
   started: number;
   until: number;
+}
+
+/**
+ * Elfmeterschießen auf eigener Tafel (0x6733): Überschrift, die beiden Vereine und darunter
+ * Schuss für Schuss. Gezeigt wird nur mit Managerbeteiligung - dann aber allen Mitspielern,
+ * so entschieden in GitLab #72.
+ */
+export interface Elfmetertafel {
+  key: string;
+  home: number;
+  away: number;
+  schuesse: Elfmeter[];
+  /** Wie viele Schüsse schon auf der Tafel stehen */
+  gezeigt: number;
+  nextAt: number;
 }
 
 export interface LiveState {
@@ -115,6 +148,9 @@ export interface LiveState {
    */
   verletzung?: { manager: number; name: string };
   subs: Record<number, { goalkeeper: number; field: number }>;
+  /** Laufende Elfmetertafel und die, die danach noch kommen (GitLab #72) */
+  elfmeter?: Elfmetertafel;
+  elfmeterQueue: Elfmetertafel[];
 }
 
 export const SCENE_FRAME_MS = 70;
@@ -124,6 +160,10 @@ export const HALFTIME = "HALBZEIT";
 /** Kennung der Pause nach dem Schlusspfiff in `pausedBy` */
 export const FULLTIME = "SCHLUSS";
 export const HALFTIME_MS = 3000;
+/** Takt der Elfmetertafel: ein Schuss, dann der nächste (GitLab #72) */
+export const ELFMETER_MS = 1100;
+/** Standzeit der fertigen Tafel, bevor die Konferenz weiterläuft */
+export const ELFMETER_ENDE_MS = 3000;
 
 /** Auswahl der Szene wie im Lader 0x1502C: Nummer random(2, 43), Elfmeterszene mit 1/15 (Tor) bzw. 1/25 (vorbei). */
 export function pickScene(rng: Rng, goal: boolean, available: Set<string>): string {
@@ -163,17 +203,19 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
     const paar = fixtures(e.league, e.matchday)[e.match];
     if (paar) add("league", paar[0], paar[1], { league: e.league, nachhol: true, spieltag: e.matchday + 1 });
   }
-  if (flag & 8) for (const [home, away] of currentPairs(g, 0)) add("cup", home, away, { cup: 0 });
+  // Platz im Pokalbereich mitführen: die Konferenz braucht ihn nach der 90. Minute für den
+  // Hin-/Rückspielentscheid, und die Buchung findet darüber dasselbe Paar wieder (GitLab #72).
+  if (flag & 8) currentPairs(g, 0).forEach(([home, away], i) => add("cup", home, away, { cup: 0, idx: 2 * i }));
   if ((flag & 0x70) === 0x10) {
     const second = g.save.plain[LEG_FLAG] !== 0;
     const bl16 = orderList(g, 0)[15];
     const third = orderList(g, 1)[2];
-    add("playoff", second ? bl16 : third, second ? third : bl16, { cup: 1 });
+    add("playoff", second ? bl16 : third, second ? third : bl16, { cup: 1, idx: 0, secondLeg: second });
   } else if (flag & 0x70) {
     for (const cup of [1, 2, 3]) {
       void cupRoundOf(g, cup);
-      void legPlayed(g, cup);
-      for (const [home, away] of currentPairs(g, cup)) add("cup", home, away, { cup });
+      const second = legPlayed(g, cup);
+      currentPairs(g, cup).forEach(([home, away], i) => add("cup", home, away, { cup, idx: 2 * i, secondLeg: second }));
     }
   }
   // Eingerichtet wird erst, wenn **alle** Spiele des Tages in der Liste stehen - auch Pokal und
@@ -206,7 +248,7 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
   // Spieltags (0x1D866: erst die Ligen, dann der DFB-Pokal, dann Europa) und wartet 50 Ticks.
   const announce = flag & 7 ? "Ligaspiel" : flag & FLAG_CUP ? "DFB-Pokal" : flag & FLAG_EUROPE ? "Europapokal" : undefined;
   const halt = announce ? ANNOUNCE_MS : 1500;
-  return { dayIndex: k, flag, entries, postponed, minute: 0, paused: false, sceneQueue: [], holdUntil: now + halt, nextMinuteAt: now + halt, finished: false, tempoMs, scenesOn: true, news: [], subs: {}, announce, announceUntil: announce ? now + halt : undefined };
+  return { dayIndex: k, flag, entries, postponed, minute: 0, paused: false, sceneQueue: [], holdUntil: now + halt, nextMinuteAt: now + halt, finished: false, tempoMs, scenesOn: true, news: [], subs: {}, elfmeterQueue: [], announce, announceUntil: announce ? now + halt : undefined };
 }
 
 /** Ein Zeitschritt; true, wenn sich etwas geändert hat. */
@@ -224,6 +266,20 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
     s.started = now;
     s.until = now + sceneDuration(s.id, scenes);
     state.scene = s;
+    return true;
+  }
+  // Elfmetertafel: ein Schuss nach dem anderen, danach die nächste Tafel (GitLab #72)
+  if (state.elfmeter) {
+    const t = state.elfmeter;
+    if (now < t.nextAt) return false;
+    if (t.gezeigt < t.schuesse.length) {
+      t.gezeigt++;
+      t.nextAt = now + (t.gezeigt === t.schuesse.length ? ELFMETER_ENDE_MS : ELFMETER_MS);
+      return true;
+    }
+    state.elfmeter = state.elfmeterQueue.shift();
+    if (state.elfmeter) state.elfmeter.nextAt = now + ELFMETER_MS;
+    else state.holdUntil = now + 600;
     return true;
   }
   if (now < state.holdUntil || now < state.nextMinuteAt) return false;
@@ -272,6 +328,31 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
     state.halfSeen = [];
   }
   if (state.entries.every((e) => e.match.finished)) {
+    // Verlängerung (0x18E46) und Elfmeterschießen (0x666D) laufen im Original nur, wenn ein
+    // Managerverein dabei ist - dann aber vor allen Augen (GitLab #72).
+    const verlaengert = state.entries.filter((e) => e.ergebnis90 === undefined && nachspielNoetig(state, g, e));
+    if (verlaengert.length) {
+      for (const e of verlaengert) {
+        e.ergebnis90 = { home: e.match.hg, away: e.match.ag };
+        e.match.verlaengern();
+      }
+      // Kurz stehenbleiben, damit der Schlusspfiff zu sehen ist; danach läuft die Uhr weiter.
+      // Eine Ankündigung gibt es nicht - das Original kennt dafür keinen Text.
+      state.holdUntil = now + HALFTIME_MS;
+      state.nextMinuteAt = now + HALFTIME_MS;
+      return true;
+    }
+    const elfmeter = state.entries.filter((e) => e.ergebnis90 !== undefined && e.penalties === undefined && nachspielNoetig(state, g, e));
+    if (elfmeter.length) {
+      for (const e of elfmeter) {
+        const schuesse: Elfmeter[] = [];
+        e.penalties = shootout(rng, true, schuesse);
+        e.elfmeter = schuesse;
+        state.elfmeterQueue.push({ key: e.key, home: e.home, away: e.away, schuesse, gezeigt: 0, nextAt: now + ANNOUNCE_MS });
+      }
+      state.elfmeter = state.elfmeterQueue.shift();
+      return true;
+    }
     // Schluss: erst Übersicht und Tabelle je Liga, dann wird der Tag gebucht
     state.finished = true;
     state.holdUntil = now + 2500;
@@ -280,6 +361,23 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
     state.halfSeen = [];
   }
   return true;
+}
+
+/**
+ * Braucht dieses Spiel nach dem Abpfiff eine Entscheidung? Im DFB-Pokal bei Gleichstand, im
+ * Europapokal und in der Relegation nur im Rückspiel, wenn auch die Auswärtstorregel nichts
+ * hergibt (0x19208). Gezeigt wird das nur mit Managerbeteiligung; ohne sie rechnet die Buchung
+ * es wie bisher im Stillen aus (GitLab #72).
+ */
+function nachspielNoetig(state: LiveState, g: GameState, e: LiveEntry): boolean {
+  if (e.kind === "league" || e.forfeit !== undefined) return false;
+  if (e.managerHome === undefined && e.managerAway === undefined) return false;
+  if (e.cup === 0) return e.match.hg === e.match.ag;
+  if (!e.secondLeg || e.idx === undefined) return false;
+  const p = g.save.plain;
+  // Die Relegation hält ihr Hinspiel an eigener Stelle (playPlayoffDay schreibt es erst um)
+  const leg = e.kind === "playoff" ? PLAYOFF_FIRST_LEG : FIRST_LEG + 32 * (e.cup! - 1) + e.idx;
+  return tieBreak(p[leg], p[leg + 1], e.match.hg, e.match.ag, seasonDay(state.dayIndex)) === 30;
 }
 
 function queueScene(state: LiveState, e: LiveEntry, c: LiveChance, rng: Rng, scenes: Set<string>, tor?: { name: string; goals?: number; assist?: string }): void {
@@ -336,6 +434,18 @@ export function liveJson(state: LiveState, g: GameState) {
     entries: state.entries.map((e) => ({ key: e.key, kind: e.kind, nachhol: e.nachhol ?? false, league: e.league ?? null, cup: e.cup ?? null, home: e.home, away: e.away, homeName: names(e.home), awayName: names(e.away), hg: e.match.hg - wartend(e.key, "home"), ag: e.match.ag - wartend(e.key, "away"), minute: e.match.minute, attendance: e.attendance ?? null, forfeit: e.forfeit ?? null, cards: { home: cardSummary(e.incidentHome), away: cardSummary(e.incidentAway) }, managerHome: e.managerHome ?? null, managerAway: e.managerAway ?? null, spieltag: e.spieltag ?? null, chances: e.match.events.map((ev) => [ev.minute, ev.side === "home" ? 0 : 1, ev.goal ? 1 : 0]), scorers: e.scorers })),
     subs: state.subs,
     verletzung: state.verletzung ?? null,
+    // Elfmetertafel: nur die Schüsse, die schon gefallen sind - der Client soll den Ausgang
+    // nicht vorher kennen (GitLab #72)
+    elfmeter: state.elfmeter
+      ? {
+          home: state.elfmeter.home,
+          away: state.elfmeter.away,
+          homeName: names(state.elfmeter.home),
+          awayName: names(state.elfmeter.away),
+          schuesse: state.elfmeter.schuesse.slice(0, state.elfmeter.gezeigt).map((s) => ({ seite: s.seite, tor: s.tor, stand: s.stand })),
+          fertig: state.elfmeter.gezeigt === state.elfmeter.schuesse.length,
+        }
+      : null,
     // Karten und Verletzungen der Managerspiele: der Client blendet die letzte Meldung unter der
     // Szene ein, gelb für Gelb, rot für Rot (im Original nachgesehen)
     news: state.news.map((i) => ({ minute: i.minute, manager: i.manager, name: i.name, kind: i.kind, count: i.count })),
@@ -350,9 +460,24 @@ export function attendances(state: LiveState): Map<string, number> {
   return out;
 }
 
+/**
+ * Ergebnisse für die Tagesbuchung. Wurde verlängert, steht hier der Stand nach 90 Minuten:
+ * die Buchung erkennt daran, dass das Spiel offen war, setzt die Markierung +10 und holt sich
+ * den Rest aus `nachspiele` (GitLab #72).
+ */
 export function results(state: LiveState): Map<string, MatchResult> {
   const out = new Map<string, MatchResult>();
-  for (const e of state.entries) out.set(e.key, { home: e.match.hg, away: e.match.ag, events: [] });
+  for (const e of state.entries) out.set(e.key, { home: e.ergebnis90?.home ?? e.match.hg, away: e.ergebnis90?.away ?? e.match.ag, events: [] });
+  return out;
+}
+
+/** Verlängerung und Elfmeterschießen, die die Konferenz schon gezeigt hat (GitLab #72). */
+export function nachspiele(state: LiveState): Map<string, Nachspiel> {
+  const out = new Map<string, Nachspiel>();
+  for (const e of state.entries) {
+    if (e.ergebnis90 === undefined) continue;
+    out.set(e.key, { verlaengerung: { home: e.match.hg, away: e.match.ag }, penalties: e.penalties, elfmeter: e.elfmeter });
+  }
   return out;
 }
 

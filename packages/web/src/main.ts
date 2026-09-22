@@ -4,7 +4,7 @@
  * Tabelle, Finanzen, Stadion und Meldungen und schreibt den geänderten
  * Spielstand als *.MAN zurück.
  */
-import { SaveFile, GameState, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
+import { SaveFile, GameState, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
 import { Assets, Sounds, COLORS, W, H, bevel, panel, button, hline, drawIcon, drawIconOver, toGame, upperGame, cp437ToGame, dm, type Font } from "./gfx.ts";
 import { Scenes, SCENE_FRAME_MS, VIEW, type SceneData } from "./scene.ts";
 
@@ -170,6 +170,18 @@ interface LiveState {
   news?: { minute: number; manager: number; name: string; kind: "yellow" | "red" | "yellowred" | "injury"; count?: number }[];
   /** Verletzung, die die Konferenz angehalten hat (Kaderbildschirm zum Auswechseln) */
   verletzung?: { manager: number; name: string } | null;
+  /** Laufendes Elfmeterschießen; es steht vor der Konferenz, und alle sehen dasselbe (#72) */
+  elfmeter?: LiveElfmeter | null;
+}
+
+/** Tafel des Elfmeterschießens (0x6733); es kommen nur die Schüsse, die schon gefallen sind. */
+interface LiveElfmeter {
+  home: number;
+  away: number;
+  homeName: string;
+  awayName: string;
+  schuesse: { seite: 0 | 1; tor: boolean; stand: [number, number] }[];
+  fertig: boolean;
 }
 
 /** Eine Spielrunde in der Lobby (GitLab #65) */
@@ -1471,6 +1483,58 @@ class App {
     gr.draw(ctx, text, 159 - Math.trunc(gr.width(text) / 2), 114, COLORS.white, false);
   }
 
+  /**
+   * Elfmeterschießen (0x6733): dieselbe Tafel wie vor dem Anpfiff, darauf die Überschrift und
+   * die beiden Vereine. Die Zeilen stehen, wo das Original sie hinschreibt - Überschrift bei
+   * y=50, Heimverein bei 100, "gegen" bei 128 und der Gast bei 156 (0x6737 ff.). Die Schüsse
+   * darunter sind unsere Zutat: die Reihe der Schützen ist im Original nicht nachgemessen
+   * (GitLab #72).
+   */
+  drawElfmeter(e: LiveElfmeter): void {
+    const ctx = this.ctx;
+    ctx.fillStyle = "#d3c3b2";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(1, 1, 318, 79);
+    ctx.fillStyle = "#b20020";
+    ctx.fillRect(1, 80, 318, 81);
+    ctx.fillStyle = "#c37120";
+    ctx.fillRect(1, 161, 318, 78);
+    const gr = this.assets.gross;
+    const f = this.assets.font;
+    // Stammt der Textkatalog noch von vor #72, fehlt die Gruppe: dann bleibt die Tafel eben
+    // ohne Überschrift, statt dass die Konferenz abstürzt
+    let ueberschrift = "";
+    let gegen = "";
+    try {
+      [ueberschrift, gegen] = shootoutTexts();
+    } catch {
+      /* alter Katalog */
+    }
+    gr.drawCenter(ctx, ueberschrift, 159, 50, COLORS.white, false);
+    gr.drawCenter(ctx, toGame(e.homeName), 159, 100, COLORS.white, false);
+    f.drawCenter(ctx, gegen, 159, 128, COLORS.white, false);
+    gr.drawCenter(ctx, toGame(e.awayName), 159, 156, COLORS.white, false);
+    // Je Seite eine Reihe: getroffen ist voll, vorbei ist leer
+    const stand = e.schuesse.length ? e.schuesse[e.schuesse.length - 1].stand : [0, 0];
+    for (const seite of [0, 1] as const) {
+      const y = 196 + 14 * seite;
+      const reihe = e.schuesse.filter((s) => s.seite === seite);
+      reihe.forEach((s, i) => {
+        const x = 96 + 11 * i;
+        ctx.fillStyle = COLORS.white;
+        if (s.tor) ctx.fillRect(x, y, 7, 7);
+        else {
+          ctx.fillRect(x, y, 7, 1);
+          ctx.fillRect(x, y + 6, 7, 1);
+          ctx.fillRect(x, y, 1, 7);
+          ctx.fillRect(x + 6, y, 1, 7);
+        }
+      });
+      f.draw(ctx, String(stand[seite]), 78, y - 1, COLORS.white, false);
+    }
+  }
+
   /** Konferenztafel eines Managerspiels (Grafik 38.VGA: Tafel 153x113, Ziffern 15x16 ab Zeile 113). */
   drawLivePanel(e: LiveEntry, x: number, y: number, hold = 0): void {
     const ctx = this.ctx;
@@ -1559,6 +1623,11 @@ class App {
     }
     if (live.announce && Date.now() - this.liveReceived < (live.announceLeft ?? 0)) {
       this.drawAnkuendigung(live.announce);
+      return;
+    }
+    // Das Elfmeterschießen deckt die Konferenz zu, solange es läuft (GitLab #72)
+    if (live.elfmeter) {
+      this.drawElfmeter(live.elfmeter);
       return;
     }
     const logoOf = (club: number, cup: number | null) => this.assets.img((club < 64 ? 80 + g.clubs.at(club).status : 144 + Math.max(1, Math.min(3, cup ?? 3))) + ".VGA");
