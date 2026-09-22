@@ -24,7 +24,7 @@ import { texte } from "../data/texte.ts";
 import type { Rng, MatchResult, TeamStrength } from "./match.ts";
 import { simulateMatch, chanceCounts, chanceMinutes, goalDice } from "./match.ts";
 import { matrixFor, bookEvents, afterMatch } from "./matchday.ts";
-import { attendance, bookAttendance, bookGate } from "./attendance.ts";
+import { attendance, bookAttendance, bookGate, ERSATZ_PREIS, ligaBand } from "./attendance.ts";
 import { riotCheck } from "./finance.ts";
 import type { MatchSim } from "./live.ts";
 
@@ -319,12 +319,22 @@ export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: 
   if (mh !== undefined) {
     const importance = cup === 0 ? 1 : p[CUP_ROUND + 1] > 4 ? 3 : 2;
     // Hat die Live-Konferenz die Zahl schon gezeigt, wird genau sie gebucht
-    const att = zuschauer?.(home, away) ?? attendance(g, { manager: mh, home, away, cup: true, importance, level: p[LEVEL_OFFSET] }, rng);
+    const att = zuschauer?.(home, away) ?? attendance(g, { manager: mh, home, away, importance, level: p[LEVEL_OFFSET] }, rng);
     bookAttendance(g, mh, att, away);
     match.attendance = att;
     match.gate = bookGate(g, mh, att, 2);
-    if (ma !== undefined) bookGate(g, ma, att, 2);
+    // Der Gast bekommt die andere Hälfte, gerechnet mit dem Eintrittspreis des Heimvereins
+    if (ma !== undefined) bookGate(g, ma, att, 2, g.managers.at(mh).u8(266));
     riotCheck(g, mh, rng);
+  } else if (ma !== undefined) {
+    // Heimverein des Rechners: das Original würfelt Kulisse und Eintrittspreis aus (0x1CA12 bis
+    // 0x1CA87) und bucht dem Gast trotzdem seine Hälfte. Gerechnet wird mit dem Satz des Gastes -
+    // sein Stadion steht im Managerbyte, das des Rechnervereins nirgends -, aber mit der
+    // Kapazität aus dem Ligaband des Heimvereins. Zuschauerhistorie und Randale bleiben aus:
+    // beides hängt am Heimspiel.
+    const preis = ERSATZ_PREIS[ligaBand(home)] + rng(0, 1);
+    const att = attendance(g, { manager: ma, home, away, importance: 1, fremdesStadion: true, preis, level: p[LEVEL_OFFSET] }, rng);
+    bookGate(g, ma, att, 2, preis);
   }
   for (const mi of [mh, ma]) if (mi !== undefined) afterMatch(g, mi, matchType, rng);
   return match;

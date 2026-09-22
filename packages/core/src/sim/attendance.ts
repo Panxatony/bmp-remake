@@ -9,8 +9,20 @@ import { LEAGUES } from "./fixtures.ts";
 
 const div = (a: number, b: number): number => Math.trunc(a / b);
 
-/** Pokal-Kapazitäten je Ligaband des Heimvereins (DGROUP 0x2C8, ×10) */
+/** Ersatzkapazitäten je Ligaband des Heimvereins (DGROUP 0x2C8, ×10) */
 const CUP_BASE = [4500, 2200, 1200, 600];
+
+/**
+ * Ersatz-Eintrittspreise je Ligaband (DGROUP 0x5390, gelesen bei 0x1CA27). Sie treten an die
+ * Stelle des Managerbytes 266, wenn der Heimverein dem Rechner gehört; dazu kommt ein Wurf von
+ * 0 oder 1.
+ */
+export const ERSATZ_PREIS = [16, 14, 10, 8];
+
+/** Ligaband eines Vereins (0..3, Grenztabelle 4cb3:0x2272) */
+export function ligaBand(club: number): number {
+  return club < 18 ? 0 : club < 38 ? 1 : club < 58 ? 2 : 3;
+}
 
 export interface AttendanceInput {
   manager: number;
@@ -18,7 +30,14 @@ export interface AttendanceInput {
   away: number;
   /** Bedeutung des Spiels 0..3 (Original aus der Spielvorbereitung, hier 1) */
   importance?: number;
-  cup?: boolean;
+  /**
+   * Der Heimverein gehört dem Rechner: dann würfelt das Original (0x10BB0, Argument +0x10) eine
+   * Kapazität aus dem Ligaband aus, statt das Stadion aus dem Managersatz zu nehmen. Im eigenen
+   * Heimspiel zählt immer das eigene Stadion - auch im Pokal.
+   */
+  fremdesStadion?: boolean;
+  /** Eintrittspreis statt Managerbyte 266 (0x10BB0, Argument +0x12) */
+  preis?: number;
   /** Spiel-Level (Save-Offset 34062) */
   level: number;
 }
@@ -35,7 +54,7 @@ export function attendance(g: GameState, inp: AttendanceInput, rng: Rng): number
   const posA = pos(inp.away);
   const sH = partsSum(g, inp.home);
   const sA = partsSum(g, inp.away);
-  const price = mg.u8(266);
+  const price = inp.preis ?? mg.u8(266);
   const league = mg.u8(312);
   const mult = 1 << (2 - league);
   if (mult === 4 && posH > 14) posH = 14;
@@ -64,9 +83,8 @@ export function attendance(g: GameState, inp: AttendanceInput, rng: Rng): number
   const md = g.nextMatchday(league);
   const matchdays = LEAGUES[league].matchdays;
   let capacity: number;
-  if (inp.cup) {
-    const band = inp.home < 18 ? 0 : inp.home < 38 ? 1 : inp.home < 58 ? 2 : 3;
-    const c = CUP_BASE[band];
+  if (inp.fremdesStadion) {
+    const c = CUP_BASE[ligaBand(inp.home)];
     capacity = rng(c - div(c, 3), c + div(c, 3)) * 10;
   } else capacity = mg.i32(350) + mg.i32(358);
 
@@ -90,10 +108,15 @@ export function attendance(g: GameState, inp: AttendanceInput, rng: Rng): number
   return att;
 }
 
-/** Ticketeinnahmen (Zuschauer · Preis Byte 266 / Teiler; Liga 1, Pokal 2 für beide Manager) auf den Kontostand (Byte 496). */
-export function bookGate(g: GameState, manager: number, att: number, divisor = 1): number {
+/**
+ * Ticketeinnahmen (Zuschauer · Preis / Teiler; Liga 1, Pokal 2 für beide Manager) auf den
+ * Kontostand (Byte 496). Der Preis ist der des Heimvereins - kassiert wird an seiner Kasse -,
+ * darum nimmt das Original für den Gast nicht dessen Byte 266, sondern das des Gegners
+ * (0x1C9DC über -0x1e) und, wenn dort der Rechner spielt, den Ligasatz (0x1CA27).
+ */
+export function bookGate(g: GameState, manager: number, att: number, divisor = 1, preis?: number): number {
   const m = g.managers.at(manager);
-  const income = div(att * m.u8(266), divisor);
+  const income = div(att * (preis ?? m.u8(266)), divisor);
   const v = m.i32(496) + income;
   for (let i = 0; i < 4; i++) m.setU8(496 + i, (v >>> (8 * i)) & 0xff);
   return income;

@@ -181,12 +181,13 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
   // Pokalspielen die Zuschauerzahl, die Karten und Verletzungen und die 0:2-Wertung verloren:
   // im Heimspiel stand in der Tafel "(AUSW.)" (GitLab #74).
   for (const e of entries) {
-    // Zuschauer auch für Pokalspiele: der Kern rechnet sie ohnehin (0x10BB0 mit
-    // Pokalkapazität). Gebucht wird genau diese Zahl (server.ts reicht sie weiter).
+    // Zuschauer auch für Pokalspiele: der Kern rechnet sie ohnehin (0x10BB0). Gebucht wird genau
+    // diese Zahl (server.ts reicht sie weiter). Die Kapazität ist auch im Pokal das eigene
+    // Stadion - die ausgewürfelte aus dem Ligaband gilt nur für Vereine des Rechners (#75).
     if (e.managerHome !== undefined) {
       const pokal = e.kind !== "league";
       const importance = !pokal ? undefined : e.cup === 0 ? 1 : g.save.plain[CUP_ROUND + 1] > 4 ? 3 : 2;
-      e.attendance = attendance(g, { manager: e.managerHome, home: e.home, away: e.away, cup: pokal, importance, level: g.save.plain[34062] }, rng);
+      e.attendance = attendance(g, { manager: e.managerHome, home: e.home, away: e.away, importance, level: g.save.plain[34062] }, rng);
     }
     // 0:2-Wertung bei weniger als acht einsatzfähigen Startern (0x0F9D2/0x1C5D1)
     if (e.managerHome !== undefined && isForfeit(g, e.managerHome)) e.forfeit = e.managerHome;
