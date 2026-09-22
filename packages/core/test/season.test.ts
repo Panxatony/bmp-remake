@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, fixtures, applyResult, updatePositions, playMatchday, afterMatch, dailyTraining, trainingInjuries, injuries, bookGoal, attendance, bookAttendance, monthlyIncome, monthlyExpenses, loanTotal, bookMonth, dailyFinance, playCupDay, cupPairs, cupRound, CUP_OUT, newSeason, tableOrder, playerValue, promoteRelegate, salaryDemand, mulberryRng, dayIndex, seasonDay, dateOfSeasonDay, seasonStartYear, setDayIndex } from "../src/index.ts";
+import { SaveFile, GameState, fixtures, applyResult, updatePositions, playMatchday, afterMatch, dailyTraining, trainingInjuries, injuries, bookGoal, attendance, bookAttendance, monthlyIncome, monthlyExpenses, loanTotal, bookMonth, dailyFinance, playCupDay, cupPairs, cupRound, CUP_OUT, newSeason, tableOrder, playerValue, promoteRelegate, swapClubs, salaryDemand, mulberryRng, dayIndex, seasonDay, dateOfSeasonDay, seasonStartYear, setDayIndex } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (n: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, n)))));
@@ -298,4 +298,28 @@ test("Gehaltsforderung: mindestens das bisherige Gehalt, mit der Laufzeit steige
   const d3 = salaryDemand(g, 0, 0, 3);
   assert.ok(d1 >= l.i32(40));
   assert.ok(d3 >= d1, `${d3} >= ${d1}`);
+});
+
+test("Liga des Managers wandert beim Auf- und Abstieg mit (GitLab #76)", () => {
+  // In allen Spielständen des Originals stimmt Managerbyte 312 mit dem Ligaband des
+  // Vereinsindex überein; das Original zieht es beim Saisonwechsel nach (0x1E3A4).
+  const liga = (club: number) => (club < 18 ? 0 : club < 38 ? 1 : 2);
+  const g = load("RUNA0.MAN");
+  const m = g.activeManagers()[0];
+  assert.equal(g.managers.at(0).u8(312), liga(m.clubIndex), "Ausgangsstand");
+  const bundesligist = m.clubIndex;
+  swapClubs(g, bundesligist, 25); // Abstieg in die zweite Liga
+  assert.equal(g.activeManagers()[0].clubIndex, 25);
+  assert.equal(g.managers.at(0).u8(312), 1, "nach dem Abstieg zweite Liga");
+  swapClubs(g, 25, bundesligist); // und wieder hoch
+  assert.equal(g.managers.at(0).u8(312), 0, "nach dem Aufstieg wieder Bundesliga");
+
+  // Über einen ganzen Saisonwechsel: die Invariante muss für jeden Manager gelten
+  const h = load("RUNA0.MAN");
+  for (let saison = 0; saison < 3; saison++) {
+    newSeason(h, mulberryRng(20 + saison));
+    h.activeManagers().forEach((mg, i) => {
+      assert.equal(h.managers.at(i).u8(312), liga(mg.clubIndex), `Saison ${saison}, Manager ${i}, Verein ${mg.clubIndex}`);
+    });
+  }
 });
