@@ -2,7 +2,8 @@
  * Ereignisse im Spiel eines Managervereins (Minutenschleife 0x05FE5, Chancenhandler 0x1B223
  * ab 0x1BF6D, Spielerwahl 0x04E45, Verletzung 0x17B0F, Spielvorbereitung 0x1C632/0x1C5D1):
  *
- *   x = 40 - Zufriedenheit (Managerbyte 305, auf 0..40 begrenzt), L = Level (Spielstand 34062)
+ *   x = 40 - Moral (Managerbyte 317, auf 0..40 begrenzt; die Stärkerechnung setzt sie vor dem
+ *   Spiel aus Einsatzregler und Stärkeverhältnis, 0x0FFA8), L = Spielstufe (34062, = 5 - Level)
  *   Rote Karte:   höchstens einmal je Spiel, je Minute random(0, 70x + 50(L+5)) = 0
  *   Gelbe Karte:  Foulbudget 6 je Spiel, je Minute random(0, 5L + 2x + 37) = 0
  *   Verletzung:   je Minute random(0, 55x + 60L + 200) = 0
@@ -91,7 +92,7 @@ export function bookForfeit(g: GameState, manager: number): void {
 export function minuteIncidents(g: GameState, manager: number, minute: number, st: IncidentState, rng: Rng): Incident[] {
   const m = g.managers.at(manager);
   const level = g.save.plain[LEVEL_OFFSET];
-  const x = clamp(40 - m.u8(305), 0, 40);
+  const x = clamp(40 - m.u8(317), 0, 40);
   const out: Incident[] = [];
   const squad = g.squadOf(manager);
   const record = (i: number, kind: Incident["kind"], duration: number, injury?: string) => {

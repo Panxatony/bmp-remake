@@ -52,7 +52,7 @@ Spielstand (siehe `bmp/SPIELSTAND-FORMAT.md`).
 | 33518 | 80 | 4238:2ec2 | | Laufzeit der Sponsorenangebote in Jahren je [(Manager*2+Seite)*10+Sponsor] |
 | 33598 | 320 | 4238:002e | 4 | Sponsorenangebote in DM je [(Manager*2+Seite)*10+Sponsor], Seite 0 Trikot, 1 Banden |
 | 33918 | 144 | 4cb3:066c | 4 | Werbetabelle je Manager: Trikot, 6 Banden, TV, Werbeausgaben |
-| 34062 | 1 | 4cb3:4a28 | | |
+| 34062 | 1 | 4cb3:4a28 | | Spielstufe, umgekehrt: 5 - Level (Anzeige 0x265F8, Auswahl 0x34468). Geht in Stärke, Zuschauer, Werbung, Training und Ereignisse |
 | 34063 | 2 | 4238:513c | | |
 | 34065 | 30 | 4238:1d34 | | |
 | 34095 | 120 | 4238:5664 | | |

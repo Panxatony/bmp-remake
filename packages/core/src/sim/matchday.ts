@@ -40,10 +40,24 @@ export interface PlayedMatch {
 }
 
 /** Stärkematrix eines Vereins; Managervereine über den Spielweg aus der Aufstellung. */
+/**
+ * Spielstärke eines Managervereins und die Moral dazu: Das Original schreibt sie bei jeder
+ * Rechnung vor einem Spiel in Managerbyte 317 (0x0FFA8) - auch mitten im Spiel, wenn eine
+ * Karte oder Verletzung die Aufstellung ändert. Karten und Verletzungen würfeln damit
+ * (0x05FE5 über 40 - Byte 317). Steht dort die 100 der 0:2-Wertung, bleibt sie stehen.
+ * Bis GitLab #73 blieb der Wert liegen, und die Ereignisse rechneten mit dem falschen Byte.
+ */
+export function matchStrength(g: GameState, manager: number, rng: Rng): TeamStrength {
+  const m = g.managers.at(manager);
+  const s = teamStrength(strengthInput(g, manager), rng, true);
+  if (m.u8(317) !== 100) m.setU8(317, s.moralNeu);
+  return s;
+}
+
 export function matrixFor(g: GameState, club: number, rng: Rng): TeamStrength {
   const managers = g.activeManagers();
   for (let i = 0; i < managers.length; i++) {
-    if (managers[i].clubIndex === club) return teamStrength(strengthInput(g, i), rng, true);
+    if (managers[i].clubIndex === club) return matchStrength(g, i, rng);
   }
   return g.clubs.at(club).strengthMatrix;
 }
@@ -228,6 +242,11 @@ export function bookEvents(g: GameState, home: number, away: number, result: Mat
  * und im 16-Bit-Zähler bei 28/30. Frische wird auf 50..150 begrenzt.
  */
 export function afterMatch(g: GameState, manager: number, matchType: number, rng: Rng): void {
+  // Die Moral gilt nur für dieses Spiel. Im Original steht sie danach noch im Speicher, bis
+  // die nächste Anzeigerechnung sie bei 0x0FCFE wieder auf 0 setzt - und weil vor dem Speichern
+  // immer eine Anzeige kommt, steht in **jedem** Spielstand des Originals eine 0 (in allen
+  // vorhandenen nachgesehen). Wir räumen sie deshalb gleich hier weg (GitLab #73).
+  g.managers.at(manager).setU8(317, 0);
   for (const l of g.squadOf(manager)) {
     if ((l.u8(9) & 1) === 1 && l.u8(13) > 0 && matchType === 0) l.setU8(13, l.u8(13) - 1);
     l.setU8(21, 0);
