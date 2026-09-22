@@ -95,6 +95,10 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
   const x = clamp(40 - m.u8(317), 0, 40);
   const out: Incident[] = [];
   const squad = g.squadOf(manager);
+  // Mit weniger als vier Spielern auf dem Platz (Rückennummer 1..11, 0x31A19 Modus 1) gibt es
+  // keine Karten und Verletzungen mehr (0x06319). Das Original bricht dann die ganze Minute ab,
+  // auch für einen Gegner, der später in der Schleife stünde; bei uns gilt es je Verein.
+  if (squad.filter((l) => l.number >= 1 && l.number <= 11).length < 4) return out;
   const record = (i: number, kind: Incident["kind"], duration: number, injury?: string) => {
     const l = squad[i];
     // Das Original zeigt hinter dem Namen die Kartenzahl des Spielers (Kaderbytes 0/1/2)
@@ -121,8 +125,12 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
   // Gelbe Karte (Block 2, Foulbudget)
   if (st.foulsLeft > 0 && rng(0, 5 * level + 2 * x + 37) === 0) {
     st.foulsLeft--;
-    const i = pickStarter(g, manager, rng);
-    if (i >= 0) {
+    let i = pickStarter(g, manager, rng);
+    // Ist der Platzverweis des Spiels schon vergeben und hat der Gezogene bereits Gelb, zieht das
+    // Original einen anderen (0x06177): mehr als einen Platzverweis je Spiel gibt es nicht
+    // (GitLab #84, G2). Hat jeder Starter schon Gelb, hinge das Original hier fest; wir geben auf.
+    for (let versuch = 0; i >= 0 && st.redUsed && st.yellows.has(i) && versuch < 200; versuch++) i = pickStarter(g, manager, rng);
+    if (i >= 0 && !(st.redUsed && st.yellows.has(i))) {
       const l = squad[i];
       if (st.yellows.has(i)) {
         // Gelb-Rot: zweite Gelbe im selben Spiel (0x1BF8E)
@@ -133,6 +141,9 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
         l.setU8(13, 1);
         l.setU8(21, (l.u8(21) - 10) & 0xff);
         st.yellows.delete(i);
+        // Gelb-Rot verbraucht den Platzverweis des Spiels (0x0618F), danach gibt es kein
+        // Glatt-Rot mehr (GitLab #84, G1)
+        st.redUsed = true;
         record(i, "yellowred", 1);
       } else {
         l.setU8(1, l.u8(1) + 1);
