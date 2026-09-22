@@ -6006,9 +6006,11 @@ class App {
       s.drawRight(ctx, String(a.strength[2]), 122, y, c);
       s.drawRight(ctx, String(a.age), 134, y, c);
       s.drawRight(ctx, dm(a.salary).replace(" DM", ""), 180, y, c);
-      s.drawRight(ctx, mein ? dm(mein.salary).replace(" DM", "") : "-", 258, y, gewaehlt ? COLORS.black : mein ? "#71a241" : COLORS.textDim);
+      const eigener = a.from === me;
+      s.drawRight(ctx, eigener ? "IHR SPIELER" : mein ? dm(mein.salary).replace(" DM", "") : "-", 258, y, gewaehlt ? COLORS.black : mein ? "#71a241" : COLORS.textDim);
       const pi = a.playerIndex;
-      this.hit(6, y - 1, 254, 6, () => {
+      // Den eigenen, gerade abgegebenen Spieler kann man nicht zurückbieten (#95)
+      if (!eigener) this.hit(6, y - 1, 254, 6, () => {
         this.freiSel = pi;
         const bisher = a.bids.find((b) => b.manager === me)?.salary ?? a.salary;
         this.fragZahl(toGame(`GEBOT F]R ${dosText(a.name)}`), "GEHALT JE MONAT", bisher, 8, (salary) =>

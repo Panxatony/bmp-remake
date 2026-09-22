@@ -143,9 +143,12 @@ export function listedCount(g: GameState, manager: number): number {
 /**
  * Verein, der ein Angebot macht (0x16EFF): zufälliger Verein 0..63 (fremd: 64..199), kein
  * Managerverein, dessen Stärke s = (Σ Ko + Σ Te + 150)/9 zu v (Wert/10000) passt:
- * s - 2 < v < s + 20; nach 500 Versuchen der nächste beliebige.
+ * s - 2 < v < s + 20; nach 500 Versuchen der nächste beliebige. v kommt als Byte an (alle
+ * Aufrufer schieben nur AL, 0x0E184/0x0EA1A/0x16316): ab 2,56 Mio DM Marktwert läuft er über, und
+ * das Angebot kommt von einem schwächeren Verein.
  */
 export function chooseOfferClub(g: GameState, v: number, foreign: boolean, rng: Rng): number {
+  v &= 0xff;
   for (let tries = 0; ; tries++) {
     const c = foreign ? rng(64, 199) : rng(0, 63);
     if (isManagerClub(g, c)) continue;
@@ -398,12 +401,12 @@ export function decideSale(g: GameState, offer: SaleOffer, sell: boolean, rng: R
 
 /**
  * KI-Entscheidung über ein Kaufangebot (0x248E1): Preis = Marktpreis des Platzes (Leihe: /3).
- * Unter Preis·random(75,85)/100 abgelehnt, ab Preis·random(120,130)/100 angenommen, sonst
- * angenommen, wenn Angebot·100/Preis > random(80,120).
+ * Unter Preis·random(75,85)/100 abgelehnt, über Preis·random(120,130)/100 angenommen (genau
+ * gleich reicht nicht, 0x24990), sonst angenommen, wenn Angebot·100/Preis > random(80,120).
  */
 export function aiAccepts(price: number, amount: number, rng: Rng): boolean {
   if (amount < div(price * rng(75, 85), 100)) return false;
-  if (amount >= div(price * rng(120, 130), 100)) return true;
+  if (amount > div(price * rng(120, 130), 100)) return true;
   const pct = div(amount * 100, price);
   return pct > rng(80, 120);
 }

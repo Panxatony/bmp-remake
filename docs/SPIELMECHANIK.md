@@ -1808,8 +1808,10 @@ Im Remake kann der Saisonwechsel nicht warten, weil drei Manager an drei Rechner
 Spieler bleiben deshalb mit 0 Vertragsjahren im Kader (rot in der Vertragsansicht), und der
 Server führt eine Warteschlange (`Room.vertragsende`, gemerkt wird der Spieler, nicht der Platz).
 Im ersten Zug der neuen Saison öffnet der Client die Vertragsansicht beim ersten dieser Spieler
-und arbeitet sie nacheinander ab: "NEUER VERTRAG" verhandelt wie im Original, "KEIN ANGEBOT"
-lässt den Spieler gehen. Wer am Zugende noch in der Warteschlange steht, verlässt den Verein -
+und arbeitet sie nacheinander ab: "NEUER VERTRAG" verhandelt wie im Original - mit **einem**
+Versuch: lehnt der Spieler ab, geht er (0x0DC66, GitLab #95) -, "KEIN ANGEBOT" lässt den
+Spieler gehen. In der Version 2026 ist er danach ablösefrei; bieten dürfen nur die anderen
+Manager, die davon eine Meldung bekommen. Wer am Zugende noch in der Warteschlange steht, verlässt den Verein -
 genau das "kein Angebot" des Originals. Spieler der KI-Manager gehen sofort beim Saisonwechsel.
 
 ## Meldungen (Meldungsliste ab 34368; SaveFile.withMessages/addMessage/clearMessages)
