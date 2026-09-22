@@ -110,13 +110,16 @@ export function teamStrength(inp: StrengthInput, rng: Rng, forMatch = true): Tea
         plus[1] += 1;
         plus[2] += 1;
       } else plus[2] += 2;
+      // Fehlbesetzung nur im Mittelfeld und Angriff (0x0FAC0): Abwehr und Torwart springen bei
+      // 0x0FC5F bzw. nach dem Torwartfall direkt nach 0x0FB0E, an beiden Würfen vorbei.
+      // Gefunden mit dem bytegenauen Vergleich (#99).
+      if (positionFit > 2) malus[grp] += rng(2, 6);
+      if (lineDist > 25) malus[grp] += rng(2, 6);
     } else {
       plus[0] += 2;
       if (line === 1 && role === 3 && positionFit < 2 && te - 10 > ko) sumTe[grp] += 15;
       if (line === 0 && role === 3) torwartModus = div(player.positionValue, 25) === 0 ? 0 : 2;
     }
-    if (positionFit > 2) malus[grp] += rng(2, 6);
-    if (lineDist > 25) malus[grp] += rng(2, 6);
     koMinusTe += ko - te;
     sumKo[grp] += ko + div(squad.leagueApps, 6) - div(squad.freshness, 20) + 3;
     sumTe[grp] += te + squad.leagueGoals - 1;
