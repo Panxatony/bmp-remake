@@ -1618,6 +1618,12 @@ function logCupMatches(r: Room, title: string, matches: CupMatch[], finals: CupF
     const leg = p.leg === 1 ? " (Hinspiel)" : p.leg === 2 ? " (R}ckspiel)" : "";
     r.log.push(`  ${cupNames()[p.cup]}: ${names(p.home)} - ${names(p.away)} ${resultText(p)}${leg}${p.attendance ? ` (${p.attendance} Zuschauer, ${p.gate} DM)` : ""}`);
     for (const sc of (liveScorers?.get(p.home + "-" + p.away) ?? p.scorers)) r.log.push(`    ${sc.minute}. ${sc.name} (${names(sc.side === "home" ? p.home : p.away)})`);
+    // 0:2-Wertung auch im Pokal, mit demselben Hinweiskasten wie in der Liga (0x1C614; im
+    // Original gemessen, GitLab #90)
+    if (p.forfeit !== undefined) {
+      r.log.push(`    0:2-Wertung gegen ${g.managers.at(p.forfeit).displayName} (weniger als acht einsatzfähige Spieler), 200.000 DM Strafe`);
+      r.hinweise.push({ manager: p.forfeit, zeilen: [T("quell.server", 2), T("quell.server", 3), T("quell.server", 4)] });
+    }
   }
   // Das Original schreibt über Pokalspiele keine Meldung (die Meldungsroutine 0x30AA0 hat sieben
   // Aufrufstellen, keine davon im Pokal; von lhuno bestätigt, GitLab #41). Das Ergebnis steht in
@@ -1858,19 +1864,19 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     if (postponed.length) r.log.push(`  verlegt: ${postponed.map((m) => `${names(g.pairings(league)[m][0])} - ${names(g.pairings(league)[m][1])}`).join(", ")}`);
   }
   if (flag & 8) {
-    const played = playCupDay(g, r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), nachspiel, live?.booking?.vorbereitet ?? false);
+    const played = playCupDay(g, r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), nachspiel, live?.booking?.vorbereitet ?? false, live?.booking?.forfeit);
     logCupMatches(r, "DFB-Pokal", played, played.finals ?? [], live?.scorers);
     zeremonieAnsetzen(r, played.gezogen ?? []);
   }
   // Tagesverteiler 0x1D8D1: genau Flag 0x10 ist die Relegation, sonst ein Europapokaltag
   if ((flag & 0x70) === 0x10) {
-    const m = playPlayoffDay(g, seasonDay(k), r.rng, sim, nachspiel, live?.booking?.vorbereitet ?? false);
+    const m = playPlayoffDay(g, seasonDay(k), r.rng, sim, nachspiel, live?.booking?.vorbereitet ?? false, live?.booking?.forfeit);
     r.log.push(`Relegation, ${m.leg === 1 ? "Hinspiel" : "R}ckspiel"}: ${names(m.home)} - ${names(m.away)} ${resultText(m)}${m.attendance ? ` (${m.attendance} Zuschauer)` : ""}`);
     if (m.winner !== undefined) r.log.push(`  ${names(m.winner)} spielt n{chste Saison in der Bundesliga`);
     // Das Relegationsspiel läuft in der Konferenz wie jedes andere; Ergebnis und Ausgang stehen
     // danach im Spielplan und im Verlauf. Das Original meldet nichts (GitLab #54).
   } else if (flag & 0x70) {
-    const { matches, finals, gezogen } = playEuropaDay(g, seasonDay(k), r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), nachspiel, live?.booking?.vorbereitet ?? false);
+    const { matches, finals, gezogen } = playEuropaDay(g, seasonDay(k), r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), nachspiel, live?.booking?.vorbereitet ?? false, live?.booking?.forfeit);
     logCupMatches(r, "Europapokal", matches, finals, live?.scorers);
     zeremonieAnsetzen(r, gezogen);
   }
