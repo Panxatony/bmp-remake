@@ -174,3 +174,26 @@ test("Originaltag RUN0: Nachholtag bis zum Tagesende", { skip: !existsSync(NACHH
   assert.equal(bisEnde.length, 52);
   assert.deepEqual(punkte, bisEnde);
 });
+
+// Ligaspieltag im Winterfenster (TEST3, 18.11.; Punkte wie beim Nachholtag): Verlegungen je Liga
+// (0x3563/0x36F1) vor dem Treiber, verlegte Paarungen laufen in der Konferenz ohne Würfel mit, die
+// seltene Jubelszene würfelt ihre Nummer. Dazu die Tabellen aller Vereine nach dem Spieltag (ohne
+// den Tabellenplatz, Byte 46, den der Vergleichslauf nicht fortschreibt). Lager ziehen beim 3., 8.
+// und 11. Aufruf neu.
+const WINTER = resolve(import.meta.dirname, "../../../tools/dosbox/KP-TEST3-WINTER.MAN");
+test("Originaltag TEST3: Wintertag mit Verlegungen bis zum Tagesende", { skip: !existsSync(WINTER) || !existsSync(join(BMP_DIR, "TEST3.MAN")) }, () => {
+  const plain = SaveFile.decode(new Uint8Array(readFileSync(WINTER))).plain;
+  const orig = protokoll(plain);
+  const bisEnde = orig.slice(0, orig.findIndex((p) => p.punkt === 27 && p.wurf > 0) + 1);
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST3.MAN")))));
+  const lauf = originaltag(g, originalRng(0x1234), [3, 8, 11, 60, -60, -60, 60, 60]);
+  const ids = new Set(bisEnde.map((p) => p.punkt));
+  const punkte = lauf.punkte.map((p) => (p.punkt === 26 ? { ...p, punkt: 27 } : p)).filter((p) => ids.has(p.punkt));
+  assert.equal(bisEnde.length, 125);
+  assert.deepEqual(punkte, bisEnde);
+  const T = TABLES.standings;
+  for (let i = 0; i < 58; i++)
+    for (let k = 0; k < T.record; k++) if (k !== 46) assert.equal(g.save.plain[T.offset + i * T.record + k], plain[T.offset + i * T.record + k], `Tabelle Verein ${i} Byte ${k}`);
+  // Verlegt wie im Original: dieselben Nachholtermine
+  assert.deepEqual(g.save.plain.subarray(5458, 5558), plain.subarray(5458, 5558));
+});

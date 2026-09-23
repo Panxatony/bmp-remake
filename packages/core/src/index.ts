@@ -27,7 +27,7 @@ export {
 } from "./records.ts";
 export { strength, chanceCounts, chanceMinutes, goalDice, simulateMatch, mulberryRng, originalRng, type TeamStrength, type Rng, type MatchResult } from "./sim/match.ts";
 export { teamStrength, strengthInput, type StrengthInput } from "./sim/strength.ts";
-export { postponementCount, replays, addReplay, removeReplays, scheduleReplays, replayDay, REPLAY_OFFSET, REPLAY_SLOTS, type Replay } from "./sim/postpone.ts";
+export { postponementCount, replays, addReplay, removeReplays, scheduleReplays, verlegen, istVerlegt, replayDay, REPLAY_OFFSET, REPLAY_SLOTS, type Replay } from "./sim/postpone.ts";
 export { fixtures, LEAGUES } from "./sim/fixtures.ts";
 export { applyResult, tableOrder, updatePositions } from "./sim/standings.ts";
 export { setTexte, texte, text, texteGeladen, type Textkatalog } from "./data/texte.ts";

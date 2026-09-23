@@ -136,9 +136,20 @@ sein Kalenderbyte 0 oder 0x80 ist, dort noch keine neun Nachholspiele liegen und
 beiden Vereine an dem Tag schon spielt; der gewählte Tag bekommt im Kalender die Marke 0x80.
 Geprüft an TEST1 (7 verlegte Spiele, 7 Einträge mit Tag 33), RIED-4TE (20) und RIED (2).
 
-Im Remake umgesetzt (sim/postpone.ts, sim/matchday.ts, Server und Konferenz): nach einem
-Spieltag legt `scheduleReplays` die verlegten Spiele auf Termine, trägt sie in die Tabelle ein
-und setzt die Kalendermarke; am Nachholtag trägt `playReplays` sie aus - mit der Paarung aus
+Die Auswahl (0x3563 ab 0x35F6, im Würfelvergleich TEST3 bestätigt, #99): der Tagesablauf ruft
+sie vor dem Spieltagstreiber auf (0x1D87E), die Bundesliga nur mit ihrem Ligabit, die beiden
+anderen Ligen an jedem Ligatag - im Winterfenster spielen sie dann ohnehin (Tage 25, 29, 69 mit
+Flag 6). Je Runde geht das Original die 20 Plätze der Nachholtabelle ab Platz 0 durch; auf jedem
+freien Platz (Tagesbyte 0) würfelt es ein Spiel `random(0, Spiele - 1)`. Ist es schon gewählt
+oder findet 0x36F1 keinen Termin, geht es mit dem nächsten freien Platz weiter; sonst kommt das
+Spiel auf genau diesen Platz, bekommt die Marke 30, der Tag die Kalendermarke 0x80, und die
+Runde beginnt von vorn. Eine Runde ohne Erfolg beendet die Verlegungen (bei n = 9 läuft eine Runde
+mehr, weil der Rest auf 8 gedeckelt wird). Abgetragene Plätze leert das Original nur im
+Tagesbyte, der Rest des Eintrags bleibt stehen, und die Plätze rücken nicht auf.
+
+Im Remake umgesetzt (sim/postpone.ts, sim/matchday.ts, Server und Konferenz): vor dem Anpfiff
+verlegt `verlegen` wie oben, trägt die Termine ein und setzt die Marken; am Nachholtag trägt
+`playReplays` sie aus - mit der Paarung aus
 `fixtures(Liga, Spieltag)`, also dem Spielplan des damaligen Spieltags, und ohne den laufenden
 Spieltag der Liga weiterzurücken. Die Konferenz nimmt sie als eigene Einträge auf und zeigt sie
 auf der Seite "NACHHOLSPIELE" (Titel aus 4cb3:4B88; im Original zeichnet dieselbe Routine wie
@@ -543,8 +554,9 @@ Bildschirm zeigt den Ausschnitt 182x96 an (69,118). Bei Angriff nach links wird 
 (0x14A93): x' = 320 - x - 14 (Spieler) bzw. - 6 (Ball), Bildnummern 0..58 <-> 59..117 über
 117 - n (Ausnahme 25..32 <-> 84..91 über ± 59), 118..139 über 257 - n, Kamera 137 - x.
 Auswahl (0x1502C): Nummer random(2, 43), Endung .T (Tor) oder .V (vorbei); mit 1/15 (Tor)
-bzw. 1/25 (vorbei) eine Elfmeterszene (.TE/.VE, Nummer random(2,5)), mit 1/400 die Jubelszene
-(.TJ/.VJ). Die Szenen liegen als assets/tore/scenes.json vor (tools: siehe Erzeugung in der
+bzw. 1/25 (vorbei) eine Elfmeterszene (.TE/.VE, Nummer random(2,5)), mit 1/401 (random(0,400) = 0) die Jubelszene
+(.TJ/.VJ), deren Nummer der Lader ebenfalls würfelt: random(2, n) mit der höchsten Nummer n
+(4cb3:4BD4, im Original nur 2.TJ und 2.VJ) - ein Wurf, der immer 2 ergibt, aber zählt (#99). Die Szenen liegen als assets/tore/scenes.json vor (tools: siehe Erzeugung in der
 Sitzung), Bildwechsel alle 70 ms.
 
 ## Eigene Torszenen (tore/szene.ts, tools/szene.mjs, tools/szene.py; GitLab #6)
