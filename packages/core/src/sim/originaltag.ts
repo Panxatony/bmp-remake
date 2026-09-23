@@ -34,7 +34,7 @@ import { applyResult } from "./standings.ts";
 import { bookHistory } from "./history.ts";
 import { autoLineupIfEnabled, backupSystem, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
-import { replays, verlegen, istVerlegt } from "./postpone.ts";
+import { replays, verlegen, istVerlegt, removeReplays } from "./postpone.ts";
 import { fixtures } from "./fixtures.ts";
 import { afterCupDay, dfbFinale, shootout, currentPairs, legPlayed, tieBreak, CUP_RESULTS, CUP_ROUND, FIRST_LEG } from "./europa.ts";
 import { pokalZuschlag, ERSATZ_PREIS, ligaBand } from "./attendance.ts";
@@ -157,20 +157,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
     if (!(flag & FLAG_LEAGUE[league])) continue;
     for (const [home, away] of ligaPaare(league)) {
       kp(2);
-      // 0x1C632: die Manager der Paarung in ihrer Reihenfolge; der erste mit zu wenigen
-      // Spielern beendet die Routine
-      const beteiligt = [managerOf.get(home), managerOf.get(away)].filter((x) => x !== undefined).sort((a, b) => a - b);
-      for (const mi of beteiligt) {
-        if (isForfeit(g, mi)) break;
-        if (managers[mi].clubIndex === home) {
-          const att = attendance(g, { manager: mi, home, away, level: g.save.plain[34062] }, rng);
-          zuschauer.set(home, att);
-          bookAttendance(g, mi, att, away);
-          bookGate(g, mi, att);
-        }
-        kaderVorbereitung(g, mi, 0, rng);
-        if (managers[mi].clubIndex === home) riotCheck(g, mi, rng);
-      }
+      ligaVorbereitung(g, rng, home, away, managerOf, zuschauer);
     }
   }
   // Live-Schleife 0x05403 je Halbzeit: zu Beginn die Chancen jeder Paarung (0x054C2 ruft
@@ -179,58 +166,16 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   // Neuauslosung (0x0657F), dann die Chancen der Minute (0x1060B, Buchung 0x1B223)
   // Verlegte Paarungen bleiben in der Liste: der Punkt vor den Chancen läuft für sie mit, gewürfelt
   // wird nichts
-  const spiele: { home: number; away: number; verlegt: boolean; match: LiveMatch; seiten: [number, IncidentState, "home" | "away"][]; schuetzen: { minute: number; side: "home" | "away"; name: string }[] }[] = [];
+  const spiele: Ligaspiel[] = [];
   for (let league = 0; league < 3; league++) {
     if (!(flag & FLAG_LEAGUE[league])) continue;
     const md = g.nextMatchday(league);
-    for (const [m, [home, away]] of g.pairings(league).entries()) {
-      const verlegt = istVerlegt(g, league, md, m);
-      const match = new LiveMatch(g.clubs.at(home).strengthMatrix, g.clubs.at(away).strengthMatrix, rng);
-      const seiten: [number, IncidentState, "home" | "away"][] = [];
-      for (const [club, seite] of [[home, "home"], [away, "away"]] as const) {
-        const mi = managerOf.get(club);
-        if (mi !== undefined) seiten.push([mi, newIncidentState(), seite]);
-      }
-      seiten.sort((a, b) => a[0] - b[0]);
-      spiele.push({ home, away, verlegt, match, seiten, schuetzen: [] });
-    }
+    for (const [m, [home, away]] of g.pairings(league).entries()) spiele.push(neuesLigaspiel(g, rng, home, away, managerOf, istVerlegt(g, league, md, m)));
   }
   const managerLigen = new Set(managers.map((m) => (m.clubIndex < 18 ? 0 : m.clubIndex < 38 ? 1 : 2)));
-  const staerkeNeu = () => {
-    managers.forEach((m, mi) => {
-      const st = matchStrength(g, mi, rng);
-      matrixInVerein(g, mi, st);
-      for (const sp of spiele) {
-        if (sp.home === m.clubIndex) sp.match.home = st;
-        if (sp.away === m.clubIndex) sp.match.away = st;
-      }
-    });
-  };
+  const staerkeNeu = () => staerkeAllerManager(g, rng, spiele);
   for (let minute = 1; minute <= 90; minute++) {
-    for (const s of spiele) {
-      if (minute === 1 || minute === 46) kp(4);
-      if (!s.verlegt) s.match.beginMinute();
-    }
-    for (const s of spiele) {
-      if (s.verlegt) continue;
-      let neu: number | undefined;
-      for (const [mi, st, seite] of s.seiten) {
-        const fresh = minuteIncidents(g, mi, minute, st, rng, kp);
-        if (fresh.length === 0) continue;
-        if (fresh.some((x) => x.kind !== "yellow")) s.match[seite] = matchStrength(g, mi, rng);
-        if (fresh.some((x) => x.kind === "red" || x.kind === "injury")) neu = mi;
-      }
-      if (neu !== undefined) {
-        kp(6);
-        s.match.neuAuslosen(neu);
-      }
-      s.match.chances((c) => {
-        // Den Chancenhandler ruft der Torwürfel nur für Spiele mit Manager (0x108EF)
-        if (!beteiligt(s)) return;
-        kp(16);
-        s.schuetzen.push(...bookEvents(g, s.home, s.away, { home: s.match.hg, away: s.match.ag, events: [c] }, 0, rng, [szenen ? pickScene(rng, c.goal) : false]));
-      }, (seite) => kp(seite === "home" ? 14 : 15));
-    }
+    ligaMinute(g, rng, kp, spiele, minute);
     if (minute !== 45 && minute !== 90) continue;
     // Halbzeitende (0x05BD6)
     kp(21);
@@ -250,43 +195,12 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   for (let league = 0; league < 3; league++) {
     if (!(flag & FLAG_LEAGUE[league])) continue;
     const paare = spiele.filter((sp) => !sp.verlegt && ligaPaare(league).some(([h, a]) => h === sp.home && a === sp.away));
-    kp(22);
-    for (const sp of paare) {
-      const { hg, ag } = sp.match;
-      applyResult(g, sp.home, sp.away, hg, ag);
-      bookHistory(g, sp.home, sp.away, hg, ag);
-      bookBaseBonus(g, sp.home, hg - ag, rng);
-      bookBaseBonus(g, sp.away, ag - hg, rng);
-    }
-    kp(23);
-    for (const sp of paare) {
-      creditAiGoals(g, sp.home, sp.match.hg, rng);
-      creditAiGoals(g, sp.away, sp.match.ag, rng);
-    }
+    ligaBuchung(g, rng, kp, paare);
     if (managerLigen.has(league)) staerkeNeu();
   }
   // Sportzeitung (0x3074A): je Manager, der heute gespielt hat, in Managerreihenfolge erst die
   // Noten (ohne Würfel), dann die Seite (0x2F243)
-  managers.forEach((m, mi) => {
-    const sp = spiele.find((x) => !x.verlegt && (x.home === m.clubIndex || x.away === m.clubIndex));
-    if (!sp) return;
-    const inc = sp.seiten.flatMap(([, st]) => st.incidents);
-    const eigene = inc.filter((x) => x.manager === mi);
-    const bewertungen = new Map(g.squadOf(mi).filter((l) => !l.isEmpty).map((l) => [l.playerIndex, (l.u8(21) << 24) >> 24] as const));
-    kp(24);
-    const report = reportFromMatch(g, mi, {
-      home: sp.home,
-      away: sp.away,
-      result: sp.match.result(),
-      scorers: sp.schuetzen,
-      attendance: zuschauer.get(sp.home),
-      yellowNames: eigene.filter((x) => x.kind === "yellow").map((x) => x.name),
-      redNames: eigene.filter((x) => x.kind === "red" || x.kind === "yellowred").map((x) => x.name),
-      cards: inc.filter((x) => x.kind !== "injury").length,
-      bewertungen,
-    }, rng);
-    composeZeitung(report, rng);
-  });
+  zeitungen(g, rng, kp, spiele, zuschauer);
   kp(25);
   return { punkte, bis: folgetage(g, rng, kp, lager) };
 }
@@ -320,7 +234,10 @@ function folgetage(g: GameState, rng: Rng, kp: (punkt: number) => void, lager: n
   const kNeu = k + 1;
   const tagNeu = seasonDay(kNeu);
   const tr = trainingInput(g);
-  const spielfrei = calendarFlag(g, kNeu) === 0;
+  // Spielfrei heißt: der abgelaufene Kalendertag hatte keine Spiele (0x0E6A3 liest den Kalender
+  // bei 4cb3:016E, das beim Ankunftstag noch auf dem alten Tag steht). Ein abgetragener
+  // Nachholtag zählt dazu, seine Marke ist dann gelöscht (RIED-4TE, #99).
+  const spielfrei = calendarFlag(g, k) === 0;
   for (let m = 0; m < n; m++) {
     kp(9);
     tagesroutine(g, m, tagNeu, tr, rng, spielfrei);
@@ -443,6 +360,127 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
   return undefined;
 }
 
+type Ligaspiel = { home: number; away: number; verlegt: boolean; match: LiveMatch; seiten: [number, IncidentState, "home" | "away"][]; schuetzen: { minute: number; side: "home" | "away"; name: string }[] };
+
+/**
+ * Spielvorbereitung 0x1C632 für ein Liga- oder Nachholspiel: die Manager der Paarung in ihrer
+ * Reihenfolge; der erste mit zu wenigen Spielern beendet die Routine.
+ */
+function ligaVorbereitung(g: GameState, rng: Rng, home: number, away: number, managerOf: Map<number, number>, zuschauer: Map<number, number>): void {
+  const managers = g.activeManagers();
+  const beteiligt = [managerOf.get(home), managerOf.get(away)].filter((x) => x !== undefined).sort((a, b) => a - b);
+  for (const mi of beteiligt) {
+    if (isForfeit(g, mi)) break;
+    if (managers[mi].clubIndex === home) {
+      const att = attendance(g, { manager: mi, home, away, level: g.save.plain[34062] }, rng);
+      zuschauer.set(home, att);
+      bookAttendance(g, mi, att, away);
+      bookGate(g, mi, att);
+    }
+    kaderVorbereitung(g, mi, 0, rng);
+    if (managers[mi].clubIndex === home) riotCheck(g, mi, rng);
+  }
+}
+
+function neuesLigaspiel(g: GameState, rng: Rng, home: number, away: number, managerOf: Map<number, number>, verlegt = false): Ligaspiel {
+  const match = new LiveMatch(g.clubs.at(home).strengthMatrix, g.clubs.at(away).strengthMatrix, rng);
+  const seiten: [number, IncidentState, "home" | "away"][] = [];
+  for (const [club, seite] of [[home, "home"], [away, "away"]] as const) {
+    const mi = managerOf.get(club);
+    if (mi !== undefined) seiten.push([mi, newIncidentState(), seite]);
+  }
+  seiten.sort((a, b) => a[0] - b[0]);
+  return { home, away, verlegt, match, seiten, schuetzen: [] };
+}
+
+/** Spielstärke aller Manager neu (0x2C10C mit Flag 1), die neue Matrix gilt sofort. */
+function staerkeAllerManager(g: GameState, rng: Rng, spiele: Ligaspiel[]): void {
+  g.activeManagers().forEach((m, mi) => {
+    const st = matchStrength(g, mi, rng);
+    matrixInVerein(g, mi, st);
+    for (const sp of spiele) {
+      if (sp.home === m.clubIndex) sp.match.home = st;
+      if (sp.away === m.clubIndex) sp.match.away = st;
+    }
+  });
+}
+
+/**
+ * Eine Minute der Live-Schleife 0x05403: zu Beginn der Halbzeit die Chancen jeder Paarung, dann
+ * je Paarung Karten und Verletzungen (0x05FE5), nach glatt Rot oder Verletzung die Neuauslosung
+ * (0x0657F), dann die Chancen der Minute (0x1060B, Chancenhandler 0x1B223 nur mit Manager).
+ */
+function ligaMinute(g: GameState, rng: Rng, kp: (punkt: number) => void, spiele: Ligaspiel[], minute: number): void {
+  for (const s of spiele) {
+    if (minute === 1 || minute === 46) kp(4);
+    if (!s.verlegt) s.match.beginMinute();
+  }
+  for (const s of spiele) {
+    if (s.verlegt) continue;
+    let neu: number | undefined;
+    for (const [mi, st, seite] of s.seiten) {
+      const fresh = minuteIncidents(g, mi, minute, st, rng, kp);
+      if (fresh.length === 0) continue;
+      if (fresh.some((x) => x.kind !== "yellow")) s.match[seite] = matchStrength(g, mi, rng);
+      if (fresh.some((x) => x.kind === "red" || x.kind === "injury")) neu = mi;
+    }
+    if (neu !== undefined) {
+      kp(6);
+      s.match.neuAuslosen(neu);
+    }
+    s.match.chances((c) => {
+      if (!beteiligt(s)) return;
+      kp(16);
+      s.schuetzen.push(...bookEvents(g, s.home, s.away, { home: s.match.hg, away: s.match.ag, events: [c] }, 0, rng, [szenen ? pickScene(rng, c.goal) : false]));
+    }, (seite) => kp(seite === "home" ? 14 : 15));
+  }
+}
+
+/**
+ * Nach der 90. Minute (0x05C48): Tabelle mit Grundzuschlag je Paarung (0x2D143 -> 0x2C3FC, Heim
+ * dann Gast), dann die Torschützen der KI-Vereine (0x160A2 -> 0x15F14).
+ */
+function ligaBuchung(g: GameState, rng: Rng, kp: (punkt: number) => void, paare: Ligaspiel[]): void {
+  kp(22);
+  for (const sp of paare) {
+    const { hg, ag } = sp.match;
+    applyResult(g, sp.home, sp.away, hg, ag);
+    bookHistory(g, sp.home, sp.away, hg, ag);
+    bookBaseBonus(g, sp.home, hg - ag, rng);
+    bookBaseBonus(g, sp.away, ag - hg, rng);
+  }
+  kp(23);
+  for (const sp of paare) {
+    creditAiGoals(g, sp.home, sp.match.hg, rng);
+    creditAiGoals(g, sp.away, sp.match.ag, rng);
+  }
+}
+
+/** Sportzeitung (0x3074A): je Manager, der gespielt hat, erst die Noten, dann die Seite (0x2F243). */
+function zeitungen(g: GameState, rng: Rng, kp: (punkt: number) => void, spiele: Ligaspiel[], zuschauer: Map<number, number>): void {
+  const managers = g.activeManagers();
+  managers.forEach((m, mi) => {
+    const sp = spiele.find((x) => !x.verlegt && (x.home === m.clubIndex || x.away === m.clubIndex));
+    if (!sp) return;
+    const inc = sp.seiten.flatMap(([, st]) => st.incidents);
+    const eigene = inc.filter((x) => x.manager === mi);
+    const bewertungen = new Map(g.squadOf(mi).filter((l) => !l.isEmpty).map((l) => [l.playerIndex, (l.u8(21) << 24) >> 24] as const));
+    kp(24);
+    const report = reportFromMatch(g, mi, {
+      home: sp.home,
+      away: sp.away,
+      result: sp.match.result(),
+      scorers: sp.schuetzen,
+      attendance: zuschauer.get(sp.home),
+      yellowNames: eigene.filter((x) => x.kind === "yellow").map((x) => x.name),
+      redNames: eigene.filter((x) => x.kind === "red" || x.kind === "yellowred").map((x) => x.name),
+      cards: eigene.filter((x) => x.kind !== "injury").length,
+      bewertungen,
+    }, rng);
+    composeZeitung(report, rng);
+  });
+}
+
 /**
  * Nachholtag (Kalendermarke 0x80): der Treiber spielt die fälligen Nachholspiele wie Ligaspiele
  * (Vorbereitung 0x1C632, Live-Schleife mit Ligabits 0). Zur Halbzeit und nach der 90. Minute zeigt
@@ -453,39 +491,25 @@ function nachholtag(g: GameState, rng: Rng, kp: (punkt: number) => void): string
   const managers = g.activeManagers();
   const managerOf = new Map(managers.map((m, i) => [m.clubIndex, i] as const));
   const k = dayIndex(g);
-  const paare = replays(g)
-    .filter((e) => e.dayIndex === k)
-    .map((e) => fixtures(e.league, e.matchday)[e.match])
-    .filter((x): x is [number, number] => x !== undefined);
-  if (paare.some(([h, a]) => managerOf.has(h) || managerOf.has(a))) return "Nachholspiel mit Managerverein fehlt noch";
+  const faellig = replays(g).filter((e) => e.dayIndex === k);
+  const paare = faellig.map((e) => fixtures(e.league, e.matchday)[e.match]).filter((x): x is [number, number] => x !== undefined);
+  const zuschauer = new Map<number, number>();
   kp(1);
-  for (const _ of paare) kp(2);
-  const spiele = paare.map(([home, away]) => ({ home, away, match: new LiveMatch(g.clubs.at(home).strengthMatrix, g.clubs.at(away).strengthMatrix, rng) }));
-  const staerkeNeu = () => managers.forEach((_, mi) => matrixInVerein(g, mi, matchStrength(g, mi, rng)));
+  for (const [home, away] of paare) {
+    kp(2);
+    ligaVorbereitung(g, rng, home, away, managerOf, zuschauer);
+  }
+  const spiele = paare.map(([home, away]) => neuesLigaspiel(g, rng, home, away, managerOf));
   for (let minute = 1; minute <= 90; minute++) {
-    for (const s of spiele) {
-      if (minute === 1 || minute === 46) kp(4);
-      s.match.beginMinute();
-    }
-    for (const s of spiele) s.match.chances(undefined, (seite) => kp(seite === "home" ? 14 : 15));
+    ligaMinute(g, rng, kp, spiele, minute);
     if (minute !== 45 && minute !== 90) continue;
     kp(21);
-    if (minute === 45) staerkeNeu();
+    if (minute === 45) staerkeAllerManager(g, rng, spiele);
   }
-  kp(22);
-  for (const s of spiele) {
-    const { hg, ag } = s.match;
-    applyResult(g, s.home, s.away, hg, ag);
-    bookHistory(g, s.home, s.away, hg, ag);
-    bookBaseBonus(g, s.home, hg - ag, rng);
-    bookBaseBonus(g, s.away, ag - hg, rng);
-  }
-  kp(23);
-  for (const s of spiele) {
-    creditAiGoals(g, s.home, s.match.hg, rng);
-    creditAiGoals(g, s.away, s.match.ag, rng);
-  }
-  staerkeNeu();
+  ligaBuchung(g, rng, kp, spiele);
+  staerkeAllerManager(g, rng, spiele);
+  zeitungen(g, rng, kp, spiele, zuschauer);
+  removeReplays(g, faellig);
   kp(25);
   return undefined;
 }

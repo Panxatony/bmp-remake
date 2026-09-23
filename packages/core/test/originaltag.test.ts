@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, originalRng, originaltag, TABLES } from "../src/index.ts";
+import { SaveFile, GameState, originalRng, originaltag, TABLES, calendarFlag } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const KP = resolve(import.meta.dirname, "../../../tools/dosbox/KP-TEST4.MAN");
@@ -196,4 +196,23 @@ test("Originaltag TEST3: Wintertag mit Verlegungen bis zum Tagesende", { skip: !
     for (let k = 0; k < T.record; k++) if (k !== 46) assert.equal(g.save.plain[T.offset + i * T.record + k], plain[T.offset + i * T.record + k], `Tabelle Verein ${i} Byte ${k}`);
   // Verlegt wie im Original: dieselben Nachholtermine
   assert.deepEqual(g.save.plain.subarray(5458, 5558), plain.subarray(5458, 5558));
+});
+
+// Nachholtag mit Managerderby (RIED-4TE, 4.4.: 35 gegen 34): Vorbereitung, Karten, Chancenhandler
+// und die beiden Zeitungen - der Bericht zählt nur die Karten des eigenen Managers. Danach ist die
+// Nachholmarke im Kalender gelöscht, und die Tagesroutine hält den Tag für spielfrei (Trainings-
+// verletzung mit dem Zuschlag). Ein Lager zieht beim 6. Aufruf neu.
+const DERBY = resolve(import.meta.dirname, "../../../tools/dosbox/KP-RIED4-NACHHOL.MAN");
+test("Originaltag RIED-4TE: Nachholtag mit Managerderby bis zum Tagesende", { skip: !existsSync(DERBY) || !existsSync(join(BMP_DIR, "RIED-4TE.MAN")) }, () => {
+  const plain = SaveFile.decode(new Uint8Array(readFileSync(DERBY))).plain;
+  const orig = protokoll(plain);
+  const bisEnde = orig.slice(0, orig.findIndex((p) => p.punkt === 27 && p.wurf > 0) + 1);
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "RIED-4TE.MAN")))));
+  const lauf = originaltag(g, originalRng(0x1234), [6, 60, 60, 60, -60, -60, 60, 60]);
+  const ids = new Set(bisEnde.map((p) => p.punkt));
+  const punkte = lauf.punkte.map((p) => (p.punkt === 26 ? { ...p, punkt: 27 } : p)).filter((p) => ids.has(p.punkt));
+  assert.equal(bisEnde.length, 58);
+  assert.deepEqual(punkte, bisEnde);
+  assert.deepEqual(g.save.plain.subarray(5458, 5558), plain.subarray(5458, 5558), "Nachholtabelle");
+  assert.equal(calendarFlag(g, 71), calendarFlag(new GameState(SaveFile.decode(new Uint8Array(readFileSync(DERBY)))), 71), "Kalendermarke gelöscht");
 });

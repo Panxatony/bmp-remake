@@ -89,7 +89,9 @@ export function addReplay(g: GameState, r: Replay, platz?: number): void {
 
 /**
  * Abgetragene Nachholtermine löschen. Das Original setzt nur das Tagesbyte auf 0 und lässt den
- * Rest des Platzes stehen (RUN0 -> Nachholtag, #99); die Plätze rücken nicht auf.
+ * Rest des Platzes stehen (RUN0 -> Nachholtag, #99); die Plätze rücken nicht auf. Die
+ * Kalendermarke 0x80 des Tages löscht es ebenfalls (RIED-4TE: Tag 71 steht danach auf 0) - der
+ * Tag gilt damit für die Tagesroutine als spielfrei.
  */
 export function removeReplays(g: GameState, weg: Replay[]): void {
   const p = g.save.plain;
@@ -97,6 +99,7 @@ export function removeReplays(g: GameState, weg: Replay[]): void {
     const o = REPLAY_OFFSET + 5 * i;
     if (p[o] !== 0 && weg.some((w) => w.dayIndex === p[o] && w.matchday === p[o + 1] && w.league === p[o + 2] && w.match === p[o + 3])) p[o] = 0;
   }
+  for (const d of new Set(weg.map((w) => w.dayIndex))) setCalendarFlag(g, d, calendarFlag(g, d) & ~0x80);
 }
 
 /** Trägt das Spiel `match` des Spieltags `matchday` (1-basiert) die Verlegungsmarke 30? */

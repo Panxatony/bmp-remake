@@ -32,6 +32,10 @@ Je Kaderplatz, in dieser Reihenfolge:
 
 1. **Trainingsverletzung** (0x0E668): Byte 13 = 0 und **Byte 9 = 0** (gar kein Merker), dann
    `random(0, 30·Stufe + d + 80) == 0` mit d = max(40, 2·(160 - Frische + 25·[spielfrei])).
+   Spielfrei heißt: das Kalenderbyte bei 4cb3:016E ist 0 (0x0E6A3) - und 016E steht beim
+   Ankunftstag noch auf dem **abgelaufenen** Kalendertag. Ein abgetragener Nachholtag zählt
+   dazu, weil das Original danach seine Marke 0x80 löscht (RIED-4TE, #99). Das Remake fragte
+   bis dahin den neuen Tag.
    Das Remake prüft von Byte 9 nur die Bits 0 und 1. **F5.**
 2. **Karriereankündigung** (0x0E76F): `random(32,45) < Wert` (0x16FC8, wächst mit dem Alter),
    Bit 7 frei, Byte 24 < 100 -> Bit 7 setzen, **Meldung 4 "kündigt an, dass er seinen Vertrag

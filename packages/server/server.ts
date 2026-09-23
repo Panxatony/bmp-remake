@@ -139,6 +139,7 @@ import {
   type TrainingSettings,
   type ManaData,
   type LiveBooking,
+  type PlayedMatch,
   driftClubs,
   driftInterest,
   autoLineupIfEnabled,
@@ -1498,6 +1499,61 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   // Ligaspieltags noch einmal in der Seitenfolge. An Tagen ohne Spiele bleibt sie stehen und
   // ist weiter im Hauptmenü abrufbar.
   if (flag !== 0) r.zeitung = new Map();
+  // Nach einem Liga- oder Nachholspiel: Sportzeitung der beteiligten Manager (das Original
+  // schreibt sie auch nach Nachholspielen, RIED-4TE, #99), Derby-Einsatz, 0:2-Wertung, Protokoll
+  const nachDemSpiel = (p: PlayedMatch): void => {
+    // Sportzeitung (0x2F243) für die beteiligten Manager aus dem Spielbericht (0x305DE)
+    g.activeManagers().forEach((mg, i) => {
+      if (mg.clubIndex !== p.home && mg.clubIndex !== p.away) return;
+      const inc = (p.incidents ?? []).filter((x) => x.manager === i);
+      // Nach einer Konferenz stehen die Torereignisse nicht im Ergebnis (sie sind live schon
+      // gebucht); für die Zeitung kommen sie deshalb aus dem Konferenzstand
+      const ev = live?.events?.get(`${p.home}-${p.away}`);
+      const report = reportFromMatch(g, i, {
+        home: p.home,
+        away: p.away,
+        result: ev && ev.length ? { ...p.result, events: ev } : p.result,
+        scorers: live?.scorers?.get(`${p.home}-${p.away}`) ?? p.scorers,
+        attendance: p.attendance,
+        yellowNames: inc.filter((x) => x.kind === "yellow").map((x) => x.name),
+        redNames: inc.filter((x) => x.kind === "red" || x.kind === "yellowred").map((x) => x.name),
+        // Nur die Karten des eigenen Managers - im Derby zählt der Bericht die des Gegners
+        // nicht mit (RIED-4TE, #99)
+        cards: inc.filter((x) => x.kind !== "injury").length,
+        // Die Bewertungen des Spiels; ohne sie stünde in der Zeitung für jeden dieselbe Note
+        bewertungen: new Map(p.bewertungen?.find((x) => x.manager === i)?.werte ?? []),
+        // Die Matrix, mit der die Konferenz zuletzt gespielt hat (im Original im Vereinssatz)
+        staerke: ((st) => (st ? new Map([[p.home, st[0]], [p.away, st[1]]]) : undefined))(live?.staerke?.get(`${p.home}-${p.away}`)),
+      }, r.rng);
+      r.zeitung.set(i, composeZeitung(report, r.rng));
+    });
+    // Derby zweier Managervereine (Version 2026): der kleinere der beiden Einsätze wechselt
+    const mgrOf = (club: number) => g.activeManagers().findIndex((mg) => mg.clubIndex === club);
+    const dh = mgrOf(p.home);
+    const da = mgrOf(p.away);
+    if (dh >= 0 && da >= 0) {
+      const derby = playDerby(g, dh, da, p.result.home, p.result.away);
+      if (derby) {
+        const sieger = g.managers.at(derby.winner).displayName;
+        const verlierer = g.managers.at(derby.loser).displayName;
+        r.log.push(`    Derby-Einsatz: ${verlierer} zahlt ${dmText(derby.amount)} an ${sieger}`);
+        pushMessage(r, derby.winner, ["Derby gewonnen:", `${verlierer} zahlt Ihnen`, dmText(derby.amount)]);
+        pushMessage(r, derby.loser, ["Derby verloren:", `Zahlung an ${sieger}`, dmText(derby.amount)]);
+      }
+    }
+    if (p.forfeit !== undefined) {
+      r.log.push(`    0:2-Wertung gegen ${g.managers.at(p.forfeit).displayName} (weniger als acht einsatzfähige Spieler), 200.000 DM Strafe`);
+      // Im Original steht die 0:2-Wertung im Hinweiskasten (0x1C614), nicht in der
+      // Meldungsliste (GitLab #36)
+      r.hinweise.push({ manager: p.forfeit, zeilen: [T("quell.server", 2), T("quell.server", 3), T("quell.server", 4)] });
+    }
+    // Karten und Verletzungen stehen in der Konferenz unter der Szene (0x05FE5) und im
+    // Spielbericht der Zeitung; das Original schreibt dazu keine Meldung (GitLab #54)
+    for (const inc of p.incidents ?? []) {
+      const what = inc.kind === "yellow" ? T("quell.server", 9) : inc.kind === "red" ? `Rote Karte, ${inc.duration} Spiele Sperre` : inc.kind === "yellowred" ? "Gelb-Rote Karte, 1 Spiel Sperre" : `Verletzt (${inc.injury ?? "?"}), ${inc.duration} Wochen`;
+      r.log.push(`    ${inc.minute}. ${inc.name}: ${what}`);
+    }
+  };
   // Nachholspiele dieses Tages (Kalendermarke 0x80): Paarung aus dem Spielplan des damaligen
   // Spieltags, danach ist der Termin abgetragen
   const faellig = replays(g).filter((e) => e.dayIndex === k);
@@ -1506,7 +1562,10 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     const nachgeholt = playReplays(g, faellig, r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), live?.booking);
     removeReplays(g, faellig);
     r.log.push(`Nachholspiele (${nachgeholt.length})`);
-    for (const p2 of nachgeholt) r.log.push(`  ${names(p2.home)} - ${names(p2.away)} ${p2.result.home}:${p2.result.away}`);
+    for (const p2 of nachgeholt) {
+      r.log.push(`  ${names(p2.home)} - ${names(p2.away)} ${p2.result.home}:${p2.result.away}`);
+      nachDemSpiel(p2);
+    }
   }
   for (let league = 0; league < 3; league++) {
     if (!(flag & FLAG_LEAGUE[league])) continue;
@@ -1529,55 +1588,7 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     for (const p of played) {
       r.log.push(`  ${names(p.home)} - ${names(p.away)} ${p.result.home}:${p.result.away}${p.attendance ? ` (${p.attendance} Zuschauer, ${p.gate} DM)` : ""}`);
       for (const sc of live?.scorers?.get(`${p.home}-${p.away}`) ?? p.scorers) r.log.push(`    ${sc.minute}. ${sc.name} (${names(sc.side === "home" ? p.home : p.away)})`);
-      // Sportzeitung (0x2F243) für die beteiligten Manager aus dem Spielbericht (0x305DE)
-      g.activeManagers().forEach((mg, i) => {
-        if (mg.clubIndex !== p.home && mg.clubIndex !== p.away) return;
-        const inc = (p.incidents ?? []).filter((x) => x.manager === i);
-        // Nach einer Konferenz stehen die Torereignisse nicht im Ergebnis (sie sind live schon
-        // gebucht); für die Zeitung kommen sie deshalb aus dem Konferenzstand
-        const ev = live?.events?.get(`${p.home}-${p.away}`);
-        const report = reportFromMatch(g, i, {
-          home: p.home,
-          away: p.away,
-          result: ev && ev.length ? { ...p.result, events: ev } : p.result,
-          scorers: live?.scorers?.get(`${p.home}-${p.away}`) ?? p.scorers,
-          attendance: p.attendance,
-          yellowNames: inc.filter((x) => x.kind === "yellow").map((x) => x.name),
-          redNames: inc.filter((x) => x.kind === "red" || x.kind === "yellowred").map((x) => x.name),
-          cards: (p.incidents ?? []).filter((x) => x.kind !== "injury").length,
-          // Die Bewertungen des Spiels; ohne sie stünde in der Zeitung für jeden dieselbe Note
-          bewertungen: new Map(p.bewertungen?.find((x) => x.manager === i)?.werte ?? []),
-          // Die Matrix, mit der die Konferenz zuletzt gespielt hat (im Original im Vereinssatz)
-          staerke: ((st) => (st ? new Map([[p.home, st[0]], [p.away, st[1]]]) : undefined))(live?.staerke?.get(`${p.home}-${p.away}`)),
-        }, r.rng);
-        r.zeitung.set(i, composeZeitung(report, r.rng));
-      });
-      // Derby zweier Managervereine (Version 2026): der kleinere der beiden Einsätze wechselt
-      const mgrOf = (club: number) => g.activeManagers().findIndex((mg) => mg.clubIndex === club);
-      const dh = mgrOf(p.home);
-      const da = mgrOf(p.away);
-      if (dh >= 0 && da >= 0) {
-        const derby = playDerby(g, dh, da, p.result.home, p.result.away);
-        if (derby) {
-          const sieger = g.managers.at(derby.winner).displayName;
-          const verlierer = g.managers.at(derby.loser).displayName;
-          r.log.push(`    Derby-Einsatz: ${verlierer} zahlt ${dmText(derby.amount)} an ${sieger}`);
-          pushMessage(r, derby.winner, ["Derby gewonnen:", `${verlierer} zahlt Ihnen`, dmText(derby.amount)]);
-          pushMessage(r, derby.loser, ["Derby verloren:", `Zahlung an ${sieger}`, dmText(derby.amount)]);
-        }
-      }
-      if (p.forfeit !== undefined) {
-        r.log.push(`    0:2-Wertung gegen ${g.managers.at(p.forfeit).displayName} (weniger als acht einsatzfähige Spieler), 200.000 DM Strafe`);
-        // Im Original steht die 0:2-Wertung im Hinweiskasten (0x1C614), nicht in der
-        // Meldungsliste (GitLab #36)
-        r.hinweise.push({ manager: p.forfeit, zeilen: [T("quell.server", 2), T("quell.server", 3), T("quell.server", 4)] });
-      }
-      // Karten und Verletzungen stehen in der Konferenz unter der Szene (0x05FE5) und im
-      // Spielbericht der Zeitung; das Original schreibt dazu keine Meldung (GitLab #54)
-      for (const inc of p.incidents ?? []) {
-        const what = inc.kind === "yellow" ? T("quell.server", 9) : inc.kind === "red" ? `Rote Karte, ${inc.duration} Spiele Sperre` : inc.kind === "yellowred" ? "Gelb-Rote Karte, 1 Spiel Sperre" : `Verletzt (${inc.injury ?? "?"}), ${inc.duration} Wochen`;
-        r.log.push(`    ${inc.minute}. ${inc.name}: ${what}`);
-      }
+      nachDemSpiel(p);
     }
     if (postponed.length) r.log.push(`  verlegt: ${postponed.map((m) => `${names(g.pairings(league)[m][0])} - ${names(g.pairings(league)[m][1])}`).join(", ")}`);
   }
@@ -1794,7 +1805,6 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   // Über die Winterpause am Original gemessen: nur mit dem Ankunftstag stimmt die Frische.
   if (k + 1 < CALENDAR_DAYS) {
     const kNeu = dayIndex(g);
-    const flagNeu = calendarFlag(g, kNeu);
     const tr = trainingInput(g);
     const dtNeu = dateOfSeasonDay(seasonDay(kNeu), startYear);
     // Die ganze Tagesroutine entfällt ab Saisontag 322 (0x0DF4F): kein Markt, keine Verträge,
@@ -1808,7 +1818,9 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
         // Stadion, Kaderschleife je Platz (Trainingsverletzung, Karriereankündigung,
         // Verhandlungszähler, Verlängerungsangebot), Angebote fremder Vereine, Training und
         // Automatik-Aufstellung - einmal am Ankunftstag (GitLab #33, #81, #99)
-        const t = tagesroutine(g, i, seasonDay(kNeu), tr, r.rng, flagNeu === 0);
+        // Spielfrei nach dem abgelaufenen Kalendertag (0x0E6A3 liest 4cb3:016E, das noch auf ihm
+        // steht); ein abgetragener Nachholtag hat seine Marke da schon verloren (#99)
+        const t = tagesroutine(g, i, seasonDay(kNeu), tr, r.rng, calendarFlag(g, k) === 0);
         // Die Meldungsroutine 0x30AA0 datiert jede Meldung um random(0,3) Tage zurück
         const datum = (zurueck = 0) => dateOfSeasonDay(Math.max(1, seasonDay(kNeu) - zurueck), startYear);
         for (const ev of t.stadion) {
