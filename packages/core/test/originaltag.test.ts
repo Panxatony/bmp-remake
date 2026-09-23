@@ -158,3 +158,19 @@ test("Originaltag RUNA0: Europapokal-Rückspieltag bis zum Tagesende", { skip: !
   assert.equal(bisEnde.length, 147);
   assert.deepEqual(punkte, bisEnde);
 });
+
+// Nachholtag ohne Managerverein (RUN0, 22.11., neun Nachholspiele; kontrollpunkte.py --ohne
+// 3,5,11,14,15,17,18,19,20,22,23,24,28): Vorbereitung und Live-Schleife wie in der Liga, die Seite
+// "NACHHOLSPIELE" rechnet zur Halbzeit und nach der 90. die Stärke aller Manager neu. Ein Lager
+// zieht beim 2. Aufruf neu.
+const NACHHOL = resolve(import.meta.dirname, "../../../tools/dosbox/KP-RUN0-NACHHOL.MAN");
+test("Originaltag RUN0: Nachholtag bis zum Tagesende", { skip: !existsSync(NACHHOL) || !existsSync(join(BMP_DIR, "RUN0.MAN")) }, () => {
+  const orig = protokoll(SaveFile.decode(new Uint8Array(readFileSync(NACHHOL))).plain);
+  const bisEnde = orig.slice(0, orig.findIndex((p) => p.punkt === 27 && p.wurf > 0) + 1);
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "RUN0.MAN")))));
+  const lauf = originaltag(g, originalRng(0x1234), [2, 60, 60, 60, -60, -60, 60, 60]);
+  const ids = new Set(bisEnde.map((p) => p.punkt));
+  const punkte = lauf.punkte.map((p) => (p.punkt === 26 ? { ...p, punkt: 27 } : p)).filter((p) => ids.has(p.punkt));
+  assert.equal(bisEnde.length, 52);
+  assert.deepEqual(punkte, bisEnde);
+});
