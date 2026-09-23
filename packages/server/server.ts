@@ -34,7 +34,6 @@ import {
   removeReplays,
   playReplays,
   fixtures,
-  dailyTraining,
   medWeek,
   jugendMonat,
   jugendSaison,
@@ -71,9 +70,6 @@ import {
   playPlayoffDay,
   newSeason,
   releaseExpiring,
-  contractOffers,
-  contractCooldown,
-  retirementAnnouncements,
   acceptOffer,
   declineOffer,
   generateOffers,
@@ -146,6 +142,7 @@ import {
   driftClubs,
   driftInterest,
   autoLineupIfEnabled,
+  tagesroutine,
   standingsMessages,
   relegationMessage,
   isWinterBreakDay,
@@ -164,6 +161,7 @@ import {
   setSystem,
   systemOf,
   backupSystem,
+  restoreSystem,
   SYSTEM_MANUAL,
   SYSTEM_NAMES,
   DAYS_IN_MONTH,
@@ -177,7 +175,6 @@ import {
   completePurchase,
   completeLoan,
   refreshMarket,
-  dailyTransfers,
   salaryDemand,
   contractCheck,
   rejectOffer,
@@ -1089,6 +1086,13 @@ function nachTageswechsel(r: Room): void {
   }
   if (seasonDay(k) > 322) return;
   const n = g.activeManagers().length;
+  // Tagesbeginn eines Spieltags (0x1D797): das gesicherte System zurück und neu aufstellen
+  if (flag !== 0 && flag !== 9) {
+    for (let i = 0; i < n; i++) {
+      restoreSystem(g, i);
+      autoLineupIfEnabled(g, i);
+    }
+  }
   const dt = dateOfSeasonDay(seasonDay(k), seasonStartYear(g));
   for (let i = 0; i < n; i++) {
     if (r.rng(0, n + 3) !== 0) continue;
@@ -1473,6 +1477,14 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   // Markterneuerung und den Transfers der KI-Vereine - sonst ist der umkämpfte Spieler weg,
   // bevor jemand den Zuschlag bekommt.
   resolveAuctions(r);
+  // Vor den Spielen sichert das Original das System je Manager und schaltet auf manuell
+  // (0x1D817) - einmal am Tag, der nächste Spieltag stellt es zurück (nachTageswechsel)
+  let gesichert = false;
+  const systemeSichern = () => {
+    if (gesichert) return;
+    gesichert = true;
+    g.activeManagers().forEach((_, i) => backupSystem(g, i));
+  };
   const sim = (home: number, away: number, hs: Parameters<typeof simulateMatch>[0], as: Parameters<typeof simulateMatch>[1], rng: Rng) => live?.results.get(`${home}-${away}`) ?? simulateMatch(hs, as, rng);
   // Verlängerung und Elfmeterschießen hat die Konferenz schon gezeigt: gebucht wird genau das,
   // sonst würde hier ein zweites Mal gewürfelt (GitLab #72)
@@ -1490,7 +1502,7 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   // Spieltags, danach ist der Termin abgetragen
   const faellig = replays(g).filter((e) => e.dayIndex === k);
   if (faellig.length) {
-    g.activeManagers().forEach((_, i) => backupSystem(g, i));
+    systemeSichern();
     const nachgeholt = playReplays(g, faellig, r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), live?.booking);
     removeReplays(g, faellig);
     r.log.push(`Nachholspiele (${nachgeholt.length})`);
@@ -1509,7 +1521,7 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
       }
     }
     // Vor dem Spieltag sichert das Original das System je Manager (0x1D817)
-    g.activeManagers().forEach((_, i) => backupSystem(g, i));
+    systemeSichern();
     const played = playMatchday(g, league, r.rng, postponed, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), live?.booking);
     r.log.push(`${["Bundesliga", "2. Liga", "Oberliga"][league]}, ${md}. Spieltag`);
     // Verlegte Spiele auf Nachholtermine legen (0x03563 mit 0x36F1)
@@ -1714,7 +1726,8 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
         r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: ${text}`);
         pushMessage(r, i, wrap(text), dt);
       }
-      for (const ev of dailyFinance(g, i, dt, r.rng, r.balanceSums[i], d <= 321)) {
+      // Krawall und Komfort gehören zur Tagesroutine und laufen einmal am Ankunftstag (#99)
+      for (const ev of dailyFinance(g, i, dt, r.rng, r.balanceSums[i], false)) {
         r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: ${ev.text}`);
         // Was der Manager davon zu sehen bekommt, richtet sich nach dem Original (GitLab #41):
         // "Ihr Kredit von ... wurde heute fällig." steht in der Texttabelle des Hinweiskastens
@@ -1793,37 +1806,36 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     // Training.
     const tagesroutine = seasonDay(kNeu) <= 321;
     g.activeManagers().forEach((m, i) => {
+      const before = g.squadOf(i).map((l) => l.u8(9));
       if (tagesroutine) {
-        // Marktteile derselben Routine (Frische der Marktspieler 0xDF8F, Angebote fremder
-        // Vereine): einmal je Kalendertag, nicht je Saisontag (GitLab #33). Im Original stehen
-        // sie vor dem Kader (0xDF72 vor 0xEFA1).
-        for (const ev of dailyTransfers(g, i, seasonDay(kNeu), r.rng)) {
+        // Tagesroutine 0x0DF0D in der Reihenfolge des Originals (sim/tagesroutine.ts): Markt,
+        // Stadion, Kaderschleife je Platz (Trainingsverletzung, Karriereankündigung,
+        // Verhandlungszähler, Verlängerungsangebot), Angebote fremder Vereine, Training und
+        // Automatik-Aufstellung - einmal am Ankunftstag (GitLab #33, #81, #99)
+        const t = tagesroutine(g, i, seasonDay(kNeu), tr, r.rng, flagNeu === 0);
+        // Die Meldungsroutine 0x30AA0 datiert jede Meldung um random(0,3) Tage zurück
+        const datum = (zurueck = 0) => dateOfSeasonDay(Math.max(1, seasonDay(kNeu) - zurueck), startYear);
+        for (const ev of t.stadion) {
+          r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${ev.text}`);
+          pushMessage(r, i, wrap(ev.text), datum(ev.zurueck));
+        }
+        for (const ev of t.transfers) {
           r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${ev.lines.join(" ")}`);
-          pushMessage(r, i, ev.lines, dtNeu);
+          pushMessage(r, i, ev.lines, datum(ev.zurueck));
         }
-        // Verträge in der Reihenfolge des Originals je Kaderplatz (0x0E76F, 0x0E5DC, 0x0E83E):
-        // erst die Karriereankündigung, dann verfallen liegende Angebote, dann neue Angebote.
-        // Ankündigung und Angebot waren bis GitLab #81 vertauscht.
-        for (const a of retirementAnnouncements(g, i, r.rng)) {
+        for (const a of t.karriereende) {
           r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${a.name} hört am Vertragsende auf`);
-          pushMessage(r, i, a.zeilen, dtNeu);
+          pushMessage(r, i, a.zeilen, datum(a.zurueck));
         }
-        for (const platz of contractCooldown(g, i, r.rng)) {
+        for (const platz of t.verfallen) {
           const l = g.lineups.at(i * 25 + platz);
           r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: Angebot von ${g.players.at(l.playerIndex).displayName} verfallen`);
         }
-        for (const offer of contractOffers(g, i, r.rng)) {
+        for (const offer of t.angebote) {
           r.offers.push(offer);
           r.log.push(`${m.displayName}: ${offer.name} bietet Vertragsverlängerung an (${offer.yearsFrom} -> ${offer.yearsTo} Jahre, ${offer.salary} DM)`);
-          pushMessage(r, i, [`${offer.name} ${T("quell.server", 10)}`, `von ${offer.yearsFrom} auf ${offer.yearsTo}`, T("quell.server", 0)]);
+          pushMessage(r, i, [`${offer.name} ${T("quell.server", 10)}`, `von ${offer.yearsFrom} auf ${offer.yearsTo}`, T("quell.server", 0)], datum(offer.zurueck));
         }
-      }
-      const before = g.squadOf(i).map((l) => l.u8(9));
-      if (tagesroutine) {
-        dailyTraining(g, i, seasonDay(kNeu), tr, r.rng, flagNeu === 0);
-        // Automatische Aufstellung (0x0DF0D -> 0x22030), wenn ein System gewählt ist - nach
-        // Training und Verletzungen, einmal je Kalendertag
-        autoLineupIfEnabled(g, i);
       }
       // Sponsorenangebote alle 14 Saisontage neu (0x1DC27: Saisontag mod 14 = 0 -> 0x176F4).
       // Bei uns standen sie die ganze Saison über fest (GitLab #34).

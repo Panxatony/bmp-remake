@@ -29,6 +29,8 @@ export const PUNKTE = {
   21: "Halbzeitende",
   22: "Tabelle nach 90",
   23: "KI-Torschützen",
+  24: "Zeitung",
+  27: "Tagesende (vor srand)",
 };
 
 /** Einträge des Protokolls: Kennung und Zustand des Generators. */

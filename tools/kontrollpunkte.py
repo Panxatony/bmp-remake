@@ -24,6 +24,8 @@ Aufruf: tools/kontrollpunkte.py [--spur 12] [--still 2,7] <Testkopie.EXE>   (än
   --still: Punkte ohne Eintrag (sie schalten nur die Spur aus)
   --ring 1: Protokoll im Kreis (die letzten 160 Einträge bleiben)
   --halt: nach diesen Punkten nichts mehr schreiben; --ohne: Punkte gar nicht einbauen
+  --dump P [--dump-von 0x90ca --dump-laenge 462]: an P einen Speicherbereich (Segment 4238)
+    nach LOG+0x200 kopieren; 4cb3:xxxx liegt bei 4238:xxxx+0xA7B0
 """
 import os
 import subprocess
@@ -68,10 +70,12 @@ PUNKTE = [
     (22, 0x5C68, 0x2A41, 0x2D33),  # nach 90: Tabelle der Liga 0x2D143
     (23, 0x5C74, 0x14A4, 0x1662),  # nach 90: Torschützen der KI-Vereine 0x160A2
     (24, 0x4CC1, 0x2E3A, 0x23AA),  # Noten und Zeitung aller Manager 0x3074A
+    (27, 0x1D717, 0x076B, 0x0CF0), # Tagesbeginn vor srand (nur nach seed-patch.py "tag"): Stand am Ende des Vortags
 ]
 # Punkte mit Speicherabzug: vor dem Eintrag werden DUMP_LAENGE Bytes ab 4238:DUMP_VON nach
 # 4238:LOG+DUMP_ZIEL kopiert (die Spielberichte 4238:90CA, 154 Bytes je Manager)
 DUMP_PUNKTE: set = set()
+SPUR_MANAGER = None        # --spur-manager M: die Spur nur, solange 4238:304A = M
 DUMP_VON, DUMP_LAENGE, DUMP_ZIEL = 0x90CA, 3 * 154, 0x200
 # --ring: das Protokoll läuft im Kreis (älteste Einträge werden überschrieben); die Einträge
 # tragen den Zustand, der Leser ordnet sie nach der Wurfzahl
@@ -201,6 +205,7 @@ def quelltext_spur(spur: int) -> str:
     Laufzeit, also mit Ladesegment) - ohne Zustand, die Reihenfolge genügt. chkstk selbst
     entfällt: random ruft es mit AX = 0, es prüft dann nur den Stapel."""
     ring_oder_voll = f"  jb 2f\n  xor si, si\n  mov word ptr es:[{LOG:#x}], si\n2:" if RING else "  jae voll"
+    nur_manager = f"  cmp byte ptr es:[0x304a], {SPUR_MANAGER}\n  jne voll" if SPUR_MANAGER is not None else ""
     return f""".code16
 .intel_syntax noprefix
 .set spur, {spur:#x}
@@ -213,6 +218,7 @@ def quelltext_spur(spur: int) -> str:
   mov ax, cs
   add ax, {(DATA - CAVE_SEG) & 0xFFFF:#x}
   mov es, ax
+{nur_manager}
   mov si, word ptr es:[{LOG:#x}]
   cmp si, {MAX_EINTRAEGE}
 {ring_oder_voll}
@@ -287,7 +293,7 @@ def quelltext_stummel(protokoll: int, dump: int = 0) -> str:
 
 
 def main() -> None:
-    global SPUR_PUNKTE, STILL_PUNKTE, RING, HALT_PUNKTE, OHNE_PUNKTE, DUMP_PUNKTE
+    global SPUR_PUNKTE, STILL_PUNKTE, RING, HALT_PUNKTE, OHNE_PUNKTE, DUMP_PUNKTE, DUMP_VON, DUMP_LAENGE, SPUR_MANAGER
     args = sys.argv[1:]
     liste = lambda v: {int(x) for x in v.split(",") if x}
     while len(args) > 1 and args[0].startswith("--"):
@@ -295,8 +301,14 @@ def main() -> None:
             SPUR_PUNKTE = liste(args[1])
         elif args[0] == "--still":
             STILL_PUNKTE = liste(args[1])
+        elif args[0] == "--spur-manager":
+            SPUR_MANAGER = int(args[1])
         elif args[0] == "--dump":
             DUMP_PUNKTE = liste(args[1])
+        elif args[0] == "--dump-von":
+            DUMP_VON = int(args[1], 0)
+        elif args[0] == "--dump-laenge":
+            DUMP_LAENGE = int(args[1], 0)
         elif args[0] == "--halt":
             HALT_PUNKTE = liste(args[1])
         elif args[0] == "--ohne":

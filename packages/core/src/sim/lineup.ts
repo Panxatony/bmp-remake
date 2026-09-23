@@ -46,9 +46,22 @@ export function setSystem(g: GameState, manager: number, system: number): void {
   g.save.plain[SYSTEM_OFFSET + 2 * manager] = system;
 }
 
-/** Sicherung wie vor dem Spieltag (0x1D817): 079F = 079E. */
+/**
+ * Vor den Spielen (0x1D817): 079F = 079E, dann 079E = 1 (manuell). Bis zum nächsten Spieltag
+ * läuft die Automatik damit ins Leere - auch am Ende der Tagesroutine und nach einem Kauf
+ * (#99, am Speicher des Originals nachgesehen). Bis #99 kopierte das Remake nur. Einmal je
+ * Spieltag aufrufen - ein zweiter Aufruf sicherte die 1.
+ */
 export function backupSystem(g: GameState, manager: number): void {
-  g.save.plain[SYSTEM_OFFSET + 2 * manager + 1] = g.save.plain[SYSTEM_OFFSET + 2 * manager];
+  const o = SYSTEM_OFFSET + 2 * manager;
+  g.save.plain[o + 1] = g.save.plain[o];
+  g.save.plain[o] = SYSTEM_MANUAL;
+}
+
+/** Tagesbeginn eines Spieltags (0x1D797): 079E = 079F, danach stellt der Aufrufer neu auf. */
+export function restoreSystem(g: GameState, manager: number): void {
+  const o = SYSTEM_OFFSET + 2 * manager;
+  g.save.plain[o] = g.save.plain[o + 1];
 }
 
 /** Positionsgruppe eines Spielers: Positionswert (Byte 31) / 25 -> 0 Tor, 1 Abwehr, 2 Mittelfeld, 3 Angriff. */

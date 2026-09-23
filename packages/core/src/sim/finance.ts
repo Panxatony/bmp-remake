@@ -130,6 +130,8 @@ export function riotCheck(g: GameState, manager: number, rng: Rng): boolean {
 }
 
 export interface FinanceEvent {
+  /** Tage, um die die Meldungsroutine 0x30AA0 das Datum zurücksetzt (random(0,3)) */
+  zurueck?: number;
   kind: "riot" | "interest" | "repaid" | "month" | "fans" | "komfort";
   text: string;
   amount?: number;
@@ -157,24 +159,7 @@ export function dailyFinance(g: GameState, manager: number, date: { day: number;
   const fester = is2026(g);
   if (acc) acc.sum += m.i32(496);
 
-  if (tagesroutine && m.u8(318) & 1) {
-    // 0xE29B: Stehplätze mal vier (die Hilfsroutine 0x3BBC8 schiebt nach links), Sitzplätze
-    // halbiert (sar/rcr bei 0xE2C6), das Ganze mal random(2,5) und auf 1000 abgerundet
-    let damage = (m.i32(358) * 4 + (m.i32(350) >> 1)) * rng(2, 5);
-    damage = div(damage, 1000) * 1000;
-    writeI32(g, manager, 496, m.i32(496) - damage);
-    m.setU8(318, m.u8(318) & ~1);
-    events.push({ kind: "riot", text: `${texte("ui.randale").join(" ")}${damage} DM an.`, amount: damage });
-    // Danach leidet das Stadion (0x0E3BC bis 0x0E41F): Komfortnote 390 sinkt um eins, solange
-    // sie über 1 liegt - mit einem Drittel, und wer nach dem Schaden noch mehr als 2 Mio. DM
-    // hat, bekommt vorher einen zweiten Wurf mit der Hälfte (zusammen zwei Drittel). Fehlte
-    // bis GitLab #83 (F1).
-    if (m.i32(390) > 1) {
-      const trifft = (m.i32(496) > 2000000 && rng(0, 1) === 0) || rng(0, 2) === 0;
-      if (trifft) writeI32(g, manager, 390, m.i32(390) - 1);
-    }
-  }
-
+  if (tagesroutine) events.push(...stadionTag(g, manager, rng, "krawall"));
 
   for (let lender = 0; lender < 5; lender++) {
     for (let slot = 0; slot < 3; slot++) {
@@ -232,6 +217,42 @@ export function dailyFinance(g: GameState, manager: number, date: { day: number;
       }
     }
   }
+  if (tagesroutine) events.push(...stadionTag(g, manager, rng, "komfort"));
+  return events;
+}
+
+
+/**
+ * Stadionteil der Tagesroutine 0x0DF0D (Abschnitte E und F): Krawallschaden nach einem Heimspiel
+ * mit Randale, danach die Abnutzung des Komforts. Er läuft einmal am Tag der Tagesroutine, nicht
+ * für jeden übersprungenen Kalendertag (#99); `dailyFinance` ruft ihn nur noch auf, wenn man es
+ * dort verlangt.
+ */
+export function stadionTag(g: GameState, manager: number, rng: Rng, teil: "alles" | "krawall" | "komfort" = "alles", meldung?: () => number): FinanceEvent[] {
+  const m = g.managers.at(manager);
+  const events: FinanceEvent[] = [];
+  if (teil !== "komfort" && m.u8(318) & 1) {
+    // 0xE29B: Stehplätze mal vier (die Hilfsroutine 0x3BBC8 schiebt nach links), Sitzplätze
+    // halbiert (sar/rcr bei 0xE2C6), das Ganze mal random(2,5) und auf 1000 abgerundet
+    let damage = (m.i32(358) * 4 + (m.i32(350) >> 1)) * rng(2, 5);
+    damage = div(damage, 1000) * 1000;
+    writeI32(g, manager, 496, m.i32(496) - damage);
+    m.setU8(318, m.u8(318) & ~1);
+    const riot: FinanceEvent = { kind: "riot", text: `${texte("ui.randale").join(" ")}${damage} DM an.`, amount: damage };
+    events.push(riot);
+    // Danach leidet das Stadion (0x0E3BC bis 0x0E41F): Komfortnote 390 sinkt um eins, solange
+    // sie über 1 liegt - mit einem Drittel, und wer nach dem Schaden noch mehr als 2 Mio. DM
+    // hat, bekommt vorher einen zweiten Wurf mit der Hälfte (zusammen zwei Drittel). Fehlte
+    // bis GitLab #83 (F1).
+    if (m.i32(390) > 1) {
+      const trifft = (m.i32(496) > 2000000 && rng(0, 1) === 0) || rng(0, 2) === 0;
+      if (trifft) writeI32(g, manager, 390, m.i32(390) - 1);
+    }
+    // Die Meldung geht erst danach hinaus (0x0E43C -> 0x0239E -> 0x30AA0)
+    riot.zurueck = meldung?.() ?? 0;
+  }
+
+
   // Abnutzung des Stadionkomforts (0x0E444 im Tagesblock): mit Wahrscheinlichkeit
   // 1/(442 - 52·Komfort) fällt die Komfortnote um eins, solange sie über 1 liegt (0x0E50D) -
   // und nur für einen Bundesligisten.
@@ -241,10 +262,10 @@ export function dailyFinance(g: GameState, manager: number, date: { day: number;
   // Nur in der Bundesliga (0x0E49B prüft Managerbyte 312 = 0), und gewürfelt wird wie im
   // Original vor den Bedingungen (GitLab #83, F2).
   const komfort = m.i32(398);
-  const wurf = tagesroutine ? rng(0, 442 - 52 * komfort) : -1;
+  const wurf = teil !== "krawall" ? rng(0, 442 - 52 * komfort) : -1;
   if (wurf === 0 && komfort > 1 && m.u8(312) === 0) {
     writeI32(g, manager, 398, komfort - 1);
-    events.push({ kind: "komfort", text: texte("ui.komfort").join(" ") });
+    events.push({ kind: "komfort", text: texte("ui.komfort").join(" "), zurueck: meldung?.() ?? 0 });
   }
   return events;
 }
