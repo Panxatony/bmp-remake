@@ -75,6 +75,12 @@ def probe(im):
     # "Der Ausbau der Stehplätze ist abgeschlossen.")
     if all(near(px(p), (243, 243, 243), 20) for p in ((253, 131), (254, 172), (253, 213))):
         return "meldung"
+    # Saisonende, Vertragsgespräche (Kader "IHRE MANNSCHAFT" mit NEUER VERTRAG / ABBRUCH unten):
+    # schwarzer Knopf mit roter Schrift bei x 185..240, y 203..213
+    rot = sum(1 for x in range(185, 240, 2) for y in range(203, 213) if near(px((x, y)), (178, 0, 32), 20))
+    schwarz = sum(1 for x in range(185, 240, 2) for y in range(203, 213) if sum(px((x, y))) < 20)
+    if rot >= 30 and schwarz >= 150:
+        return "vertrag"
     # Optionsbildschirm (dunkelblaue Tafel) und Live-Konferenz (Rasen)
     blue = sum(1 for x in range(20, 300, 10) for y in range(20, 180, 10) if near(px((x, y)), (0, 0, 113), 20))
     if blue >= 200 and near(px((290, 60)), (0, 0, 113), 20) and near(px((160, 8)), (48, 48, 81), 30):
@@ -183,6 +189,11 @@ def day(max_steps=200):
             time.sleep(0.8)
             click(290, 213)
             time.sleep(3)
+            continue
+        if st == "vertrag":
+            # Für den Vergleich (#99) immer ABBRUCH: kein neuer Vertrag
+            click(212, 220)
+            time.sleep(2)
             continue
         if st == "auslosung":
             click(205, 166)  # KEIN GEDANKE
