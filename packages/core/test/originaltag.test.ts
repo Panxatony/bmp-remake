@@ -127,3 +127,34 @@ test("Originaltag TEST1: DFB-Pokaltag bis zum Tagesende", { skip: !existsSync(PO
   assert.equal(bisEnde.length, 57);
   assert.deepEqual(punkte, bisEnde);
 });
+
+// Europapokaltag ohne Managerverein (TEST2, Hinspiele aller drei Wettbewerbe; Punkte wie beim
+// DFB-Pokaltag): 12 Paare, zwei Halbzeiten, der Rundenabschluss nach dem Hinspiel würfelt nicht.
+// Der Abzug der Lagerzeiten ist hier vom Protokoll überschrieben; die Startwerte sind so gewählt,
+// dass wie im Original beim 6. und 7. Aufruf neu gezogen wird.
+const EUROPA = resolve(import.meta.dirname, "../../../tools/dosbox/KP-TEST2-EUROPA.MAN");
+test("Originaltag TEST2: Europapokaltag bis zum Tagesende", { skip: !existsSync(EUROPA) || !existsSync(join(BMP_DIR, "TEST2.MAN")) }, () => {
+  const orig = protokoll(SaveFile.decode(new Uint8Array(readFileSync(EUROPA))).plain);
+  const bisEnde = orig.slice(0, orig.findIndex((p) => p.punkt === 27 && p.wurf > 0) + 1);
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST2.MAN")))));
+  const lauf = originaltag(g, originalRng(0x1234), [6, 7, 60, 60, -60, -60, 60, 60]);
+  const ids = new Set(bisEnde.map((p) => p.punkt));
+  const punkte = lauf.punkte.map((p) => (p.punkt === 26 ? { ...p, punkt: 27 } : p)).filter((p) => ids.has(p.punkt));
+  assert.equal(bisEnde.length, 61);
+  assert.deepEqual(punkte, bisEnde);
+});
+
+// Europapokal-Rückspieltag ohne Managerverein (RUNA0, 4.10.): offene Rückspiele gehen in die
+// Verlängerung (0x19208), danach Elfmeterschießen und die Auslosung der nächsten Runde. An den
+// Folgetagen zieht kein Lager neu; die Startwerte sind entsprechend gewählt.
+const RUECKSPIEL = resolve(import.meta.dirname, "../../../tools/dosbox/KP-RUNA0-RUECKSPIEL.MAN");
+test("Originaltag RUNA0: Europapokal-Rückspieltag bis zum Tagesende", { skip: !existsSync(RUECKSPIEL) || !existsSync(join(BMP_DIR, "RUNA0.MAN")) }, () => {
+  const orig = protokoll(SaveFile.decode(new Uint8Array(readFileSync(RUECKSPIEL))).plain);
+  const bisEnde = orig.slice(0, orig.findIndex((p) => p.punkt === 27 && p.wurf > 0) + 1);
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "RUNA0.MAN")))));
+  const lauf = originaltag(g, originalRng(0x1234), [60, 60, 60, 60, -60, -60, 60, 60]);
+  const ids = new Set(bisEnde.map((p) => p.punkt));
+  const punkte = lauf.punkte.map((p) => (p.punkt === 26 ? { ...p, punkt: 27 } : p)).filter((p) => ids.has(p.punkt));
+  assert.equal(bisEnde.length, 147);
+  assert.deepEqual(punkte, bisEnde);
+});
