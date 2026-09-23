@@ -54,7 +54,12 @@ export const PLAYOFF_RESULT = 34367;
 export const CUP_OUT = 30;
 /** Paare je Runde (4cb3:07D6), Index = Rundennummer. */
 export const ROUND_PAIRS = [32, 16, 8, 4, 2, 1];
-export const GERMAN_CLUBS = 58;
+/**
+ * Höchste Vereinsnummer der DFB-Pokal-Auslosung (4cb3:2277 = 57, 0x18660): random(0, 57), also
+ * nur die 58 Vereine der drei Ligen. Bis Zweigbuch 18600 (#100) stand hier 58 - die Auslosung
+ * konnte Verein 58 ziehen und würfelte anders als das Original.
+ */
+export const GERMAN_CLUBS = 57;
 const UEFA_PLACES = 4;
 const LEVEL_OFFSET = 34062;
 /** Namen der vier Pokale, wie das Original sie schreibt ("DfB-Pokal", "Pokal der Landesmeister"). */
@@ -591,13 +596,14 @@ export function europeanParticipants(g: GameState): void {
   list.slice(0, 10).forEach((c, i) => (p[EU_LIST + i] = c));
 }
 
-/** Vereinsplätze a und b in allen Pokal- und Europatabellen vertauschen (Ergänzung zu swapClubs). */
-export function remapCupClubs(g: GameState, a: number, b: number): void {
+/**
+ * Titelträger beim Vereinstausch mitnehmen (0x3BE8 für 4cb3:07AC..07B0, gespeichert als Verein +
+ * 1): DFB-Sieger, die drei Titelverteidiger und der DFB-Finalist.
+ */
+export function titelTraegerTauschen(g: GameState, a: number, b: number): void {
   const p = g.save.plain;
-  const map = (v: number) => (v === a ? b : v === b ? a : v);
-  for (let i = 0; i < 128; i++) p[CUP_TABLE + i] = map(p[CUP_TABLE + i]);
-  for (let i = 0; i < 60; i++) p[ORDER_LIST + i] = map(p[ORDER_LIST + i]);
-  for (let i = 0; i < 10; i++) p[EU_LIST + i] = map(p[EU_LIST + i]);
-  for (let i = 0; i < 18; i++) if (p[EU_SLOTS + i] !== 0x80) p[EU_SLOTS + i] = map(p[EU_SLOTS + i]);
-  for (const o of [DFB_WINNER, HOLDER, HOLDER + 1, HOLDER + 2, DFB_FINALIST]) if (p[o] !== 0) p[o] = map(p[o] - 1) + 1;
+  for (const o of [DFB_WINNER, HOLDER, HOLDER + 1, HOLDER + 2, DFB_FINALIST]) {
+    if (p[o] - 1 === a) p[o] = b + 1;
+    else if (p[o] - 1 === b) p[o] = a + 1;
+  }
 }

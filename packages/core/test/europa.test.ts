@@ -109,7 +109,8 @@ test("Werbung am Saisonende: nur der Aufsteiger, alle anderen unberührt (0x0D92
     for (let s2 = 0; s2 < 6; s2++) g.save.plain[33470 + 2 * (6 * i + s2)] = 20;
   });
   const stand = (i: number) => JSON.stringify([shirtContract(g, i), [0, 1, 2, 3, 4, 5].map((s2) => boardContract(g, i, s2))]);
-  const summen = (i: number) => [...Array(9).keys()].map((s2) => advertisingAmount(g, i, s2));
+  // Feld 7 ist das Fernsehgeld: das setzt 0x09623 am Ende jedes Saisonwechsels neu (#100)
+  const summen = (i: number) => [...Array(9).keys()].filter((s2) => s2 !== 7).map((s2) => advertisingAmount(g, i, s2));
   const vorher = g.activeManagers().map((_, i) => stand(i));
   const betraege = g.activeManagers().map((_, i) => summen(i));
   const events = newSeason(g, mulberryRng(7));

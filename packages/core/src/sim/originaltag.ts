@@ -36,7 +36,8 @@ import { applyResult } from "./standings.ts";
 import { bookHistory } from "./history.ts";
 import { autoLineupIfEnabled, backupSystem, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
-import { newSeason } from "./season.ts";
+import { newSeason, saisonbilanz } from "./season.ts";
+import { bookChampion } from "./messages.ts";
 import { releaseExpiring } from "./seasonEvents.ts";
 import { replays, verlegen, istVerlegt, removeReplays } from "./postpone.ts";
 import { fixtures } from "./fixtures.ts";
@@ -603,6 +604,9 @@ export function saisonwechseltag(g: GameState, rng: Rng & { zaehler(): number },
     refreshMarket(g, rng);
   }
   kp(12);
+  // Nach dem Zug: Saisonbilanz je Manager (0x1DD03) und Meister, wie im Server
+  saisonbilanz(g);
+  bookChampion(g);
   // Die Tagesschleife des Originals bucht 38 Tage, vom 21. Juni bis einschließlich 28. Juli
   // (am Protokoll gemessen: nur so liegt die Monatsbuchung am 30.6. richtig) - im Kalender der
   // alten Saison

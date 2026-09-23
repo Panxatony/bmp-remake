@@ -11,7 +11,7 @@ import { writePairings } from "./matchday.ts";
 import { tableOrder } from "./standings.ts";
 import { resetPoachCounts } from "./abwerben.ts";
 import { CAL_OFFSET, CALENDAR_DAYS, DAY_INDEX_OFFSET, LETZTER_SAISONTAG, dayIndex, seasonDay, setDayIndex, seasonStartYear } from "./calendar.ts";
-import { initialDraw, clearCupResults, europeanParticipants, remapCupClubs, orderList, PLAYOFF_RESULT, ORDER_LIST } from "./europa.ts";
+import { initialDraw, clearCupResults, europeanParticipants, titelTraegerTauschen, orderList, PLAYOFF_RESULT, ORDER_LIST } from "./europa.ts";
 import { seasonEndAdvertising, generateOffers } from "./werbung.ts";
 import { texte } from "../data/texte.ts";
 import { seasonEvents, type SeasonEvent } from "./seasonEvents.ts";
@@ -20,7 +20,7 @@ import { seasonEvents, type SeasonEvent } from "./seasonEvents.ts";
 export const CALENDAR_TEMPLATE = [7, 112, 7, 0, 7, 112, 7, 6, 8, 0, 7, 0, 7, 6, 7, 112, 7, 7, 7, 112, 7, 0, 8, 1, 7, 6, 7, 0, 7, 6, 8, 112, 7, 0, 7, 112, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 0, 7, 112, 8, 7, 7, 112, 7, 6, 7, 0, 7, 0, 7, 0, 7, 112, 7, 0, 7, 112, 7, 0, 7, 0, 8, 0, 7, 0, 7, 16, 16, 0, 0];
 
 /** Tauscht die Vereinsplätze a und b: Vereinsdatensatz, Tabellendatensatz, Spielerzugehörigkeit, Managerverein (0x3C24). */
-export function swapClubs(g: GameState, a: number, b: number): void {
+export function swapClubs(g: GameState, a: number, b: number, mitTitel = true): void {
   if (a === b) return;
   const p = g.save.plain;
   const swap = (base: number, size: number) => {
@@ -53,7 +53,10 @@ export function swapClubs(g: GameState, a: number, b: number): void {
     if (m.clubIndex === a) m.clubIndex = b;
     else if (m.clubIndex === b) m.clubIndex = a;
   });
-  remapCupClubs(g, a, b);
+  // Mit Schalter (Auf- und Abstieg, Mischen) wandern die Titelträger 4cb3:07AC..07B0 mit
+  // (0x3BE8); Pokaltabelle, Tabellenreihenfolge und Europapokallisten fasst 0x3C24 nicht an
+  // (Zweigbuch 3C24, #100)
+  if (mitTitel) titelTraegerTauschen(g, a, b);
 }
 
 /** Eintrag in die Managerhistorie (Byte 62 + 4i: Rang 1..58 über alle Ligen, Pokalrunde, Liga 1..3, Europa). */
@@ -202,21 +205,37 @@ function tabellenZuruecksetzen(g: GameState): void {
   const vorlage = [64, 64, 64, 64, 64, 64, 64, 64, 0];
   for (let c = 0; c < 64; c++) {
     const s = g.standings.at(c);
-    for (let i = 0; i < 46; i++) s.setU8(i, 0);
+    // Nur diese Felder je Halbserie (0x1E2C8 bis 0x1E2E1); die übrigen bleiben stehen - bei den
+    // Vereinen außerhalb der Ligen sieht man im Original noch alte Werte (Zweigbuch 3C24, #100)
+    for (let j = 0; j < 2; j++) for (const f of [0, 22, 26, 30, 38, 42]) s.setU8(f + j, 0);
     for (let i = 0; i < 18; i++) s.setU8(4 + i, vorlage[i % 9]);
   }
 }
 
-/** Mischt die Plätze innerhalb jeder Liga (0x3AC5: 55 Zufallstausche je Liga). */
+/**
+ * Mischt die Plätze innerhalb jeder Liga (0x3AC5: 55 Zufallstausche je Liga). Vor jedem Tausch
+ * tauscht das Original die beiden Einträge in der Tabellenreihenfolge der Liga (4238:535A +
+ * 20 · Liga), damit sie denselben Vereinen folgt - nur hier, nicht beim Auf- und Abstieg.
+ */
 export function shuffleLeagues(g: GameState, rng: Rng): void {
-  for (const L of LEAGUES) {
-    for (let i = 0; i < 55; i++) swapClubs(g, L.base + rng(0, L.teams - 1), L.base + rng(0, L.teams - 1));
-  }
+  const p = g.save.plain;
+  LEAGUES.forEach((L, liga) => {
+    for (let i = 0; i < 55; i++) {
+      const a = L.base + rng(0, L.teams - 1);
+      const b = L.base + rng(0, L.teams - 1);
+      const o = ORDER_LIST + 20 * liga;
+      const ia = p.subarray(o, o + L.teams).indexOf(a);
+      const ib = p.subarray(o, o + L.teams).indexOf(b);
+      if (ia >= 0 && ib >= 0) [p[o + ia], p[o + ib]] = [p[o + ib], p[o + ia]];
+      swapClubs(g, a, b);
+    }
+  });
 }
 
 /** Neue Saison: Tabellen, Ergebnisse, Spieltage, Kalender, Datum, Statistiken, Alter, Verträge, Pokal. */
 import { driftClubs } from "./ai.ts";
 import { seasonPlayerPool } from "./pool.ts";
+import { trainerUndFernsehgeld } from "./newgame.ts";
 
 export interface SaisonHaken {
   /** Kontrollpunkt des bytegenauen Vergleichs (originaltag.ts, #99) */
@@ -278,8 +297,8 @@ export function saisonwechselStand(g: GameState): "zug" | "vertraege" | null {
   if (seasonDay(dayIndex(g)) <= LETZTER_SAISONTAG) return null;
   for (let c = 0; c < 64; c++) {
     const st = g.standings.at(c);
-    // Bytes 4..21 hält das Zurücksetzen auf seiner Vorlage, der Rest ist danach 0
-    for (let i = 0; i < 46; i++) if ((i < 4 || i >= 22) && st.u8(i) !== 0) return "zug";
+    // Die Felder, die das Zurücksetzen leert (0x1E2C8 ff.); die Spiegelbytes bleiben bis zum Ende
+    for (let j = 0; j < 2; j++) for (const f of [0, 22, 26, 30, 38, 42]) if (st.u8(f + j) !== 0) return "zug";
   }
   return "vertraege";
 }
@@ -298,9 +317,6 @@ export function saisonwechselTeil1(g: GameState, rng: Rng, verlaengerung = false
   const p = g.save.plain;
   const kp = kpHaken ?? (() => {});
   writeHistory(g);
-  // Europapokalteilnehmer aus der Abschlusstabelle (0x18B12); Vereinstausche werden mitgeführt.
-  // Das Original ruft es erst nach dem Mischen der Ligaplätze auf - gewürfelt wird dabei nicht.
-  europeanParticipants(g);
   const managersBefore = g.activeManagers().map((m) => m.clubIndex);
   // Reihenfolge des Tagesablaufs (0x1E319 bis 0x1E935, #99): Auf- und Abstieg, Schwankung aller
   // Vereine, Sponsorenangebote je Manager, Ligaplätze mischen, Saisonende je Manager
@@ -342,6 +358,8 @@ export function saisonwechselTeil1(g: GameState, rng: Rng, verlaengerung = false
   kp(34);
   shuffleLeagues(g, rng);
   kp(35);
+  // Europapokalteilnehmer aus der Tabellenreihenfolge (0x18B12), wie im Original nach dem Mischen
+  europeanParticipants(g);
   kp(36);
   // Vertragsjahre, Alter, Rückkehr der Leihspieler und Saisonwerte der Kader laufen im
   // Ereignisbildschirm in der Reihenfolge des Originals (seasonEvents, 0x0CB62)
@@ -399,6 +417,25 @@ export function saisonwechselTeil2(g: GameState, rng: Rng, teil: SaisonTeil1, ha
   // Pokale: Ergebnistabelle löschen (0x1978D), alle vier Wettbewerbe auslosen (0x18600). Die
   // Vereinsverteilung 0x1643B gehört nur zum Spielbeginn (0x942A) - im Saisonwechsel des
   // Originals kommt sie nicht vor (#99)
+  // Ende der Sommertage (0x1EA3B): Jahreszähler 4cb3:07E0 + 1, dann je Manager Trainergehalt
+  // und Fernsehgeld neu (0x09623 bei 0x1EAA2, zwei Würfe je Manager; Zweigbuch 9623, #100)
+  const jahr = (p[SCALARS.year16] | (p[SCALARS.year16 + 1] << 8)) + 1;
+  p[SCALARS.year16] = jahr & 0xff;
+  p[SCALARS.year16 + 1] = (jahr >> 8) & 0xff;
+  g.activeManagers().forEach((_, i) => trainerUndFernsehgeld(g, i, rng));
+  // Tabellenplatz (Byte 46) jedes Vereins aus der gemischten Reihenfolge, und je Manager der Platz
+  // zum Saisonstart (Byte 267 = Spieltag 0) - so steht es nach dem Wechsel im Original (KP-SAISON)
+  // Dabei spiegelt die Tabellenroutine die (frisch geleerten) Saisonwerte in ihre zweiten Bytes
+  // (2/3, 24/25, 28/29, 40/41, 44/45 - wie applyResult); die Vereine außerhalb der Ligen (58+)
+  // bleiben unberührt
+  LEAGUES.forEach((L, liga) => {
+    for (let pos = 0; pos < L.teams; pos++) {
+      const st = g.standings.at(p[ORDER_LIST + 20 * liga + pos]);
+      st.setU8(46, pos);
+      for (const [von, nach] of [[0, 2], [1, 3], [22, 24], [23, 25], [26, 28], [27, 29], [38, 40], [39, 41], [42, 44], [43, 45]]) st.setU8(nach, st.u8(von));
+    }
+  });
+  g.activeManagers().forEach((m) => m.setU8(267, g.standings.at(m.clubIndex).u8(46)));
   clearCupResults(g);
   g.save.plain[PLAYOFF_RESULT] = 0;
   for (let cup = 0; cup < 4; cup++) initialDraw(g, cup, rng);
