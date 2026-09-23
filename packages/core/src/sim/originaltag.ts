@@ -307,6 +307,7 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
     seiten.sort((a, b) => a[0] - b[0]);
     return { ...pa, match, seiten, schuetzen: [] as { minute: number; side: "home" | "away"; name: string }[] };
   });
+  let vorfaelleInVerlaengerung = false;
   const halbzeit = (von: number, bis: number) => {
     for (let minute = von; minute <= bis; minute++) {
       for (const s of spiele) {
@@ -316,6 +317,9 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
       for (const s of spiele) {
         let neu: number | undefined;
         for (const [mi, st, seite] of s.seiten) {
+          // In der Verlängerung nur, wenn ein offenes Spiel einen Managerverein hat (4cb3:2E99,
+          // gesetzt von 0x18E46) - dann aber für alle Managerspiele (Zweigbuch 05403 S7)
+          if (minute > 90 && !vorfaelleInVerlaengerung) continue;
           const fresh = minuteIncidents(g, mi, minute, st, rng, kp);
           if (fresh.length === 0) continue;
           if (fresh.some((x) => x.kind !== "yellow")) s.match[seite] = matchStrength(g, mi, rng);
@@ -344,6 +348,7 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
   halbzeit(1, 45);
   halbzeit(46, 90);
   const verlaengert = spiele.filter(offen);
+  vorfaelleInVerlaengerung = verlaengert.some(beteiligt);
   if (verlaengert.length > 0) {
     for (const s of spiele) {
       s.match.marke = verlaengert.includes(s) ? 10 : 0;

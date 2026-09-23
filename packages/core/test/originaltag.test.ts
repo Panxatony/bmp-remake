@@ -128,6 +128,45 @@ test("Originaltag TEST1: DFB-Pokaltag bis zum Tagesende", { skip: !existsSync(PO
   assert.deepEqual(punkte, bisEnde);
 });
 
+// Derselbe DFB-Pokaltag mit srand(12) (seed-patch.py ... 12 tag, gleiche Kontrollpunkte): eine
+// Verletzung bei Nürnberg - danach würfelt der Chancenhandler die Trage (0x1C3AC) -, Hertha gegen
+// Braunschweig geht ohne Managerverein in Verlängerung und Elfmeterschießen. Dort gibt es keine
+// Vorfälle für die entschiedenen Managerspiele (4cb3:2E99), und 0x666D würfelt den ersten Schützen
+// auch im kurzen Zweig. KP-K12-VERLETZUNG hält nach der Neuauslosung an (--halt 6, mit 3, 5, 18-20).
+function protokollK(plain: Uint8Array, k: number): { punkt: number; wurf: number }[] {
+  const o = TABLES.lineups.offset + 75 * 52;
+  const w = (i: number) => plain[o + i] | (plain[o + i + 1] << 8);
+  const zaehle = (z: number) => {
+    let s = k;
+    let n = 0;
+    while (s !== z && n < 3_000_000) {
+      s = (Math.imul(s, 214013) + 2531011) >>> 0;
+      n++;
+    }
+    return s === z ? n : -1;
+  };
+  const out: { punkt: number; wurf: number }[] = [];
+  for (let i = 0; i < w(0); i++) {
+    if (w(2 + 8 * i) === 0x8000) continue;
+    const n = zaehle((w(4 + 8 * i) | (w(6 + 8 * i) << 16)) >>> 0);
+    if (n >= 0) out.push({ punkt: w(2 + 8 * i), wurf: n });
+  }
+  return out;
+}
+for (const [datei, bisTagesende] of [["KP-K12-POKAL", true], ["KP-K12-VERLETZUNG", false]] as const) {
+  const pfad = resolve(import.meta.dirname, `../../../tools/dosbox/${datei}.MAN`);
+  test(`Originaltag TEST1 mit srand(12): ${datei}`, { skip: !existsSync(pfad) || !existsSync(join(BMP_DIR, "TEST1.MAN")) }, () => {
+    const orig = protokollK(SaveFile.decode(new Uint8Array(readFileSync(pfad))).plain, 12);
+    const ende = orig.findIndex((p) => p.punkt === 27 && p.wurf > 0);
+    const soll = bisTagesende ? orig.slice(0, ende + 1) : orig;
+    const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST1.MAN")))));
+    const ids = new Set(soll.map((p) => p.punkt));
+    const lauf = originaltag(g, originalRng(12), [4, 44, 21, 35, -22, -30, 26, -38]).punkte.map((p) => (p.punkt === 26 ? { ...p, punkt: 27 } : p)).filter((p) => ids.has(p.punkt));
+    assert.equal(soll.length, bisTagesende ? 38 : 47);
+    assert.deepEqual(lauf.slice(0, soll.length), soll);
+  });
+}
+
 // Europapokaltag ohne Managerverein (TEST2, Hinspiele aller drei Wettbewerbe; Punkte wie beim
 // DFB-Pokaltag): 12 Paare, zwei Halbzeiten, der Rundenabschluss nach dem Hinspiel würfelt nicht.
 // Der Abzug der Lagerzeiten ist hier vom Protokoll überschrieben; die Startwerte sind so gewählt,
