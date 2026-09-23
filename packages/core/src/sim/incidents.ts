@@ -20,6 +20,7 @@ import type { GameState } from "../records.ts";
 import type { Rng } from "./match.ts";
 import { injurePlayer, injuries } from "./training.ts";
 import { injuryKind } from "./medizin.ts";
+import { dateOfSeasonDay, dayIndex, seasonDay, seasonStartYear } from "./calendar.ts";
 
 const LEVEL_OFFSET = 34062;
 export const FORFEIT_FINE = 200000;
@@ -85,8 +86,13 @@ export function fitStarters(g: GameState, manager: number): number {
  * 0x0FBCB nur die Nummer und setzt dann Byte 317 = 100; 0x1C5D1). Ob sie gesperrt oder
  * verletzt sind, fragt das Original dort nicht - die Aufstellungsautomatik darf im Notfall
  * auch Gesperrte aufstellen.
+ *
+ * Ab dem 10. Juni prüft die Spielvorbereitung nicht mehr (0x1C6B8: Monat 5, Tag ≥ 10) - die
+ * Relegation am 13./16.6. läuft also auch mit zu wenigen Spielern (GitLab #89 V1).
  */
 export function isForfeit(g: GameState, manager: number): boolean {
+  const dt = dateOfSeasonDay(seasonDay(dayIndex(g)), seasonStartYear(g));
+  if (dt.month0 === 5 && dt.day >= 10) return false;
   return g.squadOf(manager).filter((l) => l.number >= 1 && l.number <= 11).length < 8;
 }
 

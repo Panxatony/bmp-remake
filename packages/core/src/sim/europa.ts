@@ -26,6 +26,7 @@ import { simulateMatch, chanceCounts, chanceMinutes, chancenplaetze, goalDice } 
 import { matrixFor, bookEvents, afterMatch, moralWeg } from "./matchday.ts";
 import { attendance, bookGate, pokalZuschlag, ERSATZ_PREIS, FINALE_KULISSE, FINALE_PAUSCHALE, ligaBand } from "./attendance.ts";
 import { riotCheck } from "./finance.ts";
+import { isForfeit, bookForfeit } from "./incidents.ts";
 import { addBalance } from "./transfer.ts";
 import type { MatchSim } from "./live.ts";
 
@@ -237,6 +238,8 @@ export interface CupMatch {
   winner?: number;
   attendance?: number;
   gate?: number;
+  /** Manager, gegen den 0:2 gewertet wurde (weniger als acht Spieler mit Nummer 1..11) */
+  forfeit?: number;
   scorers: { minute: number; side: "home" | "away"; name: string }[];
 }
 
@@ -323,16 +326,32 @@ export function shootout(rng: Rng, managerInvolved: boolean, protokoll?: Elfmete
  * Elfmetertreffer zählen zu den Toren wie im Original). Verlängerung gibt es im DFB-Pokal
  * bei Gleichstand, im Europapokal nur im Rückspiel, wenn 0x19208 "offen" meldet.
  */
-export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: boolean, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined, nachspiel?: NachspielQuelle, vorbereitet = false): CupMatch {
+export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: boolean, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined, nachspiel?: NachspielQuelle, vorbereitet = false, nullZwei?: (manager: number) => boolean): CupMatch {
   const p = g.save.plain;
   const home = p[area(cup) + idx];
   const away = p[area(cup) + idx + 1];
   const managers = g.activeManagers();
   const managerOf = new Map<number, number>();
   managers.forEach((m, i) => managerOf.set(m.clubIndex, i));
+  // 0:2-Wertung wie im Ligaspiel (0x1C632): die Manager der Reihe nach; wer zu wenige Spieler
+  // hat, zahlt 200.000 DM, und die Routine kehrt zurück - er und alle nach ihm bekommen keine
+  // Einnahmen und keinen Kaderteil. Im Original gemessen (#90): das Spiel wird nicht gespielt,
+  // die Tafel zeigt von Anfang an 0:2.
+  const mh = managerOf.get(home);
+  const ma = managerOf.get(away);
+  let forfeit: number | undefined;
+  const bearbeitet: number[] = [];
+  for (const mi of [mh, ma].filter((x) => x !== undefined).sort((a, b) => a - b)) {
+    if (nullZwei ? nullZwei(mi) : isForfeit(g, mi)) {
+      forfeit = mi;
+      break;
+    }
+    bearbeitet.push(mi);
+  }
   const hs = matrixFor(g, home, rng);
   const as = matrixFor(g, away, rng);
-  const result = sim(home, away, hs, as, rng);
+  const result = forfeit !== undefined ? { home: forfeit === mh ? 0 : 2, away: forfeit === mh ? 2 : 0, events: [] } : sim(home, away, hs, as, rng);
+  if (forfeit !== undefined) bookForfeit(g, forfeit);
   const ro = resultArea(cup) + idx;
   const write = (marker: number, pen: [number, number]) => {
     p[ro] = (result.home + pen[0] + marker) & 0xff;
@@ -368,16 +387,18 @@ export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: 
   else if (secondLeg) match.winner = decideTie(g, cup, idx, seasonDayNow) === 1 ? away : home;
   const matchType = cup === 0 ? 1 : 2;
   match.scorers = bookEvents(g, home, away, result, matchType, rng);
-  const mh = managerOf.get(home);
-  const ma = managerOf.get(away);
+  if (forfeit !== undefined) match.forfeit = forfeit;
+  const ok = (mi: number | undefined) => mi !== undefined && bearbeitet.includes(mi);
   if (dfbFinale(g, cup)) {
     // Endspiel in Berlin: feste Kulisse, und jeder beteiligte Manager bekommt statt Eintritt
     // dieselbe Pauschale (0x1CB6B, 0x1C8F5, 0x1CAA2). Randale gibt es trotzdem - sie hängt am
     // Heimrecht im Kaderteil (0x1CE4D).
     match.attendance = zuschauer?.(home, away) ?? FINALE_KULISSE;
-    for (const mi of [mh, ma]) if (mi !== undefined) addBalance(g, mi, FINALE_PAUSCHALE);
-    if (mh !== undefined || ma !== undefined) match.gate = FINALE_PAUSCHALE;
-    if (mh !== undefined) riotCheck(g, mh, rng);
+    for (const mi of [mh, ma]) if (ok(mi)) addBalance(g, mi!, FINALE_PAUSCHALE);
+    if (ok(mh) || ok(ma)) match.gate = FINALE_PAUSCHALE;
+    if (ok(mh)) riotCheck(g, mh!, rng);
+  } else if (forfeit === mh && mh !== undefined) {
+    // Der Heimmanager verliert 0:2: keine Kulisse, keine Einnahmen, auch nicht für den Gast
   } else if (mh !== undefined) {
     const importance = cup === 0 ? 1 : p[CUP_ROUND + 1] > 4 ? 3 : 2;
     // Hat die Live-Konferenz die Zahl schon gezeigt, wird genau sie gebucht. Zuschauerhistorie
@@ -386,20 +407,20 @@ export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: 
     match.attendance = att;
     match.gate = bookGate(g, mh, att, 2);
     // Der Gast bekommt die andere Hälfte, gerechnet mit dem Eintrittspreis des Heimvereins
-    if (ma !== undefined) bookGate(g, ma, att, 2, g.managers.at(mh).u8(266));
+    if (ok(ma)) bookGate(g, ma!, att, 2, g.managers.at(mh).u8(266));
     riotCheck(g, mh, rng);
-  } else if (ma !== undefined) {
+  } else if (ok(ma)) {
     // Heimverein des Rechners: das Original würfelt Kulisse und Eintrittspreis aus (0x1CA12 bis
     // 0x1CA87) und bucht dem Gast trotzdem seine Hälfte. Gerechnet wird mit dem Satz des Gastes -
     // sein Stadion steht im Managerbyte, das des Rechnervereins nirgends -, aber mit der
     // Kapazität aus dem Ligaband des Heimvereins. Zuschauerhistorie und Randale bleiben aus:
     // beides hängt am Heimspiel.
     const preis = ERSATZ_PREIS[ligaBand(home)] + rng(0, 1);
-    const att = attendance(g, { manager: ma, home, away, importance: 1, fremdesStadion: true, preis, level: p[LEVEL_OFFSET], staerkeHeim: hs, staerkeGast: as }, rng);
-    bookGate(g, ma, att, 2, preis);
+    const att = attendance(g, { manager: ma!, home, away, importance: 1, fremdesStadion: true, preis, level: p[LEVEL_OFFSET], staerkeHeim: hs, staerkeGast: as }, rng);
+    bookGate(g, ma!, att, 2, preis);
   }
   // Mit Live-Konferenz lief der Kaderteil schon beim Anpfiff (GitLab #89, V10)
-  for (const mi of [mh, ma]) if (mi !== undefined) vorbereitet ? moralWeg(g, mi) : afterMatch(g, mi, matchType, rng);
+  for (const mi of bearbeitet) vorbereitet ? moralWeg(g, mi) : afterMatch(g, mi, matchType, rng);
   return match;
 }
 
@@ -488,12 +509,12 @@ export function afterCupDay(g: GameState, cups: number[], seasonDayNow: number, 
 }
 
 /** Spieltag der drei Europapokale (Kalenderflag 0x70): alle Paare der laufenden Runde. */
-export function playEuropaDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined, nachspiel?: NachspielQuelle, vorbereitet = false): { matches: CupMatch[]; finals: CupFinal[]; gezogen: number[] } {
+export function playEuropaDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, zuschauer?: (home: number, away: number) => number | undefined, nachspiel?: NachspielQuelle, vorbereitet = false, nullZwei?: (manager: number) => boolean): { matches: CupMatch[]; finals: CupFinal[]; gezogen: number[] } {
   const matches: CupMatch[] = [];
   for (const cup of [1, 2, 3]) {
     const n = ROUND_PAIRS[Math.min(cupRoundOf(g, cup), 5)];
     const second = legPlayed(g, cup);
-    for (let i = 0; i < n; i++) matches.push(playCupMatch(g, cup, 2 * i, second, seasonDayNow, rng, sim, zuschauer, nachspiel, vorbereitet));
+    for (let i = 0; i < n; i++) matches.push(playCupMatch(g, cup, 2 * i, second, seasonDayNow, rng, sim, zuschauer, nachspiel, vorbereitet, nullZwei));
   }
   const gezogen: number[] = [];
   const finals = afterCupDay(g, [1, 2, 3], seasonDayNow, rng, false, gezogen);
@@ -505,7 +526,7 @@ export function playEuropaDay(g: GameState, seasonDayNow: number, rng: Rng, sim:
  * und Rückspiel über Bereich 1, Platz 0 (Hinspiel beim Zweitligisten). Der Ausgang steht in
  * 34367 (1 = der Zweitligist steigt auf), das Hinspiel in 28007.
  */
-export function playPlayoffDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, nachspiel?: NachspielQuelle, vorbereitet = false): CupMatch {
+export function playPlayoffDay(g: GameState, seasonDayNow: number, rng: Rng, sim: MatchSim = defaultSim, nachspiel?: NachspielQuelle, vorbereitet = false, nullZwei?: (manager: number) => boolean): CupMatch {
   const p = g.save.plain;
   p[CUP_ROUND + 1] = 5;
   const a = area(1);
@@ -517,7 +538,7 @@ export function playPlayoffDay(g: GameState, seasonDayNow: number, rng: Rng, sim
   const third = p[ORDER_LIST + 22];
   p[a] = second ? bl16 : third;
   p[a + 1] = second ? third : bl16;
-  const match = playCupMatch(g, 1, 0, second, seasonDayNow, rng, sim, undefined, nachspiel, vorbereitet);
+  const match = playCupMatch(g, 1, 0, second, seasonDayNow, rng, sim, undefined, nachspiel, vorbereitet, nullZwei);
   afterCupDay(g, [1], seasonDayNow, rng, true);
   if (p[LEG_FLAG] === 0) p[PLAYOFF_RESULT] = decideTie(g, 1, 0, seasonDayNow);
   else for (let i = 0; i < 2; i++) p[PLAYOFF_FIRST_LEG + i] = p[legArea(1) + i];

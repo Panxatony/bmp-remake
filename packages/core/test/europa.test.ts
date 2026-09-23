@@ -6,7 +6,7 @@ import {
   SaveFile, GameState, mulberryRng, dayIndex, seasonDay, setDayIndex,
   generateOffers, stadiumValue, signShirt, signBoard, monthlyAdvertising, seasonEndAdvertising, offerAmount, offerYears, shirtContract, boardContract, advertisingAmount,
   playCupMatch, shootout, type Elfmeter, playEuropaDay, playPlayoffDay, initialDraw, decideTie, europeanParticipants, currentPairs, cupRoundOf, legPlayed, orderList, clearCupResults,
-  CUP_TABLE, CUP_ROUND, LEG_FLAG, HOLDER, DFB_WINNER, PLAYOFF_RESULT, ROUND_PAIRS, CUP_OUT, playCupDay, newSeason, tableOrder, updatePositions, texte, seasonEvents, releaseExpiring, playerValue
+  CUP_TABLE, CUP_ROUND, LEG_FLAG, HOLDER, DFB_WINNER, PLAYOFF_RESULT, ROUND_PAIRS, CUP_OUT, playCupDay, newSeason, tableOrder, updatePositions, texte, seasonEvents, releaseExpiring, playerValue, isForfeit
 } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
@@ -295,4 +295,34 @@ test("Elfmeterschießen: zwei von drei Schüssen sitzen, Protokoll passt zum Sta
     assert.notEqual(h, a);
     for (const n of [h, a]) assert.ok(n >= 2 && n <= 5, `${n} Treffer`);
   }
+});
+
+// Im Original gemessen (GitLab #90): TEST1, DFB-Pokal-Viertelfinale Nürnberg (NORMI) gegen
+// Stuttgart, Nürnberg mit nur sieben Spielern mit Nummer 1..11. Das Original zeigt "Ihr Spiel
+// wird mit 0:2 gewertet. Sie zahlen 200.000 DM Strafe", die Tafel steht von Anfang an auf 0:2,
+// der Kontostand sinkt um genau 200.000 DM (keine Heimeinnahme), Stuttgart ist weiter.
+test("DFB-Pokal mit weniger als acht Startern: 0:2, Strafe, keine Einnahmen (#90)", () => {
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST1.MAN")))));
+  for (const l of g.squadOf(0)) {
+    if (l.number >= 1 && l.number <= 7) continue;
+    l.setU8(13, 3);
+    l.setU8(9, l.u8(9) | 2);
+    l.setU8(10, 0);
+  }
+  const vorher = g.managers.at(0).balance;
+  const spiele = playCupDay(g, mulberryRng(1));
+  const nbg = spiele.find((m) => m.home === 15)!;
+  assert.equal(nbg.forfeit, 0);
+  assert.deepEqual([nbg.result.home, nbg.result.away], [0, 2]);
+  assert.equal(nbg.gate, undefined);
+  assert.equal(g.managers.at(0).balance, vorher - 200000);
+  assert.equal(nbg.winner, 12);
+});
+
+test("0:2-Prüfung entfällt ab dem 10. Juni (Relegation, 0x1C6B8)", () => {
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST1.MAN")))));
+  for (const l of g.squadOf(0)) if (l.number > 5) l.setU8(10, 0);
+  assert.equal(isForfeit(g, 0), true);
+  setDayIndex(g, 91);
+  assert.equal(isForfeit(g, 0), false);
 });

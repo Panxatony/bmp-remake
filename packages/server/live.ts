@@ -291,6 +291,8 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
       kaderVorbereitung(g, mi, matchType, rng);
     }
     if (e.forfeit !== undefined) {
+      // Verliert der Heimmanager 0:2, kehrt die Spielvorbereitung vor der Kulisse zurück
+      if (e.forfeit === e.managerHome) e.attendance = undefined;
       e.match.hg = e.forfeit === e.managerHome ? 0 : 2;
       e.match.ag = e.forfeit === e.managerHome ? 2 : 0;
       e.match.minute = 90;

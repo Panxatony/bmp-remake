@@ -179,7 +179,10 @@ sie die Manager der Reihe nach durch:
 - **0:2-Prüfung** (Byte 317 = 100, weniger als acht einsatzfähige Starter): außer ab dem
   10. Juni Strafe 200.000 DM (0x1C5D1) und **sofortige Rückkehr** - der Manager selbst und alle
   nach ihm bekommen keine Einnahmen und keinen Kaderteil. In der Liga wertet der Treiber das
-  Spiel 0:2; bei Pokalspielen wirft er den Rückgabewert weg (0x4A33).
+  Spiel 0:2 (0x4914). Bei Pokalspielen wirft er den Rückgabewert zwar weg (0x4A33), das Spiel
+  steht aber trotzdem 0:2 - am Original gemessen (GitLab #90, TEST1 mit sieben Startern bei
+  Nürnberg): Hinweiskasten, Kontostand genau -200.000 DM, die Tafel zeigt zur 45. und
+  90. Minute 0:2, kein Live-Spiel, der Gegner ist weiter.
 - **Einnahmen:** Liga siehe "Zuschauer"; Pokal siehe "Einnahmen im Pokal". Zuschauerhistorie
   (330 + Zähler 314), Summe 484 und Rekorde 488/492 nur im Ligaheimspiel; die gleiche Zahl
   löst einen Rekord ab (TEST4 -> RUNA0: 24000, Gegner 0 -> 3).
@@ -1175,7 +1178,8 @@ acht Spieler eine Nummer 1..11 tragen (Sperre und Verletzung zählen dort nicht)
 200.000 DM Strafe ab ("Ihr Spiel wird mit 0:2 gewertet. Sie zahlen 200.000 DM Strafe"). In der
 Konferenz zählt der Stand beim Anpfiff, Karten und Verletzungen im Spiel lösen keine Wertung
 mehr aus. Ausnahme des Originals: ab dem 10. Juni (Monat 5, Tag >= 10, also in der Relegation)
-keine Wertung; nicht übernommen, Prüfung im Original in GitLab #90.
+keine Wertung (`isForfeit`). Im Pokal gilt dasselbe wie in der Liga: 0:2, Strafe, der Manager
+und alle nach ihm ohne Einnahmen und Kaderteil (`playCupMatch`; im Original gemessen, #90).
 
 ## KI-Vereine: Torschützen, Grundzuschlag und Matrixschwankung (0x160A2/0x15F14, 0x2C3FC, 0x10067; sim/ai.ts)
 
