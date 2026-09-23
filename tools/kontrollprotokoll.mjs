@@ -44,6 +44,7 @@ export const PUNKTE = {
   40: "Saisonende: Karriereende",
   41: "Pool: Sollzahlen 1",
   42: "Pool: Sollzahlen 2",
+  43: "Elfmeterschießen: Chancenhandler je Schuss",
 };
 
 /** Einträge des Protokolls: Kennung und Zustand des Generators. */

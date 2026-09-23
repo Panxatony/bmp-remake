@@ -15,6 +15,7 @@ import type { Rng } from "./match.ts";
 import { LiveMatch } from "./live.ts";
 import { composeZeitung, reportFromMatch } from "./zeitung.ts";
 import { bookEvents } from "./matchday.ts";
+import { bookShootoutShot, bookDefence } from "./goals.ts";
 import { minuteIncidents, newIncidentState, type IncidentState } from "./incidents.ts";
 import { matchStrength } from "./matchday.ts";
 import { kaderVorbereitung } from "./matchday.ts";
@@ -364,7 +365,17 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
     if (verlaengert.includes(s)) {
       h += 10;
       if (offen(s)) {
-        const [ph, pa] = shootout(rng, beteiligt(s));
+        // Mit Manager: je Schuss der Chancenhandler mit Elfmetermarke (0x69F9) - Szene mit fester
+        // Elfmeterszene, beim Managerverein Schütze und Vorlage, beim verteidigenden Manager die
+        // Abwehrbewertung, wenn der Rechner schießt
+        const [ph, pa] = shootout(rng, beteiligt(s), undefined, (seite, tor) => {
+          kp(43);
+          if (szenen) elfmeterSzene(rng, tor);
+          const schuetze = s.seiten.find((x) => x[2] === (seite === 0 ? "home" : "away"));
+          const abwehr = s.seiten.find((x) => x[2] === (seite === 0 ? "away" : "home"));
+          if (schuetze) bookShootoutShot(g, schuetze[0], tor, rng);
+          else if (abwehr) bookDefence(g, abwehr[0], tor);
+        });
         h += 10 + ph;
         a += pa;
       }
@@ -615,6 +626,17 @@ export function saisonwechseltag(g: GameState, rng: Rng & { zaehler(): number },
   });
   kp(26);
   return { punkte, bis: "neue Saison" };
+}
+
+/**
+ * Szenenwahl im Elfmeterschießen: der Lader 0x1502C bekommt die Elfmetermarke mit (+0xC = 1),
+ * würfelt Nummer und Elfmeterwurf trotzdem und dann die Nummer der Elfmeterszene
+ * random(2, 4cb3:304C); die Jubelszene fällt weg.
+ */
+function elfmeterSzene(rng: Rng, goal: boolean): void {
+  rng(2, 43);
+  rng(0, goal ? 15 : 25);
+  rng(2, 5);
 }
 
 /** Szenenwahl des Laders 0x1502C (nur die Würfel): Nummer, Elfmeter, seltene Jubelszene. */

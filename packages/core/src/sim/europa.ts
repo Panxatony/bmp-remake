@@ -294,7 +294,7 @@ export interface Elfmeter {
  *
  * Das Protokoll sammelt jeden Schuss in der Reihenfolge, in der er fällt.
  */
-export function shootout(rng: Rng, managerInvolved: boolean, protokoll?: Elfmeter[]): [number, number] {
+export function shootout(rng: Rng, managerInvolved: boolean, protokoll?: Elfmeter[], jeSchuss?: (seite: 0 | 1, tor: boolean) => void): [number, number] {
   // Wer zuerst schießt, würfelt 0x666D gleich am Anfang (0x6689) - auch im kurzen Zweig ohne
   // Manager, wo der Wurf ungenutzt bleibt (#99, DFB-Pokaltag TEST1 mit srand(12))
   const first = rng(0, 1);
@@ -313,6 +313,8 @@ export function shootout(rng: Rng, managerInvolved: boolean, protokoll?: Elfmete
   for (;;) {
     if (round >= 5 && score[0] !== score[1] && side === first) break;
     const tor = rng(0, 2) !== 0;
+    // Danach der Chancenhandler mit Elfmetermarke: Szene, Schütze, Anzeige (0x69F9)
+    jeSchuss?.(side as 0 | 1, tor);
     if (tor) score[side]++;
     protokoll?.push({ seite: side as 0 | 1, tor, stand: [score[0], score[1]] });
     if (side !== first) round++;

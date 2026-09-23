@@ -153,16 +153,25 @@ function protokollK(plain: Uint8Array, k: number): { punkt: number; wurf: number
   }
   return out;
 }
-for (const [datei, bisTagesende] of [["KP-K12-POKAL", true], ["KP-K12-VERLETZUNG", false]] as const) {
+// Mit srand(28) geht Nürnberg selbst ins Elfmeterschießen: je Schuss der Chancenhandler mit
+// Elfmetermarke (Kontrollpunkt 43 bei 0x69F9) - Szene, beim Managerverein Schütze und Vorlage.
+// KP-K28-ELFMETER mit Spur ab 43 und Halt bei den Finanzen des Folgetags.
+const K_LAEUFE = [
+  ["KP-K12-POKAL", 12, true, 38],
+  ["KP-K12-VERLETZUNG", 12, false, 47],
+  ["KP-K28-POKAL", 28, true, 26],
+  ["KP-K28-ELFMETER", 28, false, 17],
+] as const;
+for (const [datei, k, bisTagesende, anzahl] of K_LAEUFE) {
   const pfad = resolve(import.meta.dirname, `../../../tools/dosbox/${datei}.MAN`);
-  test(`Originaltag TEST1 mit srand(12): ${datei}`, { skip: !existsSync(pfad) || !existsSync(join(BMP_DIR, "TEST1.MAN")) }, () => {
-    const orig = protokollK(SaveFile.decode(new Uint8Array(readFileSync(pfad))).plain, 12);
+  test(`Originaltag TEST1 mit srand(${k}): ${datei}`, { skip: !existsSync(pfad) || !existsSync(join(BMP_DIR, "TEST1.MAN")) }, () => {
+    const orig = protokollK(SaveFile.decode(new Uint8Array(readFileSync(pfad))).plain, k);
     const ende = orig.findIndex((p) => p.punkt === 27 && p.wurf > 0);
     const soll = bisTagesende ? orig.slice(0, ende + 1) : orig;
     const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST1.MAN")))));
     const ids = new Set(soll.map((p) => p.punkt));
-    const lauf = originaltag(g, originalRng(12), [4, 44, 21, 35, -22, -30, 26, -38]).punkte.map((p) => (p.punkt === 26 ? { ...p, punkt: 27 } : p)).filter((p) => ids.has(p.punkt));
-    assert.equal(soll.length, bisTagesende ? 38 : 47);
+    const lauf = originaltag(g, originalRng(k), [4, 44, 21, 35, -22, -30, 26, -38]).punkte.map((p) => (p.punkt === 26 ? { ...p, punkt: 27 } : p)).filter((p) => ids.has(p.punkt));
+    assert.equal(soll.length, anzahl);
     assert.deepEqual(lauf.slice(0, soll.length), soll);
   });
 }

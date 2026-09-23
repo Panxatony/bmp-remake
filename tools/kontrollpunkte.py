@@ -90,6 +90,8 @@ PUNKTE = [
     # Spielerpool 0x0F2A6
     (41, 0xF310, 0x14A4, 0x1798),  # Sollzahlen 0x161D8, erster Aufruf
     (42, 0xF4CA, 0x14A4, 0x1798),  # Sollzahlen 0x161D8, zweiter Aufruf
+    # Elfmeterschießen mit Manager 0x6733
+    (43, 0x69F9, 0x1A58, 0x0CA3),  # Chancenhandler 0x1B223 je Schuss (Modus Tor/vorbei, Elfmeter)
 ]
 # Punkte mit Speicherabzug: vor dem Eintrag werden DUMP_LAENGE Bytes ab 4238:DUMP_VON nach
 # 4238:LOG+DUMP_ZIEL kopiert (die Spielberichte 4238:90CA, 154 Bytes je Manager)

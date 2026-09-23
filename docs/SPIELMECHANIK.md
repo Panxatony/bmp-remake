@@ -403,9 +403,19 @@ Fällen: 0x6999 wirft die Zahl, 0x69A3 macht aus der 2 eine 1, und 0x6A04 zählt
 Tor (bis GitLab #72 stand hier die Gegenprobe - nur die 2 -, das war ein Drittel).
 Mit Managerbeteiligung zeigt das Original das Schießen auf einer eigenen Tafel (0x6733): die
 Tafel in Schwarz-Rot-Gold wie vor dem Anpfiff, darauf "Elfmeterschiessen" bei y=50, der
-Heimverein bei 100, "gegen" bei 128 und der Gast bei 156. Jeder Schuss läuft danach über
-dieselbe Szenenausgabe wie eine Chance der Konferenz (0x1B223, Text "Elfmeter für ") und
-wird mit 0x632C wieder abgeräumt; die Anordnung der Schüsse ist nicht nachgemessen.
+Heimverein bei 100, "gegen" (beige) bei 128 und der Gast bei 156; die Tafel wartet auf einen
+Klick. Danach läuft jeder Schuss als Chance der Konferenz: 0x6733 würfelt random(0,2) und ruft
+den Chancenhandler 0x1B223 mit Minute 120 und der **Elfmetermarke** (+0x18 = 1). Der Lader
+bekommt die Marke mit, würfelt Szenennummer und Elfmeterwurf trotzdem und dann die
+Elfmeterszene random(2,5), keine Jubelszene. Schießt ein Managerverein, wählt der Handler
+Schütze und Vorlage wie bei jeder Chance (0x05D9A); ein Treffer zählt nicht als Saisontor und
+bringt kein +15 (0x1BB08), die Vorlage bekommt nichts (0x1BCA4), ein Fehlschuss kostet 10
+(0x1BB79). Beim Rechnerverein wird nichts gewählt; der verteidigende Manager bekommt die
+Abwehrbewertung. Die Konferenz zeigt die Tafel des Spiels mit dem **Elfmeterstand**, die
+Chancen zählen jeden Schuss mit, unter der Szene steht "ELFMETER" zwischen den Uhren und nach
+dem Schuss "Torschütze: <Name>" bzw. "Chance vergeben: <Name>" - einen Namen gibt es nur beim
+Managerverein. Am Original gemessen (TEST1 mit srand(28), Wurf für Wurf und Bildschirmfotos,
+GitLab #72, #99).
 Europapokal: Hin- und Rückspiel an den Kalendertagen mit Flag 0x70 (1/5, 15/19, 31/35,
 63/67, 77/81, auch das Finale). Nach dem Hinspiel (Flag 28241 + Pokal - 1 = 0) speichert
 der Rundenabschluss das Ergebnis gespiegelt in 28137 (Gast, Heim) und tauscht die Paare.
