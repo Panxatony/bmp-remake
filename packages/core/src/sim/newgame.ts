@@ -97,6 +97,25 @@ function manaListOf(g: GameState, mana: ManaData, club: number): string[] | unde
  * also mit dem Leihabschlag (ein Drittel). Ohne das zahlte ein geliehener Spieler bei uns das
  * volle Gehalt (GitLab #79).
  */
+/**
+ * Trainergehalt und Fernsehgeld eines Managers (0x09623), beim neuen Spiel und am Ende jedes
+ * Saisonwechsels (0x1EAA2, für alle Manager): L = 2 - Liga; Trainer (Byte 478, 16 Bit) =
+ * L · (random(15,20) + 40) + (L · (110 - Fans) & ~1) · 500, beides in 16 Bit, dann
+ * · random(10 · (L + 10), 25 · (L + 4)) / 100; Fernsehgeld (Werbetabelle +28) =
+ * 1000 · (30 · L + Fans).
+ */
+export function trainerUndFernsehgeld(g: GameState, mi: number, rng: Rng): void {
+  const p = g.save.plain;
+  const m = g.managers.at(mi);
+  const L = 2 - m.u8(312);
+  const fans = m.u8(476) | (m.u8(477) << 8);
+  let trainer = (L * (rng(15, 20) + 40) + ((((L * (110 - fans)) & 0xfffe) * 500) & 0xffff)) & 0xffff;
+  trainer = div(trainer * rng(10 * (L + 10), 25 * (L + 4)), 100) & 0xffff;
+  m.setU8(478, trainer & 0xff);
+  m.setU8(479, trainer >> 8);
+  writeI32(p, ADV_OFFSET + mi * 36 + 28, 1000 * (30 * L + fans));
+}
+
 export function addToSquad(g: GameState, manager: number, playerIdx: number, years: number, rng: Rng, leihe = false): number {
   const base = manager === 4 ? 100 : manager * 25;
   const limit = manager === 4 ? 12 : 24;
@@ -336,7 +355,7 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
       let y: number;
       do y = rng(38, 57);
       while (managers.slice(0, mi).some((x) => x.clubIndex === y));
-      swapClubs(g, club, y);
+      swapClubs(g, club, y, false);
     }
     const league = 2;
     const b = div(level, 2) + 27;
@@ -363,13 +382,7 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
     const fans = (50 - 20 * league) & 0xffff;
     p[o + 476] = fans & 0xff;
     p[o + 477] = fans >> 8;
-    // 0x09623: Trainer und Fernsehgeld
-    const L = 2 - league;
-    let trainer = L * (rng(15, 20) + 40) + ((L * (110 - fans)) & 0xfe) * 500;
-    trainer = div(trainer * rng(10 * (L + 10), 25 * (L + 4)), 100) & 0xffff;
-    p[o + 478] = trainer & 0xff;
-    p[o + 479] = trainer >> 8;
-    writeI32(p, ADV_OFFSET + mi * 36 + 28, 1000 * (30 * L + fans));
+    trainerUndFernsehgeld(g, mi, rng);
     generateOffers(g, mi, rng);
     writeI32(p, o + 496, level === 4 ? 1900000 : 1500000);
     writeI32(p, o + 492, 99999);
