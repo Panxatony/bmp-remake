@@ -514,8 +514,11 @@ Reihenfolge je Spiel und Minute (0x05404): erst Karten und Verletzungen (0x05FE5
 Chancen dieser Minute (0x1060B), Heim vor Gast. Gibt es glatt Rot oder eine Verletzung - nicht
 bei Gelb oder Gelb-Rot -, lost 0x0657F die Chancen des Spiels für den Rest der Halbzeit neu aus:
 0x102BA würfelt mit den neuen Stärken die Chancenzahl der ganzen Halbzeit (ohne Minuten), je
-Seite wird verrechnet `rest = alt - gespielt + neu'` mit `neu' = neu - alt`, wenn `neu >= alt`,
-sonst `neu' = neu` (*Eigenheit*: die geschwächte Seite bekommt so eher mehr Chancen); `alt` ist
+Seite verrechnet das Original `rest = alt - gespielt + neu'` mit `neu' = neu - alt`, wenn
+`neu >= alt`, sonst `neu' = neu` (*Eigenheit*: die geschwächte Seite bekommt so eher mehr
+Chancen). **Bewusst anders im Remake (GitLab #87):** `rest = max(0, neu - gespielt)` - die neue
+Halbzeitzahl abzüglich der schon gespielten Chancen, in beide Richtungen gleich. Nur der
+bytegenaue Vergleich (originaltag.ts) rechnet wie das Original. `alt` ist
 die Zahl vom Halbzeitbeginn bzw. der letzten Neuauslosung dieses Managers (4238:21DA),
 `gespielt` zählt die Chancen seit Halbzeitbeginn (4238:5710 Heim, 5778 Gast). Die Minuten
 werden ab der laufenden Minute bis zum Halbzeitende neu verteilt (0x043FF); die alten
