@@ -147,6 +147,10 @@ Runde beginnt von vorn. Eine Runde ohne Erfolg beendet die Verlegungen (bei n = 
 mehr, weil der Rest auf 8 gedeckelt wird). Abgetragene Plätze leert das Original nur im
 Tagesbyte, der Rest des Eintrags bleibt stehen, und die Plätze rücken nicht auf.
 
+Nach den Nachholspielen löscht das Original die Kalendermarke 0x80 des Tages (RIED-4TE: Tag 71
+steht danach auf 0); der Tag gilt damit für die Tagesroutine als spielfrei. Nach Nachholspielen
+mit Managerverein gibt es wie nach Ligaspielen die Sportzeitung, im Derby eine je Manager.
+
 Im Remake umgesetzt (sim/postpone.ts, sim/matchday.ts, Server und Konferenz): vor dem Anpfiff
 verlegt `verlegen` wie oben, trägt die Termine ein und setzt die Marken; am Nachholtag trägt
 `playReplays` sie aus - mit der Paarung aus
@@ -1344,7 +1348,8 @@ Mannschaft) sowie "GELBE KARTEN:" / "ROTE KARTEN:" (KEINE). Grundlage ist der Sp
 4238:90CA (154 Bytes je Manager), den die Live-Schleife je Chance über 0x305DE füllt: Bytes 4/5
 Tore eigen/Gegner, 9 Differenz, 0xA größter Rückstand mit Stand in 0/1, 0xB größte Führung mit
 Stand in 2/3, 0x11 Ergebnis (0 Remis, 1 Sieg, 2 Niederlage), 6 Zahl der Chancen, 0x12
-ausverkauft, 0x94 Karten, 0x96 Zuschauer (nur Heimspiel), Listen der Tore (0x13 Minute, 0x27
+ausverkauft, 0x94 Karten (nur die des eigenen Managers - im Derby zählen die des Gegners nicht,
+RIED-4TE, #99), 0x96 Zuschauer (nur Heimspiel), Listen der Tore (0x13 Minute, 0x27
 Seite) und Chancen (0x3B, 0x4F), 0xC/0xD bester/schwächster Feldspieler (Kaderbewertung Byte 21
 über 25 bzw. unter -15).
 
