@@ -72,6 +72,7 @@ import {
   saisonwechselTeil2,
   saisonwechselStand,
   saisonbilanz,
+  sommertagSperren,
   LETZTER_SAISONTAG,
   releaseExpiring,
   acceptOffer,
@@ -1169,7 +1170,12 @@ function saisonwechselAbschliessen(r: Room, logStart = r.log.length): void {
   const altesJahr = seasonStartYear(g);
   const events = saisonwechselTeil2(g, r.rng, { events: [], flags }, {
     tage: () => {
-      for (let i = 0; i < 38; i++) finanzTag(r, dateOfSeasonDay(++tag, altesJahr));
+      for (let i = 0; i < 38; i++) {
+        tag++;
+        // Je Tag zuerst Sperren und Verletzungen der Kader (0x0F6D8), dann die Finanzen
+        sommertagSperren(g, tag);
+        finanzTag(r, dateOfSeasonDay(tag, altesJahr));
+      }
     },
   });
   // Jugendarbeit (Version 2026, #4): ein Jahr älter, Entwicklung, Aufstiege und Abgänge

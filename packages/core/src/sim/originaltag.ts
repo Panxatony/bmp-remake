@@ -16,6 +16,7 @@ import { LiveMatch } from "./live.ts";
 import { composeZeitung, reportFromMatch } from "./zeitung.ts";
 import { bookEvents } from "./matchday.ts";
 import { bookShootoutShot, bookDefence } from "./goals.ts";
+import { sommertagSperren } from "./training.ts";
 import { minuteIncidents, newIncidentState, type IncidentState } from "./incidents.ts";
 import { matchStrength } from "./matchday.ts";
 import { kaderVorbereitung } from "./matchday.ts";
@@ -622,7 +623,11 @@ export function saisonwechseltag(g: GameState, rng: Rng & { zaehler(): number },
       }
     },
     tage: () => {
-      for (let i = 0; i < 38; i++) finanzen(37, dateOfSeasonDay(++tag, altesJahr));
+      for (let i = 0; i < 38; i++) {
+        tag++;
+        sommertagSperren(g, tag);
+        finanzen(37, dateOfSeasonDay(tag, altesJahr));
+      }
     },
   });
   kp(26);

@@ -352,3 +352,15 @@ test("Saisonwechseltag: Finanztage und Auslosung nach dem Spielerpool", { skip: 
   assert.equal(ab37.length, 115);
   assert.deepEqual(nach, ab37.slice(1));
 });
+
+// Sommertage des Saisonwechsels (Zweigbuch 0F6D8, #100): je Tag zählen Sperren und
+// Verletzungen der Kader herunter - im Original über sechs Wochen (KP-SAISON: BRUNNER 11 -> 5,
+// KRINKE und ZARATE fit, Sperren bleiben)
+test("Saisonwechsel: Verletzungen heilen über den Sommer wie im Original", { skip: !existsSync(SAISON_START) || !existsSync(resolve(import.meta.dirname, "../../../tools/dosbox/KP-SAISON.MAN")) }, () => {
+  const lade = (f: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(resolve(import.meta.dirname, `../../../tools/dosbox/${f}.MAN`)))));
+  const g = lade("KP-SAISON-START");
+  const orig = lade("KP-SAISON");
+  saisonwechseltag(g, originalRng(0x1234));
+  const stand = (x: GameState) => [0, 1, 2].map((m) => x.squadOf(m).map((l) => [l.playerIndex, l.u8(9) & 3, l.u8(13)]));
+  assert.deepEqual(stand(g), stand(orig));
+});
