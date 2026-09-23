@@ -68,7 +68,11 @@ import {
   playCupDay,
   playEuropaDay,
   playPlayoffDay,
-  newSeason,
+  saisonwechselTeil1,
+  saisonwechselTeil2,
+  saisonwechselStand,
+  saisonbilanz,
+  LETZTER_SAISONTAG,
   releaseExpiring,
   acceptOffer,
   declineOffer,
@@ -189,6 +193,7 @@ import {
   text as T,
   texte,
 } from "../core/src/index.ts";
+import type { SeasonEvent } from "../core/src/index.ts";
 import { ladeTexte } from "../core/src/data/texte-node.ts";
 import { smtpZugang, sendeMail } from "./mail.ts";
 import { hashPassword, verifyPassword, veraltet } from "./passwort.ts";
@@ -1058,7 +1063,156 @@ function vertragsendeAufloesen(r: Room, manager: number): void {
 
 function zugBeenden(r: Room): void {
   r.hinweise = [];
-  startLiveDay(r);
+  const stand = saisonwechselStand(r.game);
+  if (stand === "zug") saisonwechselBeginnen(r);
+  else if (stand === "vertraege") saisonwechselAbschliessen(r);
+  else startLiveDay(r);
+}
+
+/**
+ * Saisonwechsel nach dem Zug des Übergangstags, erster Teil (0x1E319 bis 0x1E940): Auf- und
+ * Abstieg, Schwankung, Sponsoren, Ligaplätze, Saisonereignisse. Dann die Vertragsgespräche
+ * (0x0DB40): KI-Manager lassen ihre Spieler gehen; hat ein Mensch auslaufende Verträge, wartet
+ * der Server auf seinen Zug, wie das Original auf den Dialog. Sonst geht es gleich weiter.
+ */
+function saisonwechselBeginnen(r: Room): void {
+  const g = r.game;
+  const logStart = r.log.length;
+  // Saisonbilanz je Manager (0x1DD03): ewige Bilanz fortschreiben, Zuschauerzahlen leeren
+  saisonbilanz(g);
+  // Deutscher Meister (0x1DE87 -> 0x1A36D): Titel und Abschlussbild für einen Managerverein
+  const champ = bookChampion(g);
+  r.log.push(`${g.clubs.at(champ.club).name} ${T("quell.server", 8)} ${T("quell.server", 5)}`);
+  // Auch hier ersetzt das Abschlussbild die Meldung (0x1DE87 -> 0x1A36D)
+  // Der Vereinsname wird gleich festgehalten: die neue Saison würfelt die Vereine innerhalb
+  // der Ligen neu durch, der Index zeigt danach auf einen anderen Verein
+  if (champ.manager >= 0) r.abschluss.push({ manager: champ.manager, kind: 0, verein: g.clubs.at(champ.club).displayName });
+  // Highscore (0x1E871 -> 0x34CDA je Manager, 0x34616): Einträge einordnen und Datei schreiben
+  let list = loadHighscore(g);
+  g.activeManagers().forEach((_, i) => {
+    const e = highscoreEntry(g, i);
+    list = insertHighscore(list, e);
+    r.log.push(`Highscore: ${e.name} (${e.club}) ${e.points} Punkte`);
+  });
+  r.highscore = list;
+  try {
+    writeFileSync(join(savesDir, highscoreFile(seasonStartYear(g))), encodeHighscore(list));
+  } catch (err) {
+    r.log.push(`Highscore-Datei nicht geschrieben: ${String(err)}`);
+  }
+  r.msgFlags = [];
+  const { events } = saisonwechselTeil1(g, r.rng, true);
+  // Spieler der KI-Manager verhandeln nicht: ihre auslaufenden Verträge enden sofort
+  events.filter((ev) => ev.vertrag && isAi(g, ev.manager)).forEach((ev) => {
+    const place = platzVon(g, ev.manager, ev.vertrag!.playerIndex);
+    ev.vertrag = undefined;
+    if (place < 0) return;
+    const erg = releaseExpiring(g, ev.manager, place);
+    ev.text = erg.text;
+    ev.free = erg.free;
+  });
+  // Ablösefreie Spieler (Version 2026) sammeln, alle Manager dürfen bieten
+  r.freeAgents = events.filter((ev) => ev.free).map((ev) => ({ ...ev.free!, bids: [] }));
+  r.freeAgentsDay = dayIndex(g);
+  if (r.freeAgents.length) {
+    r.log.push(`Ablösefrei: ${r.freeAgents.map((a2) => a2.name).join(", ")}`);
+    g.activeManagers().forEach((_, i) => {
+      if (!isAi(g, i)) pushMessage(r, i, ["Abl|sefrei zu haben:", ...r.freeAgents.slice(0, 3).map((a2) => a2.name), r.freeAgents.length > 3 ? "und weitere." : ""].filter(Boolean));
+    });
+  }
+  saisonMeldungen(r, events);
+  r.vertragsende = events.filter((ev) => ev.vertrag).map((ev) => ({ manager: ev.manager, playerIndex: ev.vertrag!.playerIndex, name: ev.vertrag!.name }));
+  if (r.vertragsende.length === 0) {
+    saisonwechselAbschliessen(r, logStart);
+    return;
+  }
+  r.log.push(`Vertragsende: ${r.vertragsende.map((v) => `${g.managers.at(v.manager).displayName}/${v.name}`).join(", ")}`);
+  g.activeManagers().forEach((_, i) => {
+    const meine = r.vertragsende.filter((v) => v.manager === i);
+    if (meine.length && !isAi(g, i)) pushMessage(r, i, ["Vertrag l{uft aus:", ...meine.slice(0, 3).map((v) => v.name), meine.length > 3 ? "und weitere." : ""].filter(Boolean));
+  });
+  // Nur wer verhandeln muss, bekommt den Zug; die anderen sind schon fertig
+  r.done.clear();
+  g.activeManagers().forEach((_, i) => {
+    if (isAi(g, i) || !r.vertragsende.some((v) => v.manager === i)) r.done.add(i);
+  });
+  flushMessages(r);
+  r.lastDay = r.log.slice(logStart);
+  r.version++;
+  void persist(r);
+  broadcast(r);
+}
+
+/**
+ * Zweiter Teil des Saisonwechsels (ab 0x0F2A6): Spielerpool, die Tage vom 21.6. bis 28.7. der
+ * alten Saison mit derselben Finanzroutine wie jeder andere Tag, neue Saison mit Auslosung.
+ * Danach Jugend (Version 2026) und der erste Tag der neuen Saison.
+ */
+function saisonwechselAbschliessen(r: Room, logStart = r.log.length): void {
+  const g = r.game;
+  // Übrig gebliebene Verhandlungen enden mit "kein Angebot" (0x0DB40)
+  for (const i of new Set(r.vertragsende.map((v) => v.manager))) vertragsendeAufloesen(r, i);
+  // Die Aufsteigerflags stehen seit dem ersten Teil in Managerbyte 320 - auch nach einem
+  // Neustart des Servers mitten in den Verhandlungen
+  const flags = g.activeManagers().map((m) => m.u8(320));
+  // 38 Tage vom 21.6. bis 28.7. (Saisontag 327 bis 364), wie in originaltag.ts ab PS0
+  let tag = LETZTER_SAISONTAG + 4;
+  const altesJahr = seasonStartYear(g);
+  const events = saisonwechselTeil2(g, r.rng, { events: [], flags }, {
+    tage: () => {
+      for (let i = 0; i < 38; i++) finanzTag(r, dateOfSeasonDay(++tag, altesJahr));
+    },
+  });
+  // Jugendarbeit (Version 2026, #4): ein Jahr älter, Entwicklung, Aufstiege und Abgänge
+  jugendZaehlerLeeren(g);
+  for (const ev of jugendSaison(g, r.rng)) {
+    const wer = g.managers.at(ev.manager).displayName;
+    if (ev.kind === "aufstieg") {
+      r.log.push(`Jugend ${wer}: ${ev.name} steigt in die ${JUGEND_NAMEN[ev.nach ?? 0]} auf (Stärke ${ev.staerke})`);
+      pushMessage(r, ev.manager, [`${ev.name} steigt in die`, `${JUGEND_NAMEN[ev.nach ?? 0]} auf.`]);
+    } else if (ev.kind === "reif") {
+      r.log.push(`Jugend ${wer}: ${ev.name} ist aus der A-Jugend herausgewachsen (Stärke ${ev.staerke})`);
+      pushMessage(r, ev.manager, [`${ev.name} ist aus der`, "A-Jugend heraus."]);
+    } else if (ev.kind === "abgang") {
+      r.log.push(`Jugend ${wer}: ${ev.name} verlässt den Verein`);
+    } else if (ev.kind === "aufgabe") {
+      r.log.push(`Jugend ${wer}: ${ev.name} hat die Lust verloren und hört auf`);
+      pushMessage(r, ev.manager, [`${ev.name} hat die Lust`, "verloren und h|rt auf."]);
+    } else if (ev.kind === "sprung") {
+      r.log.push(`Jugend ${wer}: ${ev.name} macht einen Entwicklungssprung (Potenzial ${ev.staerke})`);
+      pushMessage(r, ev.manager, [ev.name, "macht einen gro~en", "Entwicklungssprung."]);
+    }
+  }
+  r.log.push(`Saisonwechsel: neue Saison ${g.date.year}/${g.date.year + 1}, Auf- und Abstieg, Ligaplätze gemischt, Pokale neu gelost, neue Sponsorenangebote`);
+  saisonMeldungen(r, events);
+  // Auch zu Saisonbeginn lost das Original mit Zeremonie aus (0x1EAD3 und 0x1EAEE rufen die
+  // Auslosung 0x18600 auf): erst den DfB-Pokal, dann die drei Europapokale (GitLab #71)
+  zeremonieAnsetzen(r, [0, 1, 2, 3]);
+  flushMessages(r);
+  r.lastDay = r.log.slice(logStart);
+  r.done.clear();
+  for (const i of aiList(g)) r.done.add(i);
+  r.version++;
+  void persist(r);
+  nachTageswechsel(r);
+  broadcast(r);
+}
+
+/** Meldungen des Saisonwechsels, außer den Vertragsgesprächen. */
+function saisonMeldungen(r: Room, events: SeasonEvent[]): void {
+  for (const ev of events) {
+    if (ev.vertrag) continue;
+    r.log.push(`  ${r.game.managers.at(ev.manager).displayName}: ${ev.text}`);
+    // Das Vertragsende zeigt das Original im Hinweiskasten ("... kehrt Ihrem Verein den
+    // Rücken. Sie erhalten eine Ablösesumme von ...", BMMAIN 0x503CF; GitLab #36), den
+    // Hinweis auf die Werbeverträge nach einem Aufstieg ebenso (0x0CC77; GitLab #38). Die
+    // übrigen Saisonende-Meldungen bleiben vorerst in der Meldungsliste.
+    if (ev.kasten) r.hinweise.push({ manager: ev.manager, zeilen: ev.kasten });
+    // Das Karriereende hat im Original einen festen Zeilenschnitt und keine Überschrift (#58)
+    else if (ev.meldung) pushMessage(r, ev.manager, ev.meldung);
+    else if (/kehrt Ihrem Verein/.test(ev.text)) r.hinweise.push({ manager: ev.manager, zeilen: wrap(ev.text).map((z) => toDosText(z)) });
+    else pushMessage(r, ev.manager, ["Saisonende", ...wrap(ev.text)]);
+  }
 }
 
 /**
@@ -1179,6 +1333,16 @@ async function loadRoom(meta: RoomMeta, path: string): Promise<Room> {
   // Vom Rechner geführte Manager warten auf nichts. Ohne das hier bliebe der Tag nach dem Laden
   // eines Spielstands mit KI-Managern für immer stehen (beim Bildvergleich für #56 aufgefallen).
   for (const i of aiList(r.game)) r.done.add(i);
+  // Mitten in den Vertragsgesprächen des Saisonwechsels neu gestartet: die offenen Verträge
+  // stehen mit 0 Jahren im Kader (seasonEvents mit Verlängerung)
+  if (saisonwechselStand(r.game) === "vertraege") {
+    r.game.activeManagers().forEach((_, i) => {
+      if (isAi(r.game, i)) return;
+      for (const l of r.game.squadOf(i)) {
+        if (l.u8(11) === 0) r.vertragsende.push({ manager: i, playerIndex: l.playerIndex, name: r.game.players.at(l.playerIndex).displayName });
+      }
+    });
+  }
   return r;
 }
 
@@ -1462,6 +1626,98 @@ function logCupMatches(r: Room, title: string, matches: CupMatch[], finals: CupF
   }
 }
 
+
+/**
+ * Ein Kalendertag der täglichen Finanzroutine (0x1DAFA -> 0x11D0D) für alle Manager: Lager, Bank,
+ * Bau, Finanzen, Kalendermeldungen, Weihnachten, Scherztage, Monatsende. Auch der Saisonwechsel
+ * bucht so seinen Übergangstag und die Tage bis zum 28. Juli (#99).
+ */
+function finanzTag(r: Room, dt: { day: number; month0: number; year: number }): void {
+  const g = r.game;
+  g.activeManagers().forEach((m, i) => {
+    // Meldungen, die im Original im Hinweiskasten stehen (0x3174A), kommen in die Hinweisliste
+    const hinweis = (zeilen: string[]) => r.hinweise.push({ manager: i, zeilen: zeilen.map((z) => toDosText(z)) });
+    // Die tägliche Finanzroutine läuft je Manager; darin würfelt das Original mit 1/61 die
+    // Zinstabelle der Bank neu (0x11DA2 -> 0x112AA) und zählt die Öffnungszeiten der
+    // Trainingslager weiter (0x11D2D). Beides hing bei uns am Monatsende bzw. lief nur
+    // einmal je Tag (GitLab #34). Erst die Lager, dann die Bank (0x11D2D vor 0x11DA2, #99).
+    advanceCampOpen(r.campOpen, r.rng);
+    if (r.rng(0, 60) === 0) driftInterest(g, r.rng);
+    for (const kind of dailyConstruction(g, i)) {
+      // Der Betreff steht im Original je Bauwerk fest (0x4EAEA); Flutlicht, Anzeigetafel und
+      // Komfort tragen ihr Stichwort in einer zweiten Zeile (0x4FD40)
+      const bau = texte("ui.bauwerke");
+      const zusatz = kind === 4 ? bau[7] : kind === 5 ? bau[8] : kind === 7 ? bau[9] : "";
+      const text = `${bau[kind - 1]}${zusatz ? " " + zusatz : ""} ${texte("ui.ausbaufertig")[0]}`;
+      r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: ${text}`);
+      pushMessage(r, i, wrap(text), dt);
+    }
+    // Krawall und Komfort gehören zur Tagesroutine und laufen einmal am Ankunftstag (#99)
+    for (const ev of dailyFinance(g, i, dt, r.rng, r.balanceSums[i], false)) {
+      r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: ${ev.text}`);
+      // Was der Manager davon zu sehen bekommt, richtet sich nach dem Original (GitLab #41):
+      // "Ihr Kredit von ... wurde heute fällig." steht in der Texttabelle des Hinweiskastens
+      // (BMMAIN 0x50472, GitLab #36), die Randale schreibt das Original als Meldung (0x0E21A
+      // baut die drei Zeilen und gibt sie über 0x0239E an die Meldungsroutine 0x30AA0).
+      // Zinsen, Monatsabrechnung und der Fanwert dagegen laufen im Original still: die
+      // Fanerhöhung (0x11F76) schreibt keine Meldung, und Einnahmen und Ausgaben stehen im
+      // Finanzbildschirm, nicht in der Meldungsliste. Sie bleiben deshalb im Verlauf.
+      if (ev.kind === "repaid") hinweis(wrap(ev.text));
+      else if (ev.kind === "riot" || ev.kind === "komfort") pushMessage(r, i, wrap(ev.text), dt);
+      // Jugendförderung (Version 2026, #4) läuft mit der Monatsabrechnung
+      if (ev.kind !== "month") continue;
+      const jugend = jugendMonat(g, i);
+      if (jugend > 0) {
+        r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: Jugendförderung ${dmText(jugend)}`);
+        pushMessage(r, i, ["Jugendf|rderung:", dmText(jugend)], dt);
+      }
+    }
+    // Sperre nach einem Trainingslager läuft ab (0x11DEE)
+    campCountdown(g, i);
+    // Kalendermeldungen des Hauptmenüs (0x143ED): Winterpause, Relegation, gesichert/verspielt.
+    // Sie kommen in den Hinweiskasten, nicht in die Meldungsliste (GitLab #31)
+    if (isWinterBreakDay(dt)) hinweis(winterBreakLines());
+    const rel = relegationMessage(g, i, dt);
+    if (rel) {
+      hinweis(rel);
+      r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: Relegationsspiel`);
+    }
+    const flags = { v: r.msgFlags[i] ?? 0 };
+    for (const lines of standingsMessages(g, i, flags, dt)) {
+      hinweis(lines);
+      r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: ${lines.join(" ")}`);
+    }
+    r.msgFlags[i] = flags.v;
+  });
+  // Weihnachten (0x1D6F6 -> 0x1CF86 am 24.12.): Gruß mit 1/4, darin Weihnachtspakete mit 1/2
+  if (dt.day === 24 && dt.month0 === 11) {
+    const x = christmasPresents(g, r.rng);
+    if (x) {
+      g.activeManagers().forEach((m, i) => {
+        const lines = [T("quell.server", 6)];
+        if (x.base > 0) lines.push(...christmasLines(), `BUNDESLIGA: ${x.base} DM, 2.LIGA: ${Math.trunc(x.base / 2)} DM,`, `AMATEUR-OBERLIGA: ${Math.trunc(x.base / 3)} DM (INCL. MWST.)`);
+        pushMessage(r, i, lines, dt);
+        r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: Frohe Weihnachten${x.base > 0 ? `, Weihnachtspakete ${x.amounts[i]} DM` : ""}`);
+      });
+    }
+  }
+  // 12.11. und 19.4.: dieselbe Routine würfelt für ihre (nicht portierten) Scherzbildschirme
+  scherztagWurf(dt, r.rng);
+  if (dt.day === DAYS_IN_MONTH[dt.month0]) {
+    // Überschuldung (Version 2026): Punktabzug und Kaufsperre
+    for (const d of checkDebt(g)) {
+      const mg = g.managers.at(d.manager);
+      const liga = mg.clubIndex < 18 ? 0 : mg.clubIndex < 38 ? 1 : 2;
+      updatePositions(g, liga);
+      r.log.push(`${dt.day}.${dt.month0 + 1}. ${mg.displayName}: ${dmText(d.balance)} im Minus - ${d.points} Punkte Abzug und ein Monat Kaufsperre`);
+      pushMessage(r, d.manager, ["Ihr Konto ist zu tief", "im Minus: " + d.points + " Punkte", "Abzug, ein Monat", "keine Eink{ufe."], dt);
+      g.activeManagers().forEach((_, i) => {
+        if (i !== d.manager) pushMessage(r, i, [`${mg.displayName} bekommt`, `${d.points} Punkte Abzug`, "wegen Schulden."], dt);
+      });
+    }
+  }
+}
+
 /** Spielt die Ereignisse des aktuellen Kalendertags und schaltet auf den nächsten; mit live gespielten Ergebnissen, wenn vorhanden. */
 function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStrength, TeamStrength]>; results: Map<string, MatchResult>; postponed: number[][]; einsaetzeVorher?: number[][]; scorers?: Map<string, { minute: number; side: "home" | "away"; name: string }[]>; events?: Map<string, { minute: number; side: "home" | "away"; goal: boolean }[]>; attendance?: Map<string, number>; booking?: LiveBooking; nachspiele?: Map<string, Nachspiel> }): void {
   const g = r.game;
@@ -1611,94 +1867,13 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   }
   const fromDay = seasonDay(k);
   if (k + 1 < CALENDAR_DAYS) setDayIndex(g, k + 1);
-  else {
-    // Deutscher Meister (0x1DE87 -> 0x1A36D): Titel und Abschlussbild für einen Managerverein
-    const champ = bookChampion(g);
-    r.log.push(`${g.clubs.at(champ.club).name} ${T("quell.server", 8)} ${T("quell.server", 5)}`);
-    // Auch hier ersetzt das Abschlussbild die Meldung (0x1DE87 -> 0x1A36D)
-    // Der Vereinsname wird gleich festgehalten: die neue Saison würfelt die Vereine innerhalb
-    // der Ligen neu durch, der Index zeigt danach auf einen anderen Verein
-    if (champ.manager >= 0) r.abschluss.push({ manager: champ.manager, kind: 0, verein: g.clubs.at(champ.club).displayName });
-    // Highscore (0x1E871 -> 0x34CDA je Manager, 0x34616): Einträge einordnen und Datei schreiben
-    let list = loadHighscore(g);
-    g.activeManagers().forEach((_, i) => {
-      const e = highscoreEntry(g, i);
-      list = insertHighscore(list, e);
-      r.log.push(`Highscore: ${e.name} (${e.club}) ${e.points} Punkte`);
-    });
-    r.highscore = list;
-    try {
-      writeFileSync(join(savesDir, highscoreFile(seasonStartYear(g))), encodeHighscore(list));
-    } catch (err) {
-      r.log.push(`Highscore-Datei nicht geschrieben: ${String(err)}`);
-    }
-    r.msgFlags = [];
-    const events = newSeason(g, r.rng, true);
-    // Spieler der KI-Manager verhandeln nicht: ihre auslaufenden Verträge enden sofort
-    events.filter((ev) => ev.vertrag && isAi(g, ev.manager)).forEach((ev) => {
-      const place = platzVon(g, ev.manager, ev.vertrag!.playerIndex);
-      ev.vertrag = undefined;
-      if (place < 0) return;
-      const erg = releaseExpiring(g, ev.manager, place);
-      ev.text = erg.text;
-      ev.free = erg.free;
-    });
-    // Ablösefreie Spieler (Version 2026) sammeln, alle Manager dürfen bieten
-    r.freeAgents = events.filter((ev) => ev.free).map((ev) => ({ ...ev.free!, bids: [] }));
-    r.freeAgentsDay = dayIndex(g);
-    if (r.freeAgents.length) {
-      r.log.push(`Ablösefrei: ${r.freeAgents.map((a2) => a2.name).join(", ")}`);
-      g.activeManagers().forEach((_, i) => {
-        if (!isAi(g, i)) pushMessage(r, i, ["Abl|sefrei zu haben:", ...r.freeAgents.slice(0, 3).map((a2) => a2.name), r.freeAgents.length > 3 ? "und weitere." : ""].filter(Boolean));
-      });
-    }
-    // Jugendarbeit (Version 2026, #4): ein Jahr älter, Entwicklung, Aufstiege und Abgänge
-    jugendZaehlerLeeren(g);
-    for (const ev of jugendSaison(g, r.rng)) {
-      const wer = g.managers.at(ev.manager).displayName;
-      if (ev.kind === "aufstieg") {
-        r.log.push(`Jugend ${wer}: ${ev.name} steigt in die ${JUGEND_NAMEN[ev.nach ?? 0]} auf (Stärke ${ev.staerke})`);
-        pushMessage(r, ev.manager, [`${ev.name} steigt in die`, `${JUGEND_NAMEN[ev.nach ?? 0]} auf.`]);
-      } else if (ev.kind === "reif") {
-        r.log.push(`Jugend ${wer}: ${ev.name} ist aus der A-Jugend herausgewachsen (Stärke ${ev.staerke})`);
-        pushMessage(r, ev.manager, [`${ev.name} ist aus der`, "A-Jugend heraus."]);
-      } else if (ev.kind === "abgang") {
-        r.log.push(`Jugend ${wer}: ${ev.name} verlässt den Verein`);
-      } else if (ev.kind === "aufgabe") {
-        r.log.push(`Jugend ${wer}: ${ev.name} hat die Lust verloren und hört auf`);
-        pushMessage(r, ev.manager, [`${ev.name} hat die Lust`, "verloren und h|rt auf."]);
-      } else if (ev.kind === "sprung") {
-        r.log.push(`Jugend ${wer}: ${ev.name} macht einen Entwicklungssprung (Potenzial ${ev.staerke})`);
-        pushMessage(r, ev.manager, [ev.name, "macht einen gro~en", "Entwicklungssprung."]);
-      }
-    }
-    r.log.push(`Saisonwechsel: neue Saison ${g.date.year}/${g.date.year + 1}, Auf- und Abstieg, Ligaplätze gemischt, Pokale neu gelost, neue Sponsorenangebote`);
-    // Auch zu Saisonbeginn lost das Original mit Zeremonie aus (0x1EAD3 und 0x1EAEE rufen die
-    // Auslosung 0x18600 auf): erst den DfB-Pokal, dann die drei Europapokale (GitLab #71)
-    zeremonieAnsetzen(r, [0, 1, 2, 3]);
-    // Abgelaufene Verträge: der Dialog des Originals folgt im ersten Zug der neuen Saison
-    r.vertragsende = events.filter((ev) => ev.vertrag).map((ev) => ({ manager: ev.manager, playerIndex: ev.vertrag!.playerIndex, name: ev.vertrag!.name }));
-    if (r.vertragsende.length) {
-      r.log.push(`Vertragsende: ${r.vertragsende.map((v) => `${g.managers.at(v.manager).displayName}/${v.name}`).join(", ")}`);
-      g.activeManagers().forEach((_, i) => {
-        const meine = r.vertragsende.filter((v) => v.manager === i);
-        if (meine.length && !isAi(g, i)) pushMessage(r, i, ["Vertrag l{uft aus:", ...meine.slice(0, 3).map((v) => v.name), meine.length > 3 ? "und weitere." : ""].filter(Boolean));
-      });
-    }
-    for (const ev of events) {
-      if (ev.vertrag) continue;
-      r.log.push(`  ${g.managers.at(ev.manager).displayName}: ${ev.text}`);
-      // Das Vertragsende zeigt das Original im Hinweiskasten ("... kehrt Ihrem Verein den
-      // Rücken. Sie erhalten eine Ablösesumme von ...", BMMAIN 0x503CF; GitLab #36), den
-      // Hinweis auf die Werbeverträge nach einem Aufstieg ebenso (0x0CC77; GitLab #38). Die
-      // übrigen Saisonende-Meldungen bleiben vorerst in der Meldungsliste.
-      if (ev.kasten) r.hinweise.push({ manager: ev.manager, zeilen: ev.kasten });
-      // Das Karriereende hat im Original einen festen Zeilenschnitt und keine Überschrift (#58)
-      else if (ev.meldung) pushMessage(r, ev.manager, ev.meldung);
-      else if (/kehrt Ihrem Verein/.test(ev.text)) r.hinweise.push({ manager: ev.manager, zeilen: wrap(ev.text).map((z) => toDosText(z)) });
-      else pushMessage(r, ev.manager, ["Saisonende", ...wrap(ev.text)]);
-    }
-  }
+  // Nach dem letzten Spieltag (Saisontag 322) springt das Original in den Saisonwechsel
+  // (0x1DC52); die Kalendertage dahinter spielt es nie. Vorher kommt noch der Übergangstag:
+  // sein Tagesbeginn - Finanzen für den Tag nach dem letzten Spieltag, Schwankung der Vereine,
+  // der Würfel um die Markterneuerung - und ein Zug. Der Saisonwechsel selbst folgt an dessen
+  // Ende (zugBeenden -> saisonwechselBeginnen). So verläuft es im Vergleich mit dem Original ab
+  // dessen Stand PS0 (#99, originaltag.ts saisonwechseltag).
+  const saisonEnde = fromDay <= LETZTER_SAISONTAG && seasonDay(dayIndex(g)) > LETZTER_SAISONTAG;
   // Nach den Spielen nimmt das Original an jedem Kalendertag gesperrte und verletzte Spieler aus
   // der Aufstellung: Rückennummer 0, wenn Byte 13 nicht 0 ist (0x1DA23). Bei uns geschah das nur
   // im Augenblick der Verletzung (GitLab #34).
@@ -1709,92 +1884,13 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     }
   });
   // Tägliche Finanzroutine für jeden übersprungenen Kalendertag (Original läuft Tag für Tag)
-  const toDay = seasonDay(dayIndex(g));
+  const toDay = saisonEnde ? fromDay + 1 : seasonDay(dayIndex(g));
   const startYear = seasonStartYear(g);
-  for (let d = fromDay + 1; d <= toDay; d++) {
-    const dt = dateOfSeasonDay(d, startYear);
-    g.activeManagers().forEach((m, i) => {
-      // Meldungen, die im Original im Hinweiskasten stehen (0x3174A), kommen in die Hinweisliste
-      const hinweis = (zeilen: string[]) => r.hinweise.push({ manager: i, zeilen: zeilen.map((z) => toDosText(z)) });
-      // Die tägliche Finanzroutine läuft je Manager; darin würfelt das Original mit 1/61 die
-      // Zinstabelle der Bank neu (0x11DA2 -> 0x112AA) und zählt die Öffnungszeiten der
-      // Trainingslager weiter (0x11D2D). Beides hing bei uns am Monatsende bzw. lief nur
-      // einmal je Tag (GitLab #34). Erst die Lager, dann die Bank (0x11D2D vor 0x11DA2, #99).
-      advanceCampOpen(r.campOpen, r.rng);
-      if (r.rng(0, 60) === 0) driftInterest(g, r.rng);
-      for (const kind of dailyConstruction(g, i)) {
-        // Der Betreff steht im Original je Bauwerk fest (0x4EAEA); Flutlicht, Anzeigetafel und
-        // Komfort tragen ihr Stichwort in einer zweiten Zeile (0x4FD40)
-        const bau = texte("ui.bauwerke");
-        const zusatz = kind === 4 ? bau[7] : kind === 5 ? bau[8] : kind === 7 ? bau[9] : "";
-        const text = `${bau[kind - 1]}${zusatz ? " " + zusatz : ""} ${texte("ui.ausbaufertig")[0]}`;
-        r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: ${text}`);
-        pushMessage(r, i, wrap(text), dt);
-      }
-      // Krawall und Komfort gehören zur Tagesroutine und laufen einmal am Ankunftstag (#99)
-      for (const ev of dailyFinance(g, i, dt, r.rng, r.balanceSums[i], false)) {
-        r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: ${ev.text}`);
-        // Was der Manager davon zu sehen bekommt, richtet sich nach dem Original (GitLab #41):
-        // "Ihr Kredit von ... wurde heute fällig." steht in der Texttabelle des Hinweiskastens
-        // (BMMAIN 0x50472, GitLab #36), die Randale schreibt das Original als Meldung (0x0E21A
-        // baut die drei Zeilen und gibt sie über 0x0239E an die Meldungsroutine 0x30AA0).
-        // Zinsen, Monatsabrechnung und der Fanwert dagegen laufen im Original still: die
-        // Fanerhöhung (0x11F76) schreibt keine Meldung, und Einnahmen und Ausgaben stehen im
-        // Finanzbildschirm, nicht in der Meldungsliste. Sie bleiben deshalb im Verlauf.
-        if (ev.kind === "repaid") hinweis(wrap(ev.text));
-        else if (ev.kind === "riot" || ev.kind === "komfort") pushMessage(r, i, wrap(ev.text), dt);
-        // Jugendförderung (Version 2026, #4) läuft mit der Monatsabrechnung
-        if (ev.kind !== "month") continue;
-        const jugend = jugendMonat(g, i);
-        if (jugend > 0) {
-          r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: Jugendförderung ${dmText(jugend)}`);
-          pushMessage(r, i, ["Jugendf|rderung:", dmText(jugend)], dt);
-        }
-      }
-      // Sperre nach einem Trainingslager läuft ab (0x11DEE)
-      campCountdown(g, i);
-      // Kalendermeldungen des Hauptmenüs (0x143ED): Winterpause, Relegation, gesichert/verspielt.
-      // Sie kommen in den Hinweiskasten, nicht in die Meldungsliste (GitLab #31)
-      if (isWinterBreakDay(dt)) hinweis(winterBreakLines());
-      const rel = relegationMessage(g, i, dt);
-      if (rel) {
-        hinweis(rel);
-        r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: Relegationsspiel`);
-      }
-      const flags = { v: r.msgFlags[i] ?? 0 };
-      for (const lines of standingsMessages(g, i, flags, dt)) {
-        hinweis(lines);
-        r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: ${lines.join(" ")}`);
-      }
-      r.msgFlags[i] = flags.v;
-    });
-    // Weihnachten (0x1D6F6 -> 0x1CF86 am 24.12.): Gruß mit 1/4, darin Weihnachtspakete mit 1/2
-    if (dt.day === 24 && dt.month0 === 11) {
-      const x = christmasPresents(g, r.rng);
-      if (x) {
-        g.activeManagers().forEach((m, i) => {
-          const lines = [T("quell.server", 6)];
-          if (x.base > 0) lines.push(...christmasLines(), `BUNDESLIGA: ${x.base} DM, 2.LIGA: ${Math.trunc(x.base / 2)} DM,`, `AMATEUR-OBERLIGA: ${Math.trunc(x.base / 3)} DM (INCL. MWST.)`);
-          pushMessage(r, i, lines, dt);
-          r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: Frohe Weihnachten${x.base > 0 ? `, Weihnachtspakete ${x.amounts[i]} DM` : ""}`);
-        });
-      }
-    }
-    // 12.11. und 19.4.: dieselbe Routine würfelt für ihre (nicht portierten) Scherzbildschirme
-    scherztagWurf(dt, r.rng);
-    if (dt.day === DAYS_IN_MONTH[dt.month0]) {
-      // Überschuldung (Version 2026): Punktabzug und Kaufsperre
-      for (const d of checkDebt(g)) {
-        const mg = g.managers.at(d.manager);
-        const liga = mg.clubIndex < 18 ? 0 : mg.clubIndex < 38 ? 1 : 2;
-        updatePositions(g, liga);
-        r.log.push(`${dt.day}.${dt.month0 + 1}. ${mg.displayName}: ${dmText(d.balance)} im Minus - ${d.points} Punkte Abzug und ein Monat Kaufsperre`);
-        pushMessage(r, d.manager, ["Ihr Konto ist zu tief", "im Minus: " + d.points + " Punkte", "Abzug, ein Monat", "keine Eink{ufe."], dt);
-        g.activeManagers().forEach((_, i) => {
-          if (i !== d.manager) pushMessage(r, i, [`${mg.displayName} bekommt`, `${d.points} Punkte Abzug`, "wegen Schulden."], dt);
-        });
-      }
-    }
+  for (let d = fromDay + 1; d <= toDay; d++) finanzTag(r, dateOfSeasonDay(d, startYear));
+  if (saisonEnde) {
+    driftClubs(g, 1, r.rng);
+    if (r.rng(0, g.activeManagers().length + 3) === 0) refreshMarket(g, r.rng);
+    r.log.push("Saisonende: noch ein Zug, dann beginnt die neue Saison");
   }
   // Tagesroutine 0x0DF0D: Vertragsangebote, Training, Frische und Verletzungen aller
   // Managerkader. Das Original ruft sie erst nach den Spielen auf, wenn der Saisontag den

@@ -38,7 +38,7 @@ export { bidScore, bestBid, type FreeAgent, type FreeBid } from "./sim/abloesefr
 export { highestBid, resolveAuction, sureBid, type Bid, type AuctionResult } from "./sim/auktion.ts";
 export { POACH_MAX_BONUS, POACH_MIN_SQUAD, POACH_MAX_PER_OWNER, POACH_COUNT_OFFSET, poachCount, poachLeft, resetPoachCounts, poachPrice, poachAmount, poachChance, poachCheck, poachAllowedFrom, poach, raiseSalary, POACH_COUNTER_MAX, type PoachResult } from "./sim/abwerben.ts";
 export { RULES_OFFSET, RULES_ORIGINAL, RULES_2026, ruleSet, setRuleSet, is2026, winPoints, substitutionLimits, ruleName, type SubstitutionLimits } from "./sim/regeln.ts";
-export { seasonDay, isSaturday, dateOfSeasonDay, calendarFlag, dayIndex, seasonStartYear, setDayIndex, CALENDAR_DAYS, setCalendarFlag, FLAG_LEAGUE, FLAG_CUP, FLAG_EUROPE } from "./sim/calendar.ts";
+export { seasonDay, isSaturday, dateOfSeasonDay, calendarFlag, dayIndex, seasonStartYear, setDayIndex, CALENDAR_DAYS, LETZTER_SAISONTAG, setCalendarFlag, FLAG_LEAGUE, FLAG_CUP, FLAG_EUROPE } from "./sim/calendar.ts";
 export { originaltag, saisonwechseltag, type Originaltag, type Kontrollpunkt } from "./sim/originaltag.ts";
 export { playMatchday, playReplays, matrixFor, matchStrength, writeResult, writePairings, afterMatch, kaderVorbereitung, moralWeg, bookEvents, type LiveBooking, type PlayedMatch } from "./sim/matchday.ts";
 export { pickPlayer, bookGoal, bookChance, bookDefence } from "./sim/goals.ts";
@@ -53,9 +53,11 @@ export { monthlyIncome, monthlyExpenses, loanTotal, lenderDebt, bookMonth, daily
 export { playCupDay, cupPairs, cupRound, CUP_OUT } from "./sim/cup.ts";
 export { playEuropaDay, dfbFinale, playPlayoffDay, afterCupDay, playCupMatch, shootout, extraTime, initialDraw, nextRoundDraw, decideTie, tieBreak, europeanParticipants, currentPairs, cupRoundOf, legPlayed, orderList, clearCupResults, cupNames, CUP_TABLE, CUP_ROUND, LEG_FLAG, FIRST_LEG, PLAYOFF_FIRST_LEG, HOLDER, DFB_WINNER, PLAYOFF_RESULT, ROUND_PAIRS, type CupMatch, type CupFinal, type Elfmeter, type Nachspiel, type NachspielQuelle } from "./sim/europa.ts";
 export { generateOffers, stadiumValue, signShirt, signBoard, monthlyAdvertising, seasonEndAdvertising, offerAmount, offerYears, shirtContract, boardContract, advertisingAmount, SHIRT_OFFSET, BOARDS_OFFSET, CAT_OFFSET, OFFERS_OFFSET, ADV_OFFSET, LEVEL_OFFSET } from "./sim/werbung.ts";
-export { newSeason, swapClubs, promoteRelegate, shuffleLeagues, writeHistory, CALENDAR_TEMPLATE } from "./sim/season.ts";
+export { newSeason, saisonwechselTeil1, saisonwechselTeil2, saisonbilanz, saisonwechselStand, swapClubs, promoteRelegate, shuffleLeagues, writeHistory, CALENDAR_TEMPLATE } from "./sim/season.ts";
+export type { SaisonTeil1 } from "./sim/season.ts";
 export { playerValue } from "./sim/value.ts";
 export { seasonEvents, releaseExpiring } from "./sim/seasonEvents.ts";
+export type { SeasonEvent } from "./sim/seasonEvents.ts";
 export { contractOffers, contractCooldown, contractScore, acceptOffer, declineOffer, rejectOffer, vertragsgespraechSperren, salaryDemand, contractCheck, contractRefusals, retirementAnnouncements, MAX_CONTRACT_YEARS, tooLongText, type ContractOffer } from "./sim/contracts.ts";
 export { LiveMatch, SUBSTITUTIONS, type LiveChance, type MatchSim } from "./sim/live.ts";
 export { parseMana, type ManaData } from "./data/mana.ts";
