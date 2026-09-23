@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, stadiumState, stadiumCapacity, buildDays, buildWeeks, extendStadium, dailyConstruction, setTicketPrice, takeLoan, loanRate, LOAN_MONTHS, lenderDebt, BANK, dailyFinance, texte } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, stadiumState, stadiumCapacity, buildDays, buildWeeks, extendStadium, dailyConstruction, bauAblehnen, bauGesperrt, setTicketPrice, takeLoan, loanRate, LOAN_MONTHS, lenderDebt, BANK, dailyFinance, texte } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -107,4 +107,17 @@ test("Gesamtkapazität und Bauwochen wie im Original (TEST4 in DOSBox nachgemess
   const r = extendStadium(g, 0, 1, 1000, mulberryRng(99), tage);
   assert.ok(r.ok && r.days === tage, JSON.stringify(r));
   assert.equal(stadiumState(g, 0)[0].days, tage);
+});
+
+test("Abgelehntes Bauangebot sperrt die Art random(15,55) Tage für alle, jede Baurunde zählt herunter (0x0584, 0x2362)", () => {
+  const g = load("TEST4.MAN");
+  const tage = bauAblehnen(g, 3, mulberryRng(4));
+  assert.ok(tage >= 15 && tage <= 55);
+  assert.equal(bauGesperrt(g, 3), true);
+  assert.equal(bauGesperrt(g, 2), false);
+  // Die Baurunde läuft je Manager: jeder Aufruf zählt einen Tag herunter
+  for (let i = 0; i < tage - 1; i++) dailyConstruction(g, i % 3);
+  assert.equal(bauGesperrt(g, 3), true);
+  dailyConstruction(g, 0);
+  assert.equal(bauGesperrt(g, 3), false);
 });

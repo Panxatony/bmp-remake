@@ -145,11 +145,34 @@ export function extendStadium(g: GameState, manager: number, kind: number, amoun
   return { ok: true, cost, days };
 }
 
-/** Tägliche Baufortschritte (0x20E1): Resttage herunter, bei 0 wird der Bau übernommen. Liefert die fertigen Arten. */
+/**
+ * Sperre je Ausbauart nach einem abgelehnten Angebot (4238:5780, Spielstand 34215, 7 Bytes): die
+ * Ausbau-Routine setzt sie auf random(15,55) (0x0584), der Stadionbildschirm lässt die Art dann
+ * nicht zu (0x07E9), die tägliche Baurunde zählt sie herunter (0x2362). Sie gilt für alle Manager.
+ */
+export const BAU_SPERRE = 34215;
+
+export function bauAblehnen(g: GameState, kind: number, rng: Rng): number {
+  const tage = rng(15, 55);
+  g.save.plain[BAU_SPERRE + kind - 1] = tage;
+  return tage;
+}
+
+export function bauGesperrt(g: GameState, kind: number): boolean {
+  return kind >= 1 && kind <= 7 && g.save.plain[BAU_SPERRE + kind - 1] !== 0;
+}
+
+/**
+ * Tägliche Baurunde (0x20E1, je Manager aus der Finanzroutine): je Art die Sperre nach einer
+ * Ablehnung herunter, die Resttage herunter, bei 0 wird der Bau übernommen. Liefert die fertigen
+ * Arten.
+ */
 export function dailyConstruction(g: GameState, manager: number): number[] {
   const m = g.managers.at(manager);
   const done: number[] = [];
   for (const k of stadiumKinds()) {
+    const sperre = BAU_SPERRE + k.kind - 1;
+    if (g.save.plain[sperre] !== 0) g.save.plain[sperre]--;
     const o = daysOff(k.kind);
     let days = m.u8(o) | (m.u8(o + 1) << 8);
     if (days === 0) continue;

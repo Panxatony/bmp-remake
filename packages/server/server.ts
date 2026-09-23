@@ -112,6 +112,8 @@ import {
   campCountdown,
   extendStadium,
   dailyConstruction,
+  bauAblehnen,
+  bauGesperrt,
   setTicketPrice,
   takeLoan,
   poachCheck,
@@ -1600,7 +1602,8 @@ function stateJson(r: Room, user: string) {
     // Zusätze der Version 2026
     extra: {
       blocked: r.game.activeManagers().map((_, i) => isBlocked(r.game, i)),
-      bauAbgelehnt: [...r.bauAbgelehnt],
+      // Gesperrte Ausbauarten (für alle Manager gleich) in der Form, die der Client kennt
+      bauAbgelehnt: r.game.activeManagers().flatMap((_, i) => [1, 2, 3, 4, 5, 6, 7].filter((k) => bauGesperrt(r.game, k)).map((k) => `${i}:${k}`)),
       derby: r.game.activeManagers().map((_, i) => stakeLevel(r.game, i)),
       poachRequests: r.poachRequests,
       loanRequests: r.loanRequests,
@@ -3229,9 +3232,14 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     return json(res, 200, { ok: true });
   }
   if (p === "/api/stadium/decline") {
-    // Angebot abgelehnt: für diese Ausbauart gibt es heute keine Baufirma mehr (0x7E9)
+    // Angebot abgelehnt: die Ausbauart ist für random(15,55) Tage gesperrt, für alle Manager
+    // (4238:5780, 0x0584; die tägliche Baurunde zählt herunter)
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
-    room.bauAbgelehnt.add(`${manager}:${Math.trunc(Number(body.kind))}`);
+    const art = Math.trunc(Number(body.kind));
+    if (!(art >= 1 && art <= 7)) return json(res, 400, { error: "Ausbauart ungültig" });
+    const tage = bauAblehnen(room.game, art, room.rng);
+    room.log.push(`${room.game.managers.at(manager).displayName} lehnt ${stadiumKinds()[art - 1].name} ab - ${tage} Tage keine Baufirma`);
+    await persist(room);
     room.version++;
     broadcast(room);
     return json(res, 200, { ok: true });
@@ -3252,7 +3260,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   }
   if (p === "/api/stadium") {
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
-    if (room.bauAbgelehnt.has(`${manager}:${Math.trunc(Number(body.kind))}`)) {
+    if (bauGesperrt(room.game, Math.trunc(Number(body.kind)))) {
       const abs = stadiumMessages();
       return json(res, 400, { error: `${abs[2]} ${abs[3]}` });
     }
