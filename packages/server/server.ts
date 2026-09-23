@@ -28,8 +28,7 @@ import {
   toDosText,
   mulberryRng,
   playMatchday,
-  postponementCount,
-  scheduleReplays,
+  verlegen,
   replays,
   removeReplays,
   playReplays,
@@ -1512,22 +1511,16 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   for (let league = 0; league < 3; league++) {
     if (!(flag & FLAG_LEAGUE[league])) continue;
     const md = g.nextMatchday(league);
-    const postponed: number[] = live ? live.postponed[league] : [];
-    if (!live) {
-      const n = postponementCount(k, r.rng);
-      const count = g.pairings(league).length;
-      while (postponed.length < n) {
-        const m = r.rng(0, count - 1);
-        if (!postponed.includes(m)) postponed.push(m);
-      }
-    }
+    // Die Konferenz hat schon verlegt und die Nachholtermine eingetragen (0x3563); ohne sie
+    // geschieht beides hier
+    const postponed: number[] = live ? live.postponed[league] : verlegen(g, k, league, md, r.rng, (l, m2, i) => fixtures(l, m2)[i]);
     // Vor dem Spieltag sichert das Original das System je Manager (0x1D817)
     systemeSichern();
     const played = playMatchday(g, league, r.rng, postponed, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), live?.booking);
     r.log.push(`${["Bundesliga", "2. Liga", "Oberliga"][league]}, ${md}. Spieltag`);
-    // Verlegte Spiele auf Nachholtermine legen (0x03563 mit 0x36F1)
+    // Nachholtermine der verlegten Spiele fürs Protokoll
     if (postponed.length) {
-      const neu = scheduleReplays(g, k, league, md, postponed.slice().sort((a, b) => a - b), (l, m2, i) => fixtures(l, m2)[i]);
+      const neu = replays(g).filter((e) => e.league === league && e.matchday === md && postponed.includes(e.match));
       for (const e of neu) {
         const [h, a] = fixtures(e.league, e.matchday)[e.match];
         r.log.push(`verlegt: ${names(h)} - ${names(a)} (${md}. Spieltag) auf Tag ${e.dayIndex}`);

@@ -34,7 +34,7 @@ import { applyResult } from "./standings.ts";
 import { bookHistory } from "./history.ts";
 import { autoLineupIfEnabled, backupSystem, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
-import { replays } from "./postpone.ts";
+import { replays, verlegen, istVerlegt } from "./postpone.ts";
 import { fixtures } from "./fixtures.ts";
 import { afterCupDay, dfbFinale, shootout, currentPairs, legPlayed, tieBreak, CUP_RESULTS, CUP_ROUND, FIRST_LEG } from "./europa.ts";
 import { pokalZuschlag, ERSATZ_PREIS, ligaBand } from "./attendance.ts";
@@ -68,9 +68,14 @@ function matrixInVerein(g: GameState, manager: number, s: { ko: number[]; te: nu
  * Spielstand, und bis das Original den Stand lädt, sind sie schon etliche Tage gelaufen; für
  * einen Vergleich gibt man den im Original gemessenen Wert mit (kontrollpunkte.py --dump).
  */
-export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lagerBeimLaden: readonly number[] = CAMP_OPEN_START): Originaltag {
+export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lagerBeimLaden: readonly number[] = CAMP_OPEN_START, beobachter?: (punkt: number, g: GameState) => void): Originaltag {
   const punkte: Kontrollpunkt[] = [];
-  const kp = (punkt: number) => punkte.push({ punkt, wurf: rng.zaehler() });
+  // `beobachter` sieht den Stand an jedem Punkt - für Vergleiche mit einem Speicherabzug des
+  // Originals (kontrollpunkte.py --dump)
+  const kp = (punkt: number) => {
+    punkte.push({ punkt, wurf: rng.zaehler() });
+    beobachter?.(punkt, g);
+  };
   const managers = g.activeManagers();
 
   const n = managers.length;
@@ -136,8 +141,13 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
     if (bis) return { punkte, bis };
     return { punkte, bis: folgetage(g, rng, kp, lager) };
   }
-  // Verlegungen je Liga (0x3563) würfeln nur im Winterfenster - dort fehlt der Lauf noch
-  if (dayIndex(g) >= 25 && dayIndex(g) <= 69) return { punkte, bis: "Winterfenster (Verlegungen) fehlt noch" };
+  // Verlegungen je Liga (0x1D87E -> 0x3563, nur im Winterfenster): die Bundesliga nur mit ihrem
+  // Ligabit, die beiden anderen Ligen ruft das Original an jedem Ligatag auf
+  for (let league = 0; league < 3; league++) {
+    if (league === 0 && !(flag & 1)) continue;
+    verlegen(g, dayIndex(g), league, g.nextMatchday(league), rng, (l, md, m) => fixtures(l, md)[m]);
+  }
+  const ligaPaare = (league: number) => g.pairings(league).filter((_, m) => !istVerlegt(g, league, g.nextMatchday(league), m));
 
   // Spieltagstreiber 0x46DB: Spielvorbereitung je Paarung in Ligareihenfolge (0x4914)
   kp(1);
@@ -145,7 +155,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   const zuschauer = new Map<number, number>();
   for (let league = 0; league < 3; league++) {
     if (!(flag & FLAG_LEAGUE[league])) continue;
-    for (const [home, away] of g.pairings(league)) {
+    for (const [home, away] of ligaPaare(league)) {
       kp(2);
       // 0x1C632: die Manager der Paarung in ihrer Reihenfolge; der erste mit zu wenigen
       // Spielern beendet die Routine
@@ -167,10 +177,14 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   // 0x102B9 mit Schalter 1: Zahl je Seite, dann die Minuten erst für Heim, dann für Gast), danach
   // je Minute und Paarung Karten und Verletzungen (0x05FE5), nach glatt Rot oder Verletzung die
   // Neuauslosung (0x0657F), dann die Chancen der Minute (0x1060B, Buchung 0x1B223)
-  const spiele: { home: number; away: number; match: LiveMatch; seiten: [number, IncidentState, "home" | "away"][]; schuetzen: { minute: number; side: "home" | "away"; name: string }[] }[] = [];
+  // Verlegte Paarungen bleiben in der Liste: der Punkt vor den Chancen läuft für sie mit, gewürfelt
+  // wird nichts
+  const spiele: { home: number; away: number; verlegt: boolean; match: LiveMatch; seiten: [number, IncidentState, "home" | "away"][]; schuetzen: { minute: number; side: "home" | "away"; name: string }[] }[] = [];
   for (let league = 0; league < 3; league++) {
     if (!(flag & FLAG_LEAGUE[league])) continue;
-    for (const [home, away] of g.pairings(league)) {
+    const md = g.nextMatchday(league);
+    for (const [m, [home, away]] of g.pairings(league).entries()) {
+      const verlegt = istVerlegt(g, league, md, m);
       const match = new LiveMatch(g.clubs.at(home).strengthMatrix, g.clubs.at(away).strengthMatrix, rng);
       const seiten: [number, IncidentState, "home" | "away"][] = [];
       for (const [club, seite] of [[home, "home"], [away, "away"]] as const) {
@@ -178,7 +192,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
         if (mi !== undefined) seiten.push([mi, newIncidentState(), seite]);
       }
       seiten.sort((a, b) => a[0] - b[0]);
-      spiele.push({ home, away, match, seiten, schuetzen: [] });
+      spiele.push({ home, away, verlegt, match, seiten, schuetzen: [] });
     }
   }
   const managerLigen = new Set(managers.map((m) => (m.clubIndex < 18 ? 0 : m.clubIndex < 38 ? 1 : 2)));
@@ -195,9 +209,10 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   for (let minute = 1; minute <= 90; minute++) {
     for (const s of spiele) {
       if (minute === 1 || minute === 46) kp(4);
-      s.match.beginMinute();
+      if (!s.verlegt) s.match.beginMinute();
     }
     for (const s of spiele) {
+      if (s.verlegt) continue;
       let neu: number | undefined;
       for (const [mi, st, seite] of s.seiten) {
         const fresh = minuteIncidents(g, mi, minute, st, rng, kp);
@@ -234,7 +249,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   // mit dem Schalter "Ergebnisse" die Übersicht - und mit ihr die Stärke aller Manager neu
   for (let league = 0; league < 3; league++) {
     if (!(flag & FLAG_LEAGUE[league])) continue;
-    const paare = spiele.filter((sp) => g.pairings(league).some(([h, a]) => h === sp.home && a === sp.away));
+    const paare = spiele.filter((sp) => !sp.verlegt && ligaPaare(league).some(([h, a]) => h === sp.home && a === sp.away));
     kp(22);
     for (const sp of paare) {
       const { hg, ag } = sp.match;
@@ -253,7 +268,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   // Sportzeitung (0x3074A): je Manager, der heute gespielt hat, in Managerreihenfolge erst die
   // Noten (ohne Würfel), dann die Seite (0x2F243)
   managers.forEach((m, mi) => {
-    const sp = spiele.find((x) => x.home === m.clubIndex || x.away === m.clubIndex);
+    const sp = spiele.find((x) => !x.verlegt && (x.home === m.clubIndex || x.away === m.clubIndex));
     if (!sp) return;
     const inc = sp.seiten.flatMap(([, st]) => st.incidents);
     const eigene = inc.filter((x) => x.manager === mi);
@@ -480,7 +495,8 @@ function pickScene(rng: Rng, goal: boolean): boolean {
   rng(2, 43);
   const elfmeter = rng(0, goal ? 15 : 25) === 0;
   if (elfmeter) rng(2, 5);
-  else rng(0, 400);
+  // seltene Jubelszene: ihre Nummer random(2, 2) - es gibt nur 2.TJ und 2.VJ
+  else if (rng(0, 400) === 0) rng(2, 2);
   return elfmeter;
 
 }

@@ -20,7 +20,7 @@ import {
   LiveMatch,
   matrixFor,
   matchStrength,
-  postponementCount,
+  verlegen,
   replays,
   fixtures,
   currentPairs,
@@ -187,6 +187,9 @@ export const ELFMETER_ENDE_MS = 3000;
  * `random(0,400) = 0` die seltene Jubelszene. Der Lader liefert zurück, ob es ein Elfmeter
  * war - dann gibt es keine Vorlage (0x1BC9E). Bis GitLab #85 stand hier 1/15, 1/25 und 1/400.
  */
+/** Höchste Nummer der Jubelszenen (TORE/2.TJ, 2.VJ). */
+const JUBEL_HOECHSTE = 2;
+
 export function pickScene(rng: Rng, goal: boolean, available: Set<string>): { id: string; elfmeter: boolean } {
   const suffix = goal ? "T" : "V";
   let name = `${rng(2, 43)}.${suffix}`;
@@ -194,7 +197,12 @@ export function pickScene(rng: Rng, goal: boolean, available: Set<string>): { id
   if (elfmeter) {
     const e = `${rng(2, 5)}.${suffix}E`;
     if (available.has(e)) name = e;
-  } else if (rng(0, 400) === 0 && available.has(`2.${suffix}J`)) name = `2.${suffix}J`;
+  } else if (rng(0, 400) === 0) {
+    // Seltene Jubelszene: der Lader würfelt ihre Nummer mit random(2, n), n = höchste Nummer
+    // (4cb3:4BD4); im Original gibt es nur 2.TJ und 2.VJ - der Wurf zählt trotzdem (#99)
+    const j = `${rng(2, JUBEL_HOECHSTE)}.${suffix}J`;
+    if (available.has(j)) name = j;
+  }
   return { id: available.has(name) ? name : `10.${suffix}`, elfmeter };
 }
 
@@ -222,11 +230,8 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
   for (let league = 0; league < 3; league++) {
     if (!(flag & FLAG_LEAGUE[league])) continue;
     const pairs = g.pairings(league);
-    const n = postponementCount(k, rng);
-    while (postponed[league].length < n) {
-      const m = rng(0, pairs.length - 1);
-      if (!postponed[league].includes(m)) postponed[league].push(m);
-    }
+    // Winterliche Verlegungen samt Nachholtermin wie im Original vor dem Anpfiff (0x3563, #99)
+    postponed[league] = verlegen(g, k, league, g.nextMatchday(league), rng, (l, md, m) => fixtures(l, md)[m]);
       pairs.forEach(([home, away], m) => {
       if (!postponed[league].includes(m)) add("league", home, away, { league, spieltag: g.nextMatchday(league) });
     });

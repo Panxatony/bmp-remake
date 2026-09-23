@@ -26,6 +26,8 @@ Aufruf: tools/kontrollpunkte.py [--spur 12] [--still 2,7] <Testkopie.EXE>   (än
   --halt: nach diesen Punkten nichts mehr schreiben; --ohne: Punkte gar nicht einbauen
   --dump P [--dump-von 0x90ca --dump-laenge 462]: an P einen Speicherbereich (Segment 4238)
     nach LOG+0x200 kopieren; 4cb3:xxxx liegt bei 4238:xxxx+0xA7B0
+  --dump-einmal 1: nur beim ersten Erreichen kopieren (sonst gilt der letzte Durchlauf - und
+    der Folgetag läuft bis zum Speichern oft noch einmal über denselben Punkt)
 """
 import os
 import subprocess
@@ -78,6 +80,7 @@ PUNKTE = [
 DUMP_PUNKTE: set = set()
 SPUR_MANAGER = None        # --spur-manager M: die Spur nur, solange 4238:304A = M
 DUMP_VON, DUMP_LAENGE, DUMP_ZIEL = 0x90CA, 3 * 154, 0x200
+DUMP_EINMAL = False
 # --ring: das Protokoll läuft im Kreis (älteste Einträge werden überschrieben); die Einträge
 # tragen den Zustand, der Leser ordnet sie nach der Wurfzahl
 RING = False
@@ -261,6 +264,9 @@ def quelltext_dump(protokoll: int) -> str:
   push ds
   push es
   push ax
+  cmp byte ptr cs:[fertig], 0
+  jne 1f
+  mov byte ptr cs:[fertig], {1 if DUMP_EINMAL else 0}
   mov ax, cs
   add ax, {(DATA - CAVE_SEG) & 0xFFFF:#x}
   mov ds, ax
@@ -270,6 +276,7 @@ def quelltext_dump(protokoll: int) -> str:
   mov cx, {DUMP_LAENGE}
   cld
   rep movsb
+1:
   pop ax
   pop es
   pop ds
@@ -277,6 +284,8 @@ def quelltext_dump(protokoll: int) -> str:
   pop di
   pop si
   jmp protokoll
+fertig:
+  .byte 0
 """
 
 
@@ -294,7 +303,7 @@ def quelltext_stummel(protokoll: int, dump: int = 0) -> str:
 
 
 def main() -> None:
-    global SPUR_PUNKTE, STILL_PUNKTE, RING, HALT_PUNKTE, OHNE_PUNKTE, DUMP_PUNKTE, DUMP_VON, DUMP_LAENGE, SPUR_MANAGER
+    global SPUR_PUNKTE, STILL_PUNKTE, RING, HALT_PUNKTE, OHNE_PUNKTE, DUMP_PUNKTE, DUMP_VON, DUMP_LAENGE, SPUR_MANAGER, DUMP_EINMAL
     args = sys.argv[1:]
     liste = lambda v: {int(x) for x in v.split(",") if x}
     while len(args) > 1 and args[0].startswith("--"):
@@ -310,6 +319,8 @@ def main() -> None:
             DUMP_VON = int(args[1], 0)
         elif args[0] == "--dump-laenge":
             DUMP_LAENGE = int(args[1], 0)
+        elif args[0] == "--dump-einmal":
+            DUMP_EINMAL = args[1] == "1"
         elif args[0] == "--halt":
             HALT_PUNKTE = liste(args[1])
         elif args[0] == "--ohne":
