@@ -97,6 +97,11 @@ def probe(im):
     tafel = sum(1 for x in range(0, 320, 5) for y in range(0, 240, 5) if near(px((x, y)), (81, 97, 16), 6))
     if tafel >= 40:
         return "live"
+    # Ganzseitige Tafel in Schwarz-Rot-Gold (0x31FA): mit dunkelrotem Kasten die 0:2-Wertung
+    # ("Ihr Spiel wird mit 0:2 gewertet", OKAY), ohne Kasten der Titel des Elfmeterschießens
+    # (0x6733), der auf einen Klick wartet (#90, #72)
+    if near(px((5, 40)), (0, 0, 0), 10) and near(px((5, 120)), (178, 0, 32), 20) and near(px((5, 200)), (195, 113, 32), 20):
+        return "kasten-02" if near(px((160, 140)), (97, 0, 16), 20) else "flagge"
     if near(px((160, 118)), (120, 20, 20), 50):
         return "dialog"
     # Frage vor der Pokalauslosung (0x17C26, "An Alle:"): beiger Titel über rotem Kasten mit
@@ -193,6 +198,14 @@ def day(max_steps=200):
         if st == "vertrag":
             # Für den Vergleich (#99) immer ABBRUCH: kein neuer Vertrag
             click(212, 220)
+            time.sleep(2)
+            continue
+        if st == "kasten-02":
+            click(206, 166)  # OKAY
+            time.sleep(2)
+            continue
+        if st == "flagge":
+            click(160, 120)
             time.sleep(2)
             continue
         if st == "auslosung":

@@ -41,6 +41,8 @@ import {
   FLAG_EUROPE,
   substitutionLimits,
   bookEvents,
+  bookShootoutShot,
+  bookDefence,
   type GameState,
   type Rng,
   type MatchResult,
@@ -101,22 +103,30 @@ export interface Scene {
   /** Tore des Schützen nach diesem Treffer und der Vorlagengeber (0x05186 zeigt beides) */
   scorerGoals?: number;
   assist?: string;
+  /** Schuss im Elfmeterschießen (Index in der Elfmetertafel) */
+  elfmeter?: number;
   started: number;
   until: number;
 }
 
 /**
- * Elfmeterschießen auf eigener Tafel (0x6733): Überschrift, die beiden Vereine und darunter
- * Schuss für Schuss. Gezeigt wird nur mit Managerbeteiligung - dann aber allen Mitspielern,
- * so entschieden in GitLab #72.
+ * Elfmeterschießen mit Manager (0x6733): erst die Tafel in Schwarz-Rot-Gold mit Überschrift und
+ * den beiden Vereinen, dann jeder Schuss als Szene der Konferenz - der Chancenhandler 0x1B223
+ * mit Elfmetermarke zeigt Elfmeterszene und "Torschütze" bzw. "Chance vergeben" mit dem Namen
+ * des Schützen (nur beim Managerverein), die Tafel des Spiels den Elfmeterstand (im Original
+ * gemessen, GitLab #72). Gezeigt wird allen Mitspielern, so entschieden in #72.
  */
 export interface Elfmetertafel {
   key: string;
   home: number;
   away: number;
   schuesse: Elfmeter[];
-  /** Wie viele Schüsse schon auf der Tafel stehen */
+  /** Je Schuss Szene und Schütze (Name nur beim Managerverein) */
+  extra: { szene: string; name?: string }[];
+  /** Schüsse, deren Szene schon begonnen hat */
   gezeigt: number;
+  /** Schüsse, deren Szene vorbei ist - erst dann zählt der Stand auf der Tafel */
+  abgeschlossen: number;
   nextAt: number;
 }
 
@@ -204,6 +214,19 @@ export function pickScene(rng: Rng, goal: boolean, available: Set<string>): { id
     if (available.has(j)) name = j;
   }
   return { id: available.has(name) ? name : `10.${suffix}`, elfmeter };
+}
+
+/**
+ * Szene eines Schusses im Elfmeterschießen: der Lader 0x1502C bekommt die Elfmetermarke mit,
+ * würfelt Nummer und Elfmeterwurf trotzdem und dann die Elfmeterszene random(2, 5); die
+ * Jubelszene fällt weg (#72, #99).
+ */
+export function elfmeterSzene(rng: Rng, goal: boolean, available: Set<string>): string {
+  const suffix = goal ? "T" : "V";
+  rng(2, 43);
+  rng(0, goal ? 15 : 25);
+  const e = `${rng(2, 5)}.${suffix}E`;
+  return available.has(e) ? e : `10.${suffix}`;
 }
 
 /** Auswechslungen eines Managers im Spiel (4238:90C6). */
@@ -337,8 +360,13 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
   const now = Date.now();
   if (state.scene) {
     if (now < state.scene.until) return false;
+    const nr = state.scene.elfmeter;
     state.scene = undefined;
     state.holdUntil = now + 400;
+    if (nr !== undefined && state.elfmeter) {
+      state.elfmeter.abgeschlossen = nr + 1;
+      state.elfmeter.nextAt = now + (nr + 1 === state.elfmeter.schuesse.length ? ELFMETER_ENDE_MS : ELFMETER_MS);
+    }
     return true;
   }
   if (state.sceneQueue.length) {
@@ -352,9 +380,15 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
   if (state.elfmeter) {
     const t = state.elfmeter;
     if (now < t.nextAt) return false;
+    if (t.abgeschlossen < t.gezeigt) return false;
     if (t.gezeigt < t.schuesse.length) {
-      t.gezeigt++;
-      t.nextAt = now + (t.gezeigt === t.schuesse.length ? ELFMETER_ENDE_MS : ELFMETER_MS);
+      // Der nächste Schuss läuft als Szene der Konferenz (0x69F9 -> 0x1B223)
+      const i = t.gezeigt++;
+      const schuss = t.schuesse[i];
+      const e = state.entries.find((en) => en.key === t.key)!;
+      const side = schuss.seite === 0 ? "home" : "away";
+      const manager = (side === "home" ? e.managerHome : e.managerAway) ?? (side === "home" ? e.managerAway : e.managerHome)!;
+      state.sceneQueue.push({ id: t.extra[i].szene, mirror: side === "away", goal: schuss.tor, minute: 120, side, key: e.key, club: side === "home" ? e.home : e.away, manager, scorer: t.extra[i].name, elfmeter: i, started: 0, until: 0 });
       return true;
     }
     state.elfmeter = state.elfmeterQueue.shift();
@@ -444,9 +478,20 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
     if (elfmeter.length) {
       for (const e of elfmeter) {
         const schuesse: Elfmeter[] = [];
-        e.penalties = shootout(rng, true, schuesse);
+        const extra: Elfmetertafel["extra"] = [];
+        // Je Schuss der Chancenhandler mit Elfmetermarke: Szene, beim Managerverein Schütze und
+        // Bewertung, beim verteidigenden Manager die Abwehrbewertung (wie originaltag.ts)
+        e.penalties = shootout(rng, true, schuesse, (seite, tor) => {
+          const szene = state.scenesOn ? elfmeterSzene(rng, tor, scenes) : `10.${tor ? "T" : "V"}`;
+          const schuetze = seite === 0 ? e.managerHome : e.managerAway;
+          const abwehr = seite === 0 ? e.managerAway : e.managerHome;
+          let name: string | undefined;
+          if (schuetze !== undefined) name = bookShootoutShot(g, schuetze, tor, rng)?.scorerName;
+          else if (abwehr !== undefined) bookDefence(g, abwehr, tor);
+          extra.push({ szene, name });
+        });
         e.elfmeter = schuesse;
-        state.elfmeterQueue.push({ key: e.key, home: e.home, away: e.away, schuesse, gezeigt: 0, nextAt: now + ANNOUNCE_MS });
+        state.elfmeterQueue.push({ key: e.key, home: e.home, away: e.away, schuesse, extra, gezeigt: 0, abgeschlossen: 0, nextAt: now + ANNOUNCE_MS });
       }
       state.elfmeter = state.elfmeterQueue.shift();
       return true;
@@ -503,6 +548,18 @@ function cardSummary(st?: IncidentState): { yellow: number; red: number; injured
   return { yellow, red, injured, players: 11 - red - injured };
 }
 
+/**
+ * Während des Elfmeterschießens zeigt die Tafel des Spiels den Elfmeterstand, und die Chancen
+ * zählen jeden Schuss mit (im Original gemessen, #72).
+ */
+function elfmeterStand<T extends { key: string; hg: number; ag: number; chances: number[][] }>(state: LiveState, e: LiveEntry, json: T): T {
+  const t = state.elfmeter;
+  if (!t || t.key !== e.key || t.gezeigt === 0) return json;
+  const fertig = t.schuesse.slice(0, t.abgeschlossen);
+  const stand = fertig.length ? fertig[fertig.length - 1].stand : [0, 0];
+  return { ...json, hg: stand[0], ag: stand[1], chances: [...json.chances, ...fertig.map((x) => [120, x.seite, x.tor ? 1 : 0])] };
+}
+
 /** Karten/Verletzungen je Manager für die Tagesbuchung (schon im Kader gebucht). */
 export function incidentsOf(state: LiveState, manager: number): Incident[] {
   return state.news.filter((i) => i.manager === manager);
@@ -529,7 +586,7 @@ export function liveJson(state: LiveState, g: GameState) {
     halfSeen: state.halfSeen ?? null,
     finished: state.finished,
     scene: state.scene ? { ...state.scene, homeName: names(state.entries.find((e) => e.key === state.scene!.key)!.home), awayName: names(state.entries.find((e) => e.key === state.scene!.key)!.away), clubName: names(state.scene.club), now: Date.now() } : null,
-    entries: state.entries.map((e) => ({ key: e.key, kind: e.kind, nachhol: e.nachhol ?? false, league: e.league ?? null, cup: e.cup ?? null, home: e.home, away: e.away, homeName: names(e.home), awayName: names(e.away), hg: e.match.hg - wartend(e.key, "home"), ag: e.match.ag - wartend(e.key, "away"), minute: e.match.minute, attendance: e.attendance ?? null, forfeit: e.forfeit ?? null, cards: { home: cardSummary(e.incidentHome), away: cardSummary(e.incidentAway) }, managerHome: e.managerHome ?? null, managerAway: e.managerAway ?? null, spieltag: e.spieltag ?? null, chances: e.match.events.map((ev) => [ev.minute, ev.side === "home" ? 0 : 1, ev.goal ? 1 : 0]), scorers: e.scorers })),
+    entries: state.entries.map((e) => elfmeterStand(state, e, { key: e.key, kind: e.kind, nachhol: e.nachhol ?? false, league: e.league ?? null, cup: e.cup ?? null, home: e.home, away: e.away, homeName: names(e.home), awayName: names(e.away), hg: e.match.hg - wartend(e.key, "home"), ag: e.match.ag - wartend(e.key, "away"), minute: e.match.minute, attendance: e.attendance ?? null, forfeit: e.forfeit ?? null, cards: { home: cardSummary(e.incidentHome), away: cardSummary(e.incidentAway) }, managerHome: e.managerHome ?? null, managerAway: e.managerAway ?? null, spieltag: e.spieltag ?? null, chances: e.match.events.map((ev) => [ev.minute, ev.side === "home" ? 0 : 1, ev.goal ? 1 : 0]), scorers: e.scorers })),
     subs: state.subs,
     verletzung: state.verletzung ?? null,
     // Elfmetertafel: nur die Schüsse, die schon gefallen sind - der Client soll den Ausgang
@@ -540,8 +597,10 @@ export function liveJson(state: LiveState, g: GameState) {
           away: state.elfmeter.away,
           homeName: names(state.elfmeter.home),
           awayName: names(state.elfmeter.away),
-          schuesse: state.elfmeter.schuesse.slice(0, state.elfmeter.gezeigt).map((s) => ({ seite: s.seite, tor: s.tor, stand: s.stand })),
-          fertig: state.elfmeter.gezeigt === state.elfmeter.schuesse.length,
+          schuesse: state.elfmeter.schuesse.slice(0, state.elfmeter.abgeschlossen).map((s) => ({ seite: s.seite, tor: s.tor, stand: s.stand })),
+          // Solange noch kein Schuss läuft, steht die Tafel mit der Überschrift da
+          titel: state.elfmeter.gezeigt === 0,
+          fertig: state.elfmeter.abgeschlossen === state.elfmeter.schuesse.length,
         }
       : null,
     // Karten und Verletzungen der Managerspiele: der Client blendet die letzte Meldung unter der

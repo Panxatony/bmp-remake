@@ -104,6 +104,26 @@ export function bookChance(g: GameState, manager: number, goal: boolean, matchTy
   return { scorer, assist, scorerName: p.displayName };
 }
 
+/**
+ * Ein Schuss im Elfmeterschießen mit Manager (0x6733 ruft je Schuss den Chancenhandler 0x1B223
+ * mit der Elfmetermarke +0x18 = 1): Schütze und Vorlage werden gewählt wie bei jeder Chance, aber
+ * ein Treffer zählt nicht als Saisontor und bringt kein +15 (0x1BB08), und die Vorlage bekommt
+ * nichts (0x1BCA4). Ein Fehlschuss kostet den Schützen wie jede vergebene Chance 10 (0x1BB79).
+ */
+export function bookShootoutShot(g: GameState, manager: number, goal: boolean, rng: Rng): GoalRecord | null {
+  const squad = g.squadOf(manager);
+  const scorer = pickPlayer(g, manager, 0, goal ? 1 : 0, rng);
+  if (scorer < 0) return null;
+  let assist = -1;
+  if (squad.filter((l) => l.number >= 1 && l.number <= 11).length > 1) {
+    do assist = pickPlayer(g, manager, 1, 1, rng);
+    while (assist === scorer && assist >= 0);
+  }
+  const l = squad[scorer];
+  if (!goal) addRating(l, -10);
+  return { scorer, assist, scorerName: g.players.at(l.playerIndex).displayName };
+}
+
 /** Tor eines Managervereins buchen (Kurzform von `bookChance` für ein Tor). */
 export function bookGoal(g: GameState, manager: number, matchType: number, rng: Rng): GoalRecord | null {
   return bookChance(g, manager, true, matchType, rng);

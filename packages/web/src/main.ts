@@ -128,6 +128,8 @@ interface LiveScene {
   scorer?: string;
   scorerGoals?: number;
   assist?: string;
+  /** Schuss im Elfmeterschießen (#72) */
+  elfmeter?: number;
   started: number;
   until: number;
   now: number;
@@ -183,13 +185,17 @@ function halbzeitMinuten(minute: number): [number, number] {
   return [Math.min(minute, 45), Math.max(0, Math.min(minute, 90) - 45)];
 }
 
-/** Tafel des Elfmeterschießens (0x6733); es kommen nur die Schüsse, die schon gefallen sind. */
+/**
+ * Elfmeterschießen (0x6733): erst die Tafel mit der Überschrift (`titel`), danach laufen die
+ * Schüsse als Szenen der Konferenz. Es kommen nur die Schüsse, deren Szene vorbei ist.
+ */
 interface LiveElfmeter {
   home: number;
   away: number;
   homeName: string;
   awayName: string;
   schuesse: { seite: 0 | 1; tor: boolean; stand: [number, number] }[];
+  titel: boolean;
   fertig: boolean;
 }
 
@@ -1495,9 +1501,9 @@ class App {
   /**
    * Elfmeterschießen (0x6733): dieselbe Tafel wie vor dem Anpfiff, darauf die Überschrift und
    * die beiden Vereine. Die Zeilen stehen, wo das Original sie hinschreibt - Überschrift bei
-   * y=50, Heimverein bei 100, "gegen" bei 128 und der Gast bei 156 (0x6737 ff.). Die Schüsse
-   * darunter sind unsere Zutat: die Reihe der Schützen ist im Original nicht nachgemessen
-   * (GitLab #72).
+   * y=50, Heimverein bei 100, "gegen" bei 128 und der Gast bei 156 (0x6737 ff.); "gegen" in
+   * Beige (#d3c3b2), alles andere weiß. Die Schüsse laufen danach als Szenen der Konferenz (im
+   * Original gemessen, GitLab #72).
    */
   drawElfmeter(e: LiveElfmeter): void {
     const ctx = this.ctx;
@@ -1522,26 +1528,8 @@ class App {
     }
     gr.drawCenter(ctx, ueberschrift, 159, 50, COLORS.white, false);
     gr.drawCenter(ctx, toGame(e.homeName), 159, 100, COLORS.white, false);
-    f.drawCenter(ctx, gegen, 159, 128, COLORS.white, false);
+    f.drawCenter(ctx, gegen, 159, 128, "#d3c3b2", false);
     gr.drawCenter(ctx, toGame(e.awayName), 159, 156, COLORS.white, false);
-    // Je Seite eine Reihe: getroffen ist voll, vorbei ist leer
-    const stand = e.schuesse.length ? e.schuesse[e.schuesse.length - 1].stand : [0, 0];
-    for (const seite of [0, 1] as const) {
-      const y = 196 + 14 * seite;
-      const reihe = e.schuesse.filter((s) => s.seite === seite);
-      reihe.forEach((s, i) => {
-        const x = 96 + 11 * i;
-        ctx.fillStyle = COLORS.white;
-        if (s.tor) ctx.fillRect(x, y, 7, 7);
-        else {
-          ctx.fillRect(x, y, 7, 1);
-          ctx.fillRect(x, y + 6, 7, 1);
-          ctx.fillRect(x, y, 1, 7);
-          ctx.fillRect(x + 6, y, 1, 7);
-        }
-      });
-      f.draw(ctx, String(stand[seite]), 78, y - 1, COLORS.white, false);
-    }
   }
 
   /** Konferenztafel eines Managerspiels (Grafik 38.VGA: Tafel 153x113, Ziffern 15x16 ab Zeile 113). */
@@ -1634,8 +1622,8 @@ class App {
       this.drawAnkuendigung(live.announce);
       return;
     }
-    // Das Elfmeterschießen deckt die Konferenz zu, solange es läuft (GitLab #72)
-    if (live.elfmeter) {
+    // Vor dem ersten Schuss deckt die Tafel des Elfmeterschießens die Konferenz zu (GitLab #72)
+    if (live.elfmeter?.titel) {
       this.drawElfmeter(live.elfmeter);
       return;
     }
@@ -1788,6 +1776,10 @@ class App {
       // Solange die Szene läuft, steht dort nur die Minute; die Meldung kommt erst am Ende
       if (!done) {
         // nichts
+      } else if (sc.elfmeter !== undefined) {
+        // Elfmeterschießen: nur beim Managerverein steht ein Name, ohne Torzahl und Vorlage;
+        // beim Rechnerverein bleibt die Zeile ELFMETER (im Original gemessen, #72)
+        if (sc.scorer) zeilen.push({ text: toGame((sc.goal ? lt[2] : lt[3]) + sc.scorer), farbe: COLORS.white });
       } else if (sc.goal) {
         const zeile = sc.scorer ? `${lt[2]}${sc.scorer}${sc.scorerGoals ? ` (${sc.scorerGoals})` : ""}` : `${entry.homeName} - ${entry.awayName} ${entry.hg}:${entry.ag}`;
         zeilen.push({ text: toGame(zeile), farbe: COLORS.white });
@@ -1799,7 +1791,7 @@ class App {
         // Elfmeterszene (Kennung …E): Schriftzug ELFMETER statt der Minute (0x05186)
         // Die Minutenzeile steht tiefer als eine Meldung: oberste Zeile 226 (im Original
         // vermessen), flankiert von zwei Bällen.
-        f.drawCenter(ctx, sc.id.endsWith("E") ? "ELFMETER" : `${sc.minute}.Minute`, 160, 226, COLORS.white);
+        f.drawCenter(ctx, sc.id.endsWith("E") || sc.elfmeter !== undefined ? "ELFMETER" : `${sc.minute}.Minute`, 160, 226, COLORS.white);
         // Links und rechts der Minute steht je ein Ball aus PIC/8.VGA (163,102), 13x13
         if (symbole) {
           ctx.drawImage(symbole, 163, 102, 13, 13, 115, 221, 13, 13);
@@ -1825,7 +1817,7 @@ class App {
         y += 7;
       }
     }
-    const label = live.paused ? `UNTERBROCHEN VON ${(live.pausedBy ?? "").toUpperCase()}` : live.finished ? "Schluss" : `${live.minute}.Minute`;
+    const label = live.paused ? `UNTERBROCHEN VON ${(live.pausedBy ?? "").toUpperCase()}` : live.finished ? "Schluss" : live.elfmeter ? "ELFMETER" : `${live.minute}.Minute`;
     // Unterbrechen und auswechseln geht, solange das Spiel läuft. Der Hinweis darauf stand
     // früher nur in der Aufteilung mit höchstens zwei Managerspielen - bei drei oder vier
     // Tafeln blieb der Weg zum Auswechseln unsichtbar.
