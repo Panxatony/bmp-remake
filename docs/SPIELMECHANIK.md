@@ -965,6 +965,46 @@ Pokale (0x18600, Abschnitt "Pokale"), Werbeverträge und neue Sponsorenangebote 
 Bilanz gegen jeden Verein zu 10 Bytes, ab +2560 21 Bytes je Verein, ab +3988 und +4500
 je 8 Bytes je Verein). Beim Tausch werden Pokal-, Europa- und Reihenfolgetabellen mitgeführt (remapCupClubs).
 
+### Ablauf im Original (Würfelvergleich #99, am Protokoll gemessen)
+
+Nach dem letzten Kalendertag beginnt ein weiterer Tag mit srand, den Finanzen je Manager, der
+Schwankung und genau **einem** Zug (nur der erste Manager). Statt der Spiele folgt der
+Saisonwechsel des Tagesablaufs (0x1E14F bis 0x1EB02) in dieser Reihenfolge:
+
+1. Ewigkeitspunkte (0x1EB17) je Verein 0..63: 25 je Ligastufe (Bundesliga 2, 2. Liga 1) minus
+   Tabellenplatz plus 19, Vereine über 57 nichts; Pokalsieger +20 (DFB), +50 (Landesmeister),
+   +40 (Pokalsieger), +30 (UEFA); Meister +12, Bundesliga-Plätze 2..5 +3, Erste der unteren
+   Ligen +3. Nicht die Saisonpunkte.
+2. Fans (0x1E1C8): neu = Fans + Zuwachs·100/108/Jahre - Fans/Jahre (Jahre = Spielzeiten + 1,
+   höchstens 5), begrenzt auf 0..100. **Eigenheit:** der Wert steht in einer einzigen
+   Variablen; nach der Schwankung bekommen ihn alle Manager - der des letzten -, angehoben
+   auf 30 in den oberen Ligen und 61 in der Bundesliga, und die Anhebung wirkt für die
+   folgenden Manager weiter.
+3. Tabellen zurücksetzen (0x1E29E): Saisonwerte 0, Bytes 4..21 aus der Vorlage 4cb3:53C7
+   (achtmal 64, 0); Tabellenplatz und Ewigkeitspunkte bleiben, der Platz wandert beim Tausch
+   mit dem Verein.
+4. Lizenzentzug und Auf-/Abstieg (0x1E319 bis 0x1E662), siehe oben; **die Oberliga steigt
+   gegen die Vereine außerhalb ab**: der Letzte tauscht mit random(61,62), dann 60, 59, 58.
+   Steigt ein Managerverein aus der Oberliga ab, beginnt der Manager neu mit 500.000 DM
+   (Managerbyte 320 = 8), sein Verein bleibt.
+5. Schwankung aller Vereine mit Modus 10, die Fans aus Schritt 2 schreiben, Highscore.
+6. Je Manager die Sponsorenangebote (0x176F4), dann Ligaplätze mischen (0x3AC5),
+   Europapokalteilnehmer (0x18B12), Saisonende je Manager (0x0CB62: Prämien, Jugend,
+   Aprilscherz-Wurf random(0,4), Jahrgangswechsel, Karriereende, Vertragsgespräche - der
+   Dialog würfelt random(10,18) -, am Ende der Spielerpool 0x0F2A6).
+7. Die Tage vom 21. Juni bis 28. Juli: je Manager Sperren der Kaderplätze (0x0F6D8) und die
+   Finanzen (0x11D0D), am 30.6. mit der Monatsbuchung.
+8. Pokalergebnisse löschen (0x1978D) und alle vier Pokale auslosen (0x18600). Die
+   Vereinsverteilung zu Spielbeginn (0x1643B) gehört **nicht** hierher.
+
+Der Spielerpool ist nicht Wurf für Wurf nachzubauen: die Vereinswahl (0x16EFF) bekommt den Wert
+eines "Kaderplatzes" 25·(Managerzahl) + (int8) Spielernummer (0x24D4E mit dem aktuellen Manager
+4238:304A, der nach der Managerschleife auf der Managerzahl steht). Ab Spieler 50 liegt das hinter
+der Kadertabelle im Laufzeitspeicher (Spielbericht und anderes), ab 128 davor (Ergebnisse,
+Pokalbereich). Das Remake liest, was im Spielstand steht, und nimmt sonst 0. Achtung beim
+Messen: das Protokoll von tools/kontrollpunkte.py liegt ab Kaderplatz 75 und fließt dann in
+diese Werte ein.
+
 ## Hauptmenü und Anzeigen (Bildschirmfotos docs/original/menu-*.png, buero-*, wappen-*, trikots-*, pokal-*, diskette-*; sim/display.ts)
 
 Das Hauptmenü zeigt links Büro/Wappen/Trikots und rechts Pokal/Diskette/Manager; ein Klick

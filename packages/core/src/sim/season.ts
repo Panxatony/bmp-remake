@@ -216,7 +216,7 @@ export function shuffleLeagues(g: GameState, rng: Rng): void {
 
 /** Neue Saison: Tabellen, Ergebnisse, Spieltage, Kalender, Datum, Statistiken, Alter, Verträge, Pokal. */
 import { driftClubs } from "./ai.ts";
-import { seasonPlayerPool, distributePlayers } from "./pool.ts";
+import { seasonPlayerPool } from "./pool.ts";
 
 export interface SaisonHaken {
   /** Kontrollpunkt des bytegenauen Vergleichs (originaltag.ts, #99) */
@@ -328,9 +328,9 @@ export function newSeason(g: GameState, rng: Rng, verlaengerung = false, haken: 
       if (seasonEndAdvertising(g, i)) events.push({ manager: i, text: zeilen.join(" "), kasten: zeilen });
     }
   });
-  // Pokale: Ergebnistabelle löschen (0x1978D), alle vier Wettbewerbe auslosen (0x18600)
-  // Spieler ohne Verein bekommen zu Spielbeginn einen (0x942A -> 0x1643B)
-  distributePlayers(g, false, rng);
+  // Pokale: Ergebnistabelle löschen (0x1978D), alle vier Wettbewerbe auslosen (0x18600). Die
+  // Vereinsverteilung 0x1643B gehört nur zum Spielbeginn (0x942A) - im Saisonwechsel des
+  // Originals kommt sie nicht vor (#99)
   clearCupResults(g);
   g.save.plain[PLAYOFF_RESULT] = 0;
   for (let cup = 0; cup < 4; cup++) initialDraw(g, cup, rng);

@@ -9,7 +9,7 @@
  */
 import type { GameState } from "../records.ts";
 import type { Rng } from "./match.ts";
-import { playerValue } from "./value.ts";
+import { wertAusDatensatz } from "./value.ts";
 import { chooseOfferClub } from "./transfer.ts";
 
 const LEAGUE_LO = [0, 18, 38, 58];
@@ -26,11 +26,35 @@ function isManagerClub(g: GameState, club: number): boolean {
 
 const isForeign = (club: number): boolean => club > 63 && club !== 0xff;
 
-/** Marktwert/10000 eines Spielers, wie das Original ihn für die Vereinswahl bildet (0x24D4E mit dem Spielerindex als Platzindex). */
-function poolValue(g: GameState, player: number): number {
-  // Das Original übergibt den Spielerindex als Aufstellungsplatz; ab Platz 125 liest es hinter der Tabelle.
-  if (player >= 125) return 0;
-  return div(playerValue(g, div(player, 25), player % 25, 0), 10000);
+/**
+ * Das Datensegment 4238 des Originals, soweit es im Spielstand steht (docs/MEMORY-MAP.md):
+ * Spielertabelle, Ergebnisse, Pokalbereich, Kaderplätze. Anderes (Laufzeitspeicher wie der
+ * Spielbericht) liest sich als 0.
+ */
+const SEGMENT_4238: [number, number, number][] = [
+  [0x57dd, 15813, 5587],
+  [0x6ddc, 59, 2280],
+  [0x76ca, 28009, 128],
+  [0x774a, 21400, 6500],
+];
+function segment4238(g: GameState, adresse: number): number {
+  for (const [a, o, n] of SEGMENT_4238) if (adresse >= a && adresse < a + n) return g.save.plain[o + adresse - a];
+  return 0;
+}
+
+/**
+ * Wert/10000 für die Vereinswahl (0x161D8 -> 0x24D4E, #99): das Original übergibt die
+ * Spielernummer als Kaderplatz, und zwar als vorzeichenbehaftetes Byte, zum aktuellen Manager
+ * 4238:304A - der steht nach der Managerschleife des Saisonendes auf der Managerzahl. Gelesen
+ * wird also der "Kaderplatz" 25·Managerzahl + (int8) Spielernummer: leere Plätze eines
+ * unbesetzten Managers, Marktplätze, dahinter Laufzeitspeicher (hier 0), für Nummern ab 128
+ * Bytes vor der Kadertabelle (Ergebnisse, Pokalbereich). Bei angebotenen Spielern (Byte 9,
+ * Bit 7) würfelt die Wertrechnung random(95,100) - auch hier.
+ */
+function poolValue(g: GameState, player: number, rng: Rng): number {
+  const platz = 25 * g.activeManagers().length + ((player << 24) >> 24);
+  const basis = 0x774a + 52 * platz;
+  return div(wertAusDatensatz(g, (o) => segment4238(g, basis + o), 0, rng), 10000);
 }
 
 /**
@@ -62,11 +86,11 @@ export function poolTargets(g: GameState, rng: Rng): number[] {
     const club = g.players.at(pl).u8(36);
     if (foreign > 4 && isForeign(club)) {
       foreign--;
-      g.players.at(pl).setU8(36, chooseOfferClub(g, poolValue(g, pl), false, rng));
+      g.players.at(pl).setU8(36, chooseOfferClub(g, poolValue(g, pl, rng), false, rng));
       pl = 0;
     }
     if (isManagerClub(g, club) || pl === 0 || foreign > 4) continue;
-    g.players.at(pl).setU8(36, chooseOfferClub(g, poolValue(g, pl), false, rng));
+    g.players.at(pl).setU8(36, chooseOfferClub(g, poolValue(g, pl, rng), false, rng));
     n++;
   }
   for (let i = 1; i <= PLAYERS; i++) if (isForeign(g.players.at(i).u8(36))) x++;
