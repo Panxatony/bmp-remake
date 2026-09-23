@@ -109,3 +109,21 @@ test("Originaltag TEST4: Minutenschleife der ersten Halbzeit Wurf für Wurf", { 
   assert.equal(orig.length, 160);
   assert.deepEqual(lauf, orig);
 });
+
+// DFB-Pokaltag (TEST1, Viertelfinale mit Verlängerung; kontrollpunkte.py --ohne 2,4,11,14,15,17,
+// 18,19,20,22,23,24,28): Vorbereitung je Paar, vier Halbzeiten - die Verlängerung würfelt Chancen
+// für alle Paare, den Torwürfel aber nur das offene -, Rundenabschluss und die Folgetage mit dem
+// Sondertag 12.11. bis zum Tagesende. Die Lagerzeiten sind aus dem Abzug am Tagesende
+// zurückgerechnet (der Abzug hält den letzten Punkt 27 fest, nicht den beim Laden).
+const POKAL = resolve(import.meta.dirname, "../../../tools/dosbox/KP-TEST1-POKAL.MAN");
+test("Originaltag TEST1: DFB-Pokaltag bis zum Tagesende", { skip: !existsSync(POKAL) || !existsSync(join(BMP_DIR, "TEST1.MAN")) }, () => {
+  const orig = protokoll(SaveFile.decode(new Uint8Array(readFileSync(POKAL))).plain);
+  // Das Protokoll läuft in den nächsten Tag hinein; es zählt bis zum ersten Tagesende
+  const bisEnde = orig.slice(0, orig.findIndex((p) => p.punkt === 27 && p.wurf > 0) + 1);
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST1.MAN")))));
+  const lauf = originaltag(g, originalRng(0x1234), [4, 44, 21, 35, -22, -30, 26, -38]);
+  const ids = new Set(bisEnde.map((p) => p.punkt));
+  const punkte = lauf.punkte.map((p) => (p.punkt === 26 ? { ...p, punkt: 27 } : p)).filter((p) => ids.has(p.punkt));
+  assert.equal(bisEnde.length, 57);
+  assert.deepEqual(punkte, bisEnde);
+});

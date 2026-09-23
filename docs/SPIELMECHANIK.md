@@ -174,7 +174,8 @@ sie die Manager der Reihe nach durch:
   Liga Spieler Byte 35 ++, Einsatz in Byte 6/7/8 und 16-Bit-Zähler 28/30/32 für
   Liga/DFB-Pokal/Europapokal und Relegation; Frische auf 50..150. Danach je Manager
   Foulbudget 4238:0178 = 6 und Platzverweis 0179 = 1 **nur im Ligaspiel mit mindestens sechs
-  Kaderspielern**, sonst beide 0; Auswechselzähler 5396/5397 = 1/2; Gelbliste 1D1C geleert;
+  Kaderspielern**, sonst beide 0 - im Pokal gibt es also keine Karten, nur Verletzungen (im
+  Remake `newIncidentState(false)`); Auswechselzähler 5396/5397 = 1/2; Gelbliste 1D1C geleert;
   beim Heimmanager die Randale (siehe Finanzen). Die Einwechselroutine (0x20DBC) gibt dem
   Eingewechselten Frische += 4 + random(2,4) und einen Einsatz.
 
@@ -1189,7 +1190,9 @@ Grundbetrag b = random(15,85)·10000 DM, angezeigt als "BUNDESLIGA: b DM, 2.LIGA
 AMATEUR-OBERLIGA: b/3 DM (INCL. MWST.)" mit fünf Zeilen Text ("Ihre Spieler sind überwältigt
 und zu Tränen gerührt …"); jeder Manager zahlt b/(Liga+1). Die beiden anderen Tage sind
 Scherzbildschirme (Geburtstag eines Programmierers mit Schweigeminute, "Das war keine
-Minute ! Schämen Sie Sich !") und werden nicht portiert.
+Minute ! Schämen Sie Sich !") und werden nicht portiert. Den Wurf random(0,3) am Anfang der
+Routine (0x1CFA1) macht das Original aber an allen drei Tagen; das Remake würfelt ihn deshalb
+auch am 12.11. und 19.4. (`scherztagWurf`, im Würfelvergleich des Pokaltags TEST1 gefunden).
 
 ## Automatische Aufstellung (0x22030, Spielerwahl 0x22305, Feldpositionen 0x0F125; sim/lineup.ts)
 
