@@ -1810,10 +1810,10 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     // Die ganze Tagesroutine entfällt ab Saisontag 322 (0x0DF4F): kein Markt, keine Verträge,
     // kein Training, keine Automatik-Aufstellung. Bis GitLab #83 (F6) entfiel bei uns nur das
     // Training.
-    const tagesroutine = seasonDay(kNeu) <= 321;
+    const mitTagesroutine = seasonDay(kNeu) <= 321;
     g.activeManagers().forEach((m, i) => {
       const before = g.squadOf(i).map((l) => l.u8(9));
-      if (tagesroutine) {
+      if (mitTagesroutine) {
         // Tagesroutine 0x0DF0D in der Reihenfolge des Originals (sim/tagesroutine.ts): Markt,
         // Stadion, Kaderschleife je Platz (Trainingsverletzung, Karriereankündigung,
         // Verhandlungszähler, Verlängerungsangebot), Angebote fremder Vereine, Training und
