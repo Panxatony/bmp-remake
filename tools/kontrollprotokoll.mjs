@@ -31,6 +31,14 @@ export const PUNKTE = {
   23: "KI-Torschützen",
   24: "Zeitung",
   27: "Tagesende (vor srand)",
+  30: "Saisonwechsel: erster Wurf",
+  31: "Saisonwechsel: Schwankung",
+  32: "Saisonwechsel: 0x34474",
+  33: "Saisonwechsel: Sponsoren",
+  34: "Saisonwechsel: Ligaplätze mischen",
+  35: "Saisonwechsel: Europapokal/Auslosung",
+  36: "Saisonwechsel: je Manager",
+  37: "Saisonwechsel: Finanzen",
 };
 
 /** Einträge des Protokolls: Kennung und Zustand des Generators. */

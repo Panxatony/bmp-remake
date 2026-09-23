@@ -74,6 +74,15 @@ PUNKTE = [
     (24, 0x4CC1, 0x2E3A, 0x23AA),  # Noten und Zeitung aller Manager 0x3074A
     (27, 0x1D717, 0x076B, 0x0CF0), # Tagesbeginn vor srand (nur nach seed-patch.py "tag"): Stand am Ende des Vortags
     (28, 0x1D7BA, 0x0F9D, 0x0002), # Tagesbeginn: Anzeigestärke je Manager, gleich nach der Aufstellung 0x22030
+    # Saisonwechsel im Tagesablauf (0x1E4A0 bis 0x1EA3B)
+    (30, 0x1E4B1, 0x076B, 0x0CC7), # erster Wurf des Saisonwechsels
+    (31, 0x1E665, 0x0F9D, 0x0697), # Schwankung aller Vereine 0x10067
+    (32, 0x1E736, 0x322B, 0x21C4), # 0x34474
+    (33, 0x1E8DF, 0x14A4, 0x2CB4), # Sponsorenangebote 0x176F4
+    (34, 0x1E926, 0x0310, 0x09C5), # Ligaplätze mischen 0x3AC5
+    (35, 0x1E92B, 0x17C2, 0x0EF2), # Europapokalteilnehmer und Auslosung 0x18B12
+    (36, 0x1E935, 0x0CB5, 0x0012), # Saisonende je Manager 0x0CB62
+    (37, 0x1E9E5, 0x112A, 0x0A6D), # Finanzen 0x11D0D
 ]
 # Punkte mit Speicherabzug: vor dem Eintrag werden DUMP_LAENGE Bytes ab 4238:DUMP_VON nach
 # 4238:LOG+DUMP_ZIEL kopiert (die Spielberichte 4238:90CA, 154 Bytes je Manager)
