@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { SaveFile, GameState, autoLineup, autoLineupIfEnabled, setSystem, systemOf, groupOf, FORMATIONS } from "../src/index.ts";
 
@@ -49,4 +49,23 @@ test("Automatische Aufstellung: verletzte Spieler bleiben draußen, Torwart nie 
   const before = g.squadOf(0).map((l) => l.u8(10));
   assert.equal(autoLineupIfEnabled(g, 0), false);
   assert.deepEqual(g.squadOf(0).map((l) => l.u8(10)), before);
+});
+
+// Die Aufstellung des Originals (0x22030 mit 0x0F125 und 0x2119D), im x86-Emulator auf den
+// Kadern von vier Spielständen ausgeführt, je Manager und System (#103): Nummer, Spalte, Reihe
+// je Kaderplatz. Bank mit vier Ersatzspielern (4238:56EE = 15, wie im Hauptmenü gesetzt).
+test("Automatik-Aufstellung wie das Original (Emulator, #103)", () => {
+  const erwartet = JSON.parse(readFileSync(resolve(import.meta.dirname, "aufstellung-original.json"), "utf8")) as Record<string, number[][]>;
+  let geprueft = 0;
+  for (const [key, want] of Object.entries(erwartet)) {
+    const [datei, m, system] = key.split("|");
+    const pfad = join(BMP_DIR, datei);
+    if (!existsSync(pfad)) continue;
+    const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(pfad))));
+    autoLineup(g, Number(m), Number(system), true);
+    const got = want.map((_, p) => { const l = g.lineups.at(Number(m) * 25 + p); return [l.u8(10), l.u8(25), l.u8(26)]; });
+    assert.deepEqual(got, want, key);
+    geprueft++;
+  }
+  assert.ok(geprueft === 0 || geprueft === Object.keys(erwartet).length);
 });

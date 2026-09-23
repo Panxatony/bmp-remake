@@ -20,20 +20,6 @@ export const SYSTEM_NAMES = ["MANUELL", "1-4-4-2", "1-3-5-2", "1-3-4-3"];
 const X_OFFSET = [0, 3, 2, 1, 0, 0];
 const ROW_Y = [7, 6, 3, 0];
 
-/**
- * Platz auf dem Spielfeld je Rückennummer und System (Kaderbytes 25 = Spalte 0..6,
- * 26 = Reihe 0..7; Reihe 0 ist vorn). Die Reihe für 1-4-4-2 stammt aus dem Original
- * (SCHWARZ-.MAN, frisches Spiel): Torhüter (3,7), Abwehr (5,5) (1,5) (4,6) (2,6),
- * Mittelfeld (6,3) (2,3) (0,3) (4,3), Angriff (4,0) (2,0). Welcher Spieler welchen der
- * Plätze bekommt, richtet sich im Original nach seiner Seitenvorliebe; hier zählt die
- * Reihenfolge der Auswahl. Alle drei Systeme stammen aus Spielständen des Originals
- * (SCHWARZ-.MAN für 1-4-4-2, CLAUDE3.MAN für 1-3-5-2 und 1-3-4-3).
- */
-const POSITIONS: [number, number][][] = [
-  [[3, 7], [5, 5], [1, 5], [4, 6], [2, 6], [6, 3], [2, 3], [0, 3], [4, 3], [4, 0], [2, 0]],
-  [[3, 7], [3, 6], [5, 6], [1, 6], [3, 3], [4, 3], [0, 3], [6, 3], [2, 3], [4, 0], [2, 0]],
-  [[3, 7], [5, 6], [3, 6], [1, 6], [2, 3], [4, 3], [6, 3], [0, 3], [5, 0], [1, 0], [3, 0]],
-];
 
 const div = (a: number, b: number): number => Math.trunc(a / b);
 
@@ -121,6 +107,55 @@ export function selectPlace(g: GameState, manager: number, group: number, system
 export function autoLineup(g: GameState, manager: number, system: number, benchFour = false): void {
   const sys = system - 2;
   if (sys < 0 || sys > 2) return;
+  aufstellungKern(g, manager, system, benchFour);
+  // Danach tauscht 0x0F125 Feldpositionen nach der Seitenvorliebe, und 0x2119D nummeriert die
+  // Starter in Kaderreihenfolge neu (0x222F2/0x222FB) - bis #103 fehlte beides
+  seitenTausch(g, manager);
+  starterNummern(g, manager);
+}
+
+/**
+ * Feldpositionen nach Seitenvorliebe (0x0F125): steht ein Starter mehr als eine Spalte neben
+ * seiner Vorliebe (Spielerbyte 32), sucht das Original in derselben Reihe den Starter, dessen
+ * Vorliebe am besten zu dieser Spalte passt, und tauscht die Spalten, wenn das besser ist.
+ */
+function seitenTausch(g: GameState, manager: number): void {
+  const at = (i: number) => g.lineups.at(manager * 25 + i);
+  const vorliebe = (i: number) => g.players.at(at(i).u8(15)).u8(32);
+  const starter = (i: number) => at(i).u8(15) !== 0 && at(i).u8(10) !== 0 && at(i).u8(10) < 12;
+  const sx = (i: number) => (at(i).u8(25) << 24) >> 24;
+  for (let i = 0; i < 24; i++) {
+    const eigen = Math.abs(sx(i) - vorliebe(i));
+    if (!starter(i) || eigen <= 1) continue;
+    let bester = -1;
+    let bestD = 99;
+    for (let j = 0; j < 24; j++) {
+      if (j === i || !starter(j) || at(j).u8(26) !== at(i).u8(26)) continue;
+      const d = Math.abs(sx(i) - vorliebe(j));
+      if (d < bestD) {
+        bestD = d;
+        bester = j;
+      }
+    }
+    if (bester < 0 || bestD >= eigen) continue;
+    const x = at(i).u8(25);
+    at(i).setU8(25, at(bester).u8(25));
+    at(bester).setU8(25, x);
+  }
+}
+
+/** Rückennummern der Starter 1..11 in Kaderreihenfolge (0x2119D ohne Anzeige). */
+export function starterNummern(g: GameState, manager: number): void {
+  let nr = 1;
+  for (let i = 0; i < 24; i++) {
+    const l = g.lineups.at(manager * 25 + i);
+    const n = l.u8(10);
+    if (n >= 1 && n <= 11) l.setU8(10, nr++);
+  }
+}
+
+function aufstellungKern(g: GameState, manager: number, system: number, benchFour: boolean): void {
+  const sys = system - 2;
   for (let place = 0; place < 24; place++) g.lineups.at(manager * 25 + place).setU8(10, 0);
   const need = FORMATIONS[sys].slice();
   const counts = [0, 0, 0, 0];
@@ -134,10 +169,23 @@ export function autoLineup(g: GameState, manager: number, system: number, benchF
       const nr = number++;
       l.setU8(10, nr);
       need[grp]--;
-      const pos = POSITIONS[sys][nr - 1] ?? [X_OFFSET[FORMATIONS[sys][grp]] + counts[grp], ROW_Y[grp]];
-      l.setU8(25, pos[0] & 0xff);
-      l.setU8(26, pos[1] & 0xff);
+      // Feldposition (0x22166): Reihe je Gruppe, x = Versatz nach Gruppengröße + 2 je Spieler;
+      // bei 1-4-4-2 rücken Nummer 2 (eine vor, eine nach rechts) und 5 (eine vor, eine nach links)
+      let x = X_OFFSET[FORMATIONS[sys][grp]] + counts[grp];
+      let y = ROW_Y[grp];
+      if (sys === 0 && nr === 2) {
+        y--;
+        x++;
+      }
+      if (sys === 0 && nr === 5) {
+        y--;
+        x--;
+      }
+      l.setU8(25, x & 0xff);
+      l.setU8(26, y & 0xff);
       counts[grp] += 2;
+      // Fünferkette enger (0x221D2)
+      if (FORMATIONS[sys][grp] === 5 && counts[grp] !== 2 && counts[grp] !== 6) counts[grp]--;
     }
   }
   if (benchFour) {

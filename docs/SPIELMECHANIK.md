@@ -1212,7 +1212,13 @@ Abwehr 6, Mittelfeld 3, Angriff 0) und Byte 25 = x aus Restzahl (Tabelle 4cb3:54
 eine Reihe vor. Bank: zu Spielbeginn (Kadergröße 4238:56EE = 15) je Gruppe ein Spieler 12..15,
 sonst Nummer 12 an den ersten gefundenen (meist der zweite Torwart) und 13 an den stärksten
 übrigen Feldspieler. 0x0F125 tauscht danach x-Positionen innerhalb einer Reihe nach der
-Seitenvorliebe (Spielerbyte 32); das Remake nutzt die Feldpositionen nicht und lässt das aus.
+Seitenvorliebe (Spielerbyte 32): steht ein Starter mehr als eine Spalte neben seiner Vorliebe,
+bekommt er die Spalte des Starters derselben Reihe, dessen Vorliebe besser zu seiner Spalte
+passt. Zuletzt nummeriert 0x2119D die Starter 1..11 in Kaderreihenfolge neu - die Nummern
+folgen also nicht der Auswahlreihenfolge. Beides fehlte bis GitLab #103; geprüft gegen das
+Original im x86-Emulator (test/aufstellung-original.json). Eigenheit: findet die kleine Bank
+nach der 12 keinen weiteren Spieler, schreibt das Original die 13 auf einen nicht
+initialisierten Platzindex - das bildet das Remake nicht nach.
 
 ## Hinweiskasten mit OKAY (0x3174A, aufgerufen als 3091:0E3A; GitLab #31)
 
