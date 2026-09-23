@@ -39,7 +39,7 @@ export { highestBid, resolveAuction, sureBid, type Bid, type AuctionResult } fro
 export { POACH_MAX_BONUS, POACH_MIN_SQUAD, POACH_MAX_PER_OWNER, POACH_COUNT_OFFSET, poachCount, poachLeft, resetPoachCounts, poachPrice, poachAmount, poachChance, poachCheck, poachAllowedFrom, poach, raiseSalary, POACH_COUNTER_MAX, type PoachResult } from "./sim/abwerben.ts";
 export { RULES_OFFSET, RULES_ORIGINAL, RULES_2026, ruleSet, setRuleSet, is2026, winPoints, substitutionLimits, ruleName, type SubstitutionLimits } from "./sim/regeln.ts";
 export { seasonDay, isSaturday, dateOfSeasonDay, calendarFlag, dayIndex, seasonStartYear, setDayIndex, CALENDAR_DAYS, setCalendarFlag, FLAG_LEAGUE, FLAG_CUP, FLAG_EUROPE } from "./sim/calendar.ts";
-export { originaltag, type Originaltag, type Kontrollpunkt } from "./sim/originaltag.ts";
+export { originaltag, saisonwechseltag, type Originaltag, type Kontrollpunkt } from "./sim/originaltag.ts";
 export { playMatchday, playReplays, matrixFor, matchStrength, writeResult, writePairings, afterMatch, kaderVorbereitung, moralWeg, bookEvents, type LiveBooking, type PlayedMatch } from "./sim/matchday.ts";
 export { pickPlayer, bookGoal, bookChance, bookDefence } from "./sim/goals.ts";
 export { DOPING_BONUS, DOPING_FRESH, DOPING_RISK, DOPING_RISK_STEP, DOPING_RISK_MAX, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopeCures, DOPING_MALUS, DOPING_APPS_MAX, DOPE_NONE, DOPE_ON, DOPE_BANNED, dopeState, dopeApps, dopeBonus, dopeFresh, DOPING_ZUSTAND, DOPING_AUFSCHLAG, migriereDopingBytes, isDoped, isDopeBanned, dopingRisk, dopingFine, dopeStart, dopeStop, dopeMatchday, dopingCleanup, dopingRows, type DopingEvent } from "./sim/doping.ts";
