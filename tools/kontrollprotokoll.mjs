@@ -39,6 +39,11 @@ export const PUNKTE = {
   35: "Saisonwechsel: Europapokal/Auslosung",
   36: "Saisonwechsel: je Manager",
   37: "Saisonwechsel: Finanzen",
+  38: "Saisonende: Vertragsdialog",
+  39: "Saisonende: Jugend",
+  40: "Saisonende: Karriereende",
+  41: "Pool: Sollzahlen 1",
+  42: "Pool: Sollzahlen 2",
 };
 
 /** Einträge des Protokolls: Kennung und Zustand des Generators. */

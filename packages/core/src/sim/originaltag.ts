@@ -35,6 +35,7 @@ import { bookHistory } from "./history.ts";
 import { autoLineupIfEnabled, backupSystem, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
 import { newSeason } from "./season.ts";
+import { releaseExpiring } from "./seasonEvents.ts";
 import { replays, verlegen, istVerlegt, removeReplays } from "./postpone.ts";
 import { fixtures } from "./fixtures.ts";
 import { afterCupDay, dfbFinale, shootout, currentPairs, legPlayed, tieBreak, decideTie, CUP_RESULTS, CUP_ROUND, CUP_TABLE, FIRST_LEG, LEG_FLAG, ORDER_LIST, PLAYOFF_FIRST_LEG, PLAYOFF_RESULT } from "./europa.ts";
@@ -557,9 +558,12 @@ function nachholtag(g: GameState, rng: Rng, kp: (punkt: number) => void): string
  * Saisonwechsel des Tagesablaufs (0x1E319 bis 0x1EB02) mit den Finanzen jedes Tages bis zum
  * 28. Juli und der Auslosung aller vier Pokale.
  */
-export function saisonwechseltag(g: GameState, rng: Rng & { zaehler(): number }, lagerBeimLaden: readonly number[] = CAMP_OPEN_START): Originaltag {
+export function saisonwechseltag(g: GameState, rng: Rng & { zaehler(): number }, lagerBeimLaden: readonly number[] = CAMP_OPEN_START, beobachter?: (punkt: number, g: GameState) => void): Originaltag {
   const punkte: Kontrollpunkt[] = [];
-  const kp = (punkt: number) => punkte.push({ punkt, wurf: rng.zaehler() });
+  const kp = (punkt: number) => {
+    punkte.push({ punkt, wurf: rng.zaehler() });
+    beobachter?.(punkt, g);
+  };
   const n = g.activeManagers().length;
   const lager = lagerBeimLaden.slice();
   const finanzen = (punkt: number, dt: { day: number; month0: number; year: number }) => {
@@ -584,6 +588,18 @@ export function saisonwechseltag(g: GameState, rng: Rng & { zaehler(): number },
   let tag = seasonDay(dayIndex(g)) + 1;
   newSeason(g, rng, true, {
     kp,
+    // Für den Vergleich antwortet jeder Manager mit ABBRUCH: der Dialog setzt Kaderbyte 24 =
+    // random(10,18) (0x26195), danach geht der Spieler (0x0DB40)
+    vertraege: (events) => {
+      for (const ev of events) {
+        if (!ev.vertrag) continue;
+        kp(38);
+        rng(10, 18);
+        const place = g.squadOf(ev.manager).findIndex((l) => l.playerIndex === ev.vertrag!.playerIndex);
+        ev.vertrag = undefined;
+        if (place >= 0) releaseExpiring(g, ev.manager, place);
+      }
+    },
     tage: () => {
       for (let i = 0; i < 38; i++) finanzen(37, dateOfSeasonDay(++tag, seasonStartYear(g)));
     },
