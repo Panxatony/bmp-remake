@@ -178,7 +178,9 @@ function jahrgangswechsel(g: GameState, rng: Rng): void {
     const basis = wo.manager === 4 ? 100 : wo.manager * 25;
     const l = g.lineups.at(basis + wo.place);
     l.setU8(9, l.u8(9) & 0x3f);
-    if (l.u8(11) > 0) l.setU8(11, l.u8(11) - 1);
+    // Ohne Prüfung (0x0D46E: decb): Marktspieler mit 0 Jahren stehen danach auf 255, wie im
+    // Original (KP-SAISON, #100)
+    l.setU8(11, (l.u8(11) - 1) & 0xff);
     const besitzer = p.u8(33);
     if (besitzer === wo.manager) continue;
     const alt = plain.slice(TABLES.lineups.offset + (basis + wo.place) * 52, TABLES.lineups.offset + (basis + wo.place + 1) * 52);
@@ -302,6 +304,9 @@ export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaenger
     }
   });
 
+  // Anzeigeoptionen je Liga an die neuen Ligen der Manager anpassen (0x0DA40)
+  optionenImStandAnpassen(g);
+
   // Abgänge (0x0DB40): Vertrag abgelaufen -> Verhandlung, ohne Einigung geht der Spieler und
   // bringt den halben Marktwert als Ablöse. In der Version 2026 ist er stattdessen ablösefrei:
   // der Verein bekommt nichts, dafür können alle Manager um ihn bieten (sim/abloesefrei.ts).
@@ -323,4 +328,33 @@ export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaenger
     }
   });
   return events;
+}
+
+/**
+ * Anzeigeoptionen am Saisonende (0x0DA40 bis 0x0DADE): Halbzeitstände, Ergebnisse und Tabelle je
+ * Liga (3 × 3 Schalter, 4cb3:05FE + 3 · Liga + Spalte). In einer Liga ohne Manager gehen alle aus;
+ * in einer Liga mit Manager geht ein Schalter an, wenn er in irgendeiner Liga an war - so sieht ein
+ * Aufsteiger seine neue Liga (gegen KP-SAISON geprüft, #100).
+ */
+export function optionenNachLigen(schalter: boolean[], managerJeLiga: number[]): boolean[] {
+  const spalte = [0, 1, 2].map((j) => [0, 1, 2].some((i) => schalter[3 * i + j]));
+  const neu = schalter.slice();
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      if (neu[3 * i + j] && managerJeLiga[i] === 0) neu[3 * i + j] = false;
+      if (!neu[3 * i + j] && managerJeLiga[i] > 0 && spalte[j]) neu[3 * i + j] = true;
+    }
+  }
+  return neu;
+}
+
+/** Dieselbe Anpassung auf den Bytes im Spielstand (4cb3:05FE, Spielstand 33447). */
+export function optionenImStandAnpassen(g: GameState): void {
+  const p = g.save.plain;
+  const managerJeLiga = [0, 0, 0];
+  for (const m of g.activeManagers()) managerJeLiga[m.u8(312)]++;
+  const neu = optionenNachLigen([...Array(9).keys()].map((k) => p[33447 + k] !== 0), managerJeLiga);
+  neu.forEach((v, k) => {
+    if (v !== (p[33447 + k] !== 0)) p[33447 + k] = v ? 1 : 0;
+  });
 }

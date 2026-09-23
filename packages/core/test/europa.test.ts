@@ -72,7 +72,8 @@ test("Auslaufende Verträge: Verhandlung aufschiebbar, Freigabe bringt die Ablö
   // Ein junger Spieler (kein Rücktrittskandidat) mit abgelaufenem Vertrag
   const platz0 = g.squadOf(0).findIndex((l) => g.players.at(l.playerIndex).age < 30);
   const l0 = g.squadOf(0)[platz0];
-  l0.setU8(11, 0);
+  // Letztes Vertragsjahr: der Saisonwechsel zieht eins ab (ohne Prüfung, 0x0D46E) - dann 0
+  l0.setU8(11, 1);
   // Der Kaderplatz-Zeiger wandert beim Aufschieben mit, deshalb den Spieler selbst merken
   const spieler = l0.playerIndex;
   const name = g.players.at(spieler).displayName;

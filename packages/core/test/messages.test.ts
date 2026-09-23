@@ -53,6 +53,7 @@ test("Abschlussbild (0x1A36D): Meister- und Pokaltitel werden nur für Managerve
   assert.equal(m0.u8(57), before + 1);
   const cupBefore = m0.u8(58);
   assert.equal(bookCupTitle(g, 0, champ.club), 0);
-  assert.equal(m0.u8(58), cupBefore + 1);
+  // Den Titel zählt erst der Historieneintrag am Saisonende (writeHistory)
+  assert.equal(m0.u8(58), cupBefore);
   assert.equal(bookCupTitle(g, 0, 63), -1);
 });
