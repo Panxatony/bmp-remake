@@ -34,8 +34,7 @@ import { applyResult } from "./standings.ts";
 import { bookHistory } from "./history.ts";
 import { autoLineupIfEnabled, backupSystem, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
-import { cupPairs, cupRound } from "./cup.ts";
-import { afterCupDay, dfbFinale, shootout, CUP_RESULTS } from "./europa.ts";
+import { afterCupDay, dfbFinale, shootout, currentPairs, legPlayed, tieBreak, CUP_RESULTS, CUP_ROUND, FIRST_LEG } from "./europa.ts";
 import { pokalZuschlag, ERSATZ_PREIS, ligaBand } from "./attendance.ts";
 
 export interface Kontrollpunkt {
@@ -125,8 +124,9 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   });
 
   if ((flag & 7) === 0) {
-    if (flag !== 8) return { punkte, bis: "weder Liga- noch DFB-Pokaltag - weitere Tagesarten fehlen noch" };
-    const bis = pokaltag(g, rng, kp);
+    const cups = flag === 8 ? [0] : flag === 0x70 ? [1, 2, 3] : undefined;
+    if (!cups) return { punkte, bis: "weder Liga- noch Pokaltag - weitere Tagesarten fehlen noch" };
+    const bis = pokaltag(g, rng, kp, cups);
     if (bis) return { punkte, bis };
     return { punkte, bis: folgetage(g, rng, kp, lager) };
   }
@@ -310,27 +310,31 @@ function folgetage(g: GameState, rng: Rng, kp: (punkt: number) => void, lager: n
 }
 
 /**
- * DFB-Pokaltag im Spieltagstreiber 0x46DB: Vorbereitung je Paar (0x4A33 -> 0x1C632, Art 1),
- * die Live-Schleife mit (1,45) und (46,90), dann 0x18E46: steht ein Spiel unentschieden, bekommt
- * es die Markierung +10 und die Schleife läuft für **alle** Paare (91,105) und (106,120); danach
- * 0x18E46 noch einmal mit dem Elfmeterschießen, Rundenabschluss 0x192FC, die Zeitung 0x3074A.
- * Liefert, woran der Lauf scheiterte, oder nichts.
+ * Pokaltag im Spieltagstreiber 0x46DB (DFB-Pokal: Wettbewerb 0, Europapokale: 1..3):
+ * Vorbereitung je Paar (0x4A33 -> 0x1C632, Art 1 bzw. 2), die Live-Schleife mit (1,45) und
+ * (46,90), dann 0x18E46: steht ein Spiel offen (DFB-Pokal unentschieden, Europapokal im Rückspiel
+ * nach 0x19208), bekommt es die Markierung +10 und die Schleife läuft für **alle** Paare
+ * (91,105) und (106,120); danach 0x18E46 noch einmal mit dem Elfmeterschießen, Rundenabschluss
+ * 0x192FC. Eine Zeitung gibt es nach Pokaltagen nicht. Liefert, woran der Lauf scheiterte.
  */
-function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void): string | undefined {
+function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: number[]): string | undefined {
   const p = g.save.plain;
-  if (dfbFinale(g, 0)) return "DFB-Pokalfinale fehlt noch";
+  if (cups.includes(0) && dfbFinale(g, 0)) return "DFB-Pokalfinale fehlt noch";
+  const tag = seasonDay(dayIndex(g));
   const managers = g.activeManagers();
   const managerOf = new Map(managers.map((m, i) => [m.clubIndex, i] as const));
-  const paare = cupPairs(g, cupRound(g));
+  const paare = cups.flatMap((cup) => currentPairs(g, cup).map(([home, away], i) => ({ cup, idx: 2 * i, home, away })));
   kp(1);
-  for (const [home, away] of paare) {
+  for (const { cup, home, away } of paare) {
     kp(3);
+    const art = cup === 0 ? 1 : 2;
+    const importance = cup === 0 ? 1 : p[CUP_ROUND + 1] > 4 ? 3 : 2;
     const beteiligt = [managerOf.get(home), managerOf.get(away)].filter((x) => x !== undefined).sort((a, b) => a - b);
     for (const mi of beteiligt) {
       // Die Rückgabe der 0:2-Prüfung verwirft der Treiber im Pokal (V2) - hier nicht nachgebaut
       if (isForfeit(g, mi)) return "0:2-Prüfung im Pokal fehlt noch";
       if (managers[mi].clubIndex === home) {
-        const att = pokalZuschlag(g, mi, away, attendance(g, { manager: mi, home, away, importance: 1, level: p[34062] }, rng), rng);
+        const att = pokalZuschlag(g, mi, away, attendance(g, { manager: mi, home, away, importance, level: p[34062] }, rng), rng);
         bookGate(g, mi, att, 2);
         const ma = managerOf.get(away);
         if (ma !== undefined) bookGate(g, ma, att, 2, managers[mi].u8(266));
@@ -339,19 +343,19 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void): string |
         const att = attendance(g, { manager: mi, home, away, importance: 1, fremdesStadion: true, preis, level: p[34062] }, rng);
         bookGate(g, mi, att, 2, preis);
       }
-      kaderVorbereitung(g, mi, 1, rng);
+      kaderVorbereitung(g, mi, art, rng);
       if (managers[mi].clubIndex === home) riotCheck(g, mi, rng);
     }
   }
-  const spiele = paare.map(([home, away]) => {
-    const match = new LiveMatch(g.clubs.at(home).strengthMatrix, g.clubs.at(away).strengthMatrix, rng, [[1, 45], [46, 90]], true);
+  const spiele = paare.map((pa) => {
+    const match = new LiveMatch(g.clubs.at(pa.home).strengthMatrix, g.clubs.at(pa.away).strengthMatrix, rng, [[1, 45], [46, 90]], true);
     const seiten: [number, IncidentState, "home" | "away"][] = [];
-    for (const [club, seite] of [[home, "home"], [away, "away"]] as const) {
+    for (const [club, seite] of [[pa.home, "home"], [pa.away, "away"]] as const) {
       const mi = managerOf.get(club);
       if (mi !== undefined) seiten.push([mi, newIncidentState(false), seite]);
     }
     seiten.sort((a, b) => a[0] - b[0]);
-    return { home, away, match, seiten, schuetzen: [] as { minute: number; side: "home" | "away"; name: string }[] };
+    return { ...pa, match, seiten, schuetzen: [] as { minute: number; side: "home" | "away"; name: string }[] };
   });
   const halbzeit = (von: number, bis: number) => {
     for (let minute = von; minute <= bis; minute++) {
@@ -374,40 +378,46 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void): string |
         s.match.chances((c) => {
           if (!beteiligt(s)) return;
           kp(16);
-          s.schuetzen.push(...bookEvents(g, s.home, s.away, { home: s.match.hg, away: s.match.ag, events: [c] }, 1, rng, [szenen ? pickScene(rng, c.goal) : false]));
+          s.schuetzen.push(...bookEvents(g, s.home, s.away, { home: s.match.hg, away: s.match.ag, events: [c] }, s.cup === 0 ? 1 : 2, rng, [szenen ? pickScene(rng, c.goal) : false]));
         }, (seite) => kp(seite === "home" ? 14 : 15));
       }
     }
     kp(21);
   };
+  // Offen nach 0x18E46: DFB-Pokal bei Gleichstand, Europapokal nur im Rückspiel mit 0x19208 = 30
+  const offen = (s: (typeof spiele)[number]) => {
+    if (s.cup === 0) return s.match.hg === s.match.ag;
+    if (!legPlayed(g, s.cup)) return false;
+    const leg = FIRST_LEG + 32 * (s.cup - 1) + s.idx;
+    return tieBreak(p[leg], p[leg + 1], s.match.hg, s.match.ag, tag) === 30;
+  };
   halbzeit(1, 45);
   halbzeit(46, 90);
-  const offen = spiele.filter((s) => s.match.hg === s.match.ag);
-  if (offen.length > 0) {
+  const verlaengert = spiele.filter(offen);
+  if (verlaengert.length > 0) {
     for (const s of spiele) {
-      s.match.marke = offen.includes(s) ? 10 : 0;
+      s.match.marke = verlaengert.includes(s) ? 10 : 0;
       s.match.verlaengern();
     }
     halbzeit(91, 105);
     halbzeit(106, 120);
   }
   // Ergebnisbereich wie 0x18E46: +10 nach Verlängerung, +20 und die Elfmeter nach dem Schießen
-  spiele.forEach((s, i) => {
+  for (const s of spiele) {
     let h = s.match.hg;
     let a = s.match.ag;
-    if (offen.includes(s)) {
+    if (verlaengert.includes(s)) {
       h += 10;
-      if (h - a === 10) {
+      if (offen(s)) {
         const [ph, pa] = shootout(rng, beteiligt(s));
         h += 10 + ph;
         a += pa;
       }
     }
-    p[CUP_RESULTS + 2 * i] = h & 0xff;
-    p[CUP_RESULTS + 2 * i + 1] = a & 0xff;
-  });
-  afterCupDay(g, [0], seasonDay(dayIndex(g)), rng);
-  kp(24);
+    p[CUP_RESULTS + 32 * s.cup + s.idx] = h & 0xff;
+    p[CUP_RESULTS + 32 * s.cup + s.idx + 1] = a & 0xff;
+  }
+  afterCupDay(g, cups, tag, rng);
   kp(25);
   return undefined;
 }
