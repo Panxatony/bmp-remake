@@ -132,7 +132,9 @@ test("Transfermarkt: eigene Spieler anbieten, zurückholen, verkaufen; Markterne
   assert.equal(after.filter((e) => e.owner === 0).length, 3);
   for (const e of after.filter((e) => e.owner === MARKET_MANAGER)) {
     assert.ok(e.price > 0 && e.price % 1000 === 0, `${e.name} ${e.price}`);
-    assert.ok(g.players.at(e.playerIndex).u8(36) < 58);
+    // Ein gültiger Verein; freie Spieler tragen im Original auch 58..63 (TEST4: 15, 21, 90 ...)
+    // und behalten ihn auf dem Markt, solange kein Manager den Verein führt
+    assert.ok(g.players.at(e.playerIndex).u8(36) < 64);
     assert.ok(!g.activeManagers().some((mm) => mm.clubIndex === g.players.at(e.playerIndex).u8(36)));
   }
   // Tagesroutine liefert irgendwann Angebote für eigene Marktspieler

@@ -103,6 +103,16 @@ export function addToSquad(g: GameState, manager: number, playerIdx: number, yea
   let slot = 0;
   while (slot < limit && !g.lineups.at(base + slot).isEmpty) slot++;
   if (slot >= limit) return -1;
+  if (manager === 4) {
+    // Der Transfermarkt bleibt nach Spielernummer geordnet: 0x224A8 sucht den ersten Platz mit
+    // gleicher oder größerer Nummer und schiebt den Rest nach hinten (FA0 -> Markterneuerung,
+    // #99). Die Kader ordnet danach sortIntoSquad nach Mannschaftsteil.
+    let ziel = 0;
+    while (ziel < slot && g.lineups.at(base + ziel).playerIndex < playerIdx) ziel++;
+    const off = (i: number) => TABLES.lineups.offset + (base + i) * 52;
+    g.save.plain.copyWithin(off(ziel + 1), off(ziel), off(slot));
+    slot = ziel;
+  }
   const l = g.lineups.at(base + slot);
   const pl = g.players.at(playerIdx);
   for (let i = 0; i < 52; i++) l.setU8(i, 0);
@@ -124,7 +134,7 @@ export function addToSquad(g: GameState, manager: number, playerIdx: number, yea
       pl.setU8(35, 0);
       pl.setU8(36, club);
     }
-    // Der Kader bleibt nach Mannschaftsteil sortiert (der Transfermarkt dagegen nicht)
+    // Der Kader bleibt nach Mannschaftsteil sortiert (der Transfermarkt nach Spielernummer, s.o.)
     return sortIntoSquad(g, manager, slot);
   }
   return slot;

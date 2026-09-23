@@ -337,7 +337,13 @@ export function listPlayer(g: GameState, manager: number, place: number): Market
   if (slot >= MARKET_SIZE) return { ok: false, error: "Der Transfermarkt ist voll" };
   const bytes = slotBytes(g, manager * 25 + place);
   bytes[10] = 0;
-  setSlotBytes(g, 100 + slot, bytes);
+  // Nach Spielernummer einsortieren wie jeder Marktzugang (0x224A8); in den Originalständen
+  // stehen auch die angebotenen Spieler der Manager an ihrer Stelle (RIED-2TE, TEST1, #99)
+  let ziel = 0;
+  while (ziel < slot && g.lineups.at(100 + ziel).playerIndex < l.playerIndex) ziel++;
+  const off = (i: number) => TABLES.lineups.offset + (100 + i) * 52;
+  g.save.plain.copyWithin(off(ziel + 1), off(ziel), off(slot));
+  setSlotBytes(g, 100 + ziel, bytes);
   removePlace(g, manager * 25, place, 25);
   return { ok: true };
 }
