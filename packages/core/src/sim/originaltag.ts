@@ -34,6 +34,8 @@ import { applyResult } from "./standings.ts";
 import { bookHistory } from "./history.ts";
 import { autoLineupIfEnabled, backupSystem, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
+import { replays } from "./postpone.ts";
+import { fixtures } from "./fixtures.ts";
 import { afterCupDay, dfbFinale, shootout, currentPairs, legPlayed, tieBreak, CUP_RESULTS, CUP_ROUND, FIRST_LEG } from "./europa.ts";
 import { pokalZuschlag, ERSATZ_PREIS, ligaBand } from "./attendance.ts";
 
@@ -124,8 +126,12 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   });
 
   if ((flag & 7) === 0) {
+    if (flag === 0x80) {
+      const bis = nachholtag(g, rng, kp);
+      return { punkte, bis: bis ?? folgetage(g, rng, kp, lager) };
+    }
     const cups = flag === 8 ? [0] : flag === 0x70 ? [1, 2, 3] : undefined;
-    if (!cups) return { punkte, bis: "weder Liga- noch Pokaltag - weitere Tagesarten fehlen noch" };
+    if (!cups) return { punkte, bis: "weder Liga-, Pokal- noch Nachholtag - weitere Tagesarten fehlen noch" };
     const bis = pokaltag(g, rng, kp, cups);
     if (bis) return { punkte, bis };
     return { punkte, bis: folgetage(g, rng, kp, lager) };
@@ -418,6 +424,53 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
     p[CUP_RESULTS + 32 * s.cup + s.idx + 1] = a & 0xff;
   }
   afterCupDay(g, cups, tag, rng);
+  kp(25);
+  return undefined;
+}
+
+/**
+ * Nachholtag (Kalendermarke 0x80): der Treiber spielt die fälligen Nachholspiele wie Ligaspiele
+ * (Vorbereitung 0x1C632, Live-Schleife mit Ligabits 0). Zur Halbzeit und nach der 90. Minute zeigt
+ * 0x5C1A die Seite "NACHHOLSPIELE" (Schalter 4cb3:060A) - mit ihr rechnet das Original die
+ * Spielstärke aller Manager neu; nach der 90. davor Tabelle und Torschützen der KI-Vereine.
+ */
+function nachholtag(g: GameState, rng: Rng, kp: (punkt: number) => void): string | undefined {
+  const managers = g.activeManagers();
+  const managerOf = new Map(managers.map((m, i) => [m.clubIndex, i] as const));
+  const k = dayIndex(g);
+  const paare = replays(g)
+    .filter((e) => e.dayIndex === k)
+    .map((e) => fixtures(e.league, e.matchday)[e.match])
+    .filter((x): x is [number, number] => x !== undefined);
+  if (paare.some(([h, a]) => managerOf.has(h) || managerOf.has(a))) return "Nachholspiel mit Managerverein fehlt noch";
+  kp(1);
+  for (const _ of paare) kp(2);
+  const spiele = paare.map(([home, away]) => ({ home, away, match: new LiveMatch(g.clubs.at(home).strengthMatrix, g.clubs.at(away).strengthMatrix, rng) }));
+  const staerkeNeu = () => managers.forEach((_, mi) => matrixInVerein(g, mi, matchStrength(g, mi, rng)));
+  for (let minute = 1; minute <= 90; minute++) {
+    for (const s of spiele) {
+      if (minute === 1 || minute === 46) kp(4);
+      s.match.beginMinute();
+    }
+    for (const s of spiele) s.match.chances(undefined, (seite) => kp(seite === "home" ? 14 : 15));
+    if (minute !== 45 && minute !== 90) continue;
+    kp(21);
+    if (minute === 45) staerkeNeu();
+  }
+  kp(22);
+  for (const s of spiele) {
+    const { hg, ag } = s.match;
+    applyResult(g, s.home, s.away, hg, ag);
+    bookHistory(g, s.home, s.away, hg, ag);
+    bookBaseBonus(g, s.home, hg - ag, rng);
+    bookBaseBonus(g, s.away, ag - hg, rng);
+  }
+  kp(23);
+  for (const s of spiele) {
+    creditAiGoals(g, s.home, s.match.hg, rng);
+    creditAiGoals(g, s.away, s.match.ag, rng);
+  }
+  staerkeNeu();
   kp(25);
   return undefined;
 }
