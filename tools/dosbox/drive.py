@@ -63,7 +63,9 @@ def probe(im):
             return "menu-panel"
         # Roter Hinweiskasten mitten im Hauptmenü mit OKAY, z.B. am 2. Dezember "Achtung ! Dies
         # ist der letzte Spieltag vor der Winterpause." (0x143ED) - erscheint für jeden Manager
-        if near(px((212, 134)), (97, 0, 16), 25) and near(px((160, 150)), (97, 0, 16), 25):
+        # (zweites Merkmal links unten im Kasten: bei langen Texten liegt die Mitte auf Schrift,
+        # etwa "hat die letzte Chance verspielt, AUFZUSTEIGEN" nach der Relegation)
+        if near(px((212, 134)), (97, 0, 16), 25) and (near(px((160, 150)), (97, 0, 16), 25) or near(px((80, 160)), (97, 0, 16), 25)):
             return "menu-hinweis"
         if near(px((212, 134)), (97, 97, 130), 45) or near(px((212, 134)), (130, 130, 162), 30):
             return "menu"
@@ -226,6 +228,8 @@ def save(name):
             break
         if st == "menu-panel":
             dismiss_panel()
+        elif st == "menu-hinweis":
+            click(206, 165)  # OKAY
         elif st == "dialog":
             click(186, 165)
         elif st == "weiter":
