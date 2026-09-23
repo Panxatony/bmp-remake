@@ -967,7 +967,13 @@ je 8 Bytes je Verein). Beim Tausch werden Pokal-, Europa- und Reihenfolgetabelle
 
 ### Ablauf im Original (Würfelvergleich #99, am Protokoll gemessen)
 
-Nach dem letzten Kalendertag beginnt ein weiterer Tag mit srand, den Finanzen je Manager, der
+Der letzte Spieltag ist Saisontag 322 (Kalendertag 92, Rückspiel der Relegation). Danach
+vergleicht der Tagesablauf den Tageszähler 4cb3:07DC mit 322 + 4cb3:224C und springt in den
+Saisonwechsel (0x1DC52); die Kalendertage 93 und 94 erreicht das Original nie. Vorher läuft die
+Saisonbilanz je Manager (0x1DD03): Punkte, Tore, Siege, Niederlagen und Unentschieden der
+Abschlusstabelle wandern in die ewige Bilanz (u16 420..450), Zuschauer gesamt und Rekord werden
+0, die Minuskulisse 99999; dann Meister (0x1DE87). Nach dem letzten Spieltag beginnt ein
+weiterer Tag mit srand, den Finanzen je Manager, der
 Schwankung und genau **einem** Zug (nur der erste Manager). Statt der Spiele folgt der
 Saisonwechsel des Tagesablaufs (0x1E14F bis 0x1EB02) in dieser Reihenfolge:
 
@@ -1908,10 +1914,19 @@ zwei Ergebnissen: bei einer Einigung "<Name> bleibt Ihnen auch die nächste Sais
 Ablöse = halber Marktwert, 0x0DCA1). Der Kader wird beim Abgang aufgeschoben (0x1FDBE), hat also
 keine Lücken.
 
-Im Remake kann der Saisonwechsel nicht warten, weil drei Manager an drei Rechnern sitzen. Die
-Spieler bleiben deshalb mit 0 Vertragsjahren im Kader (rot in der Vertragsansicht), und der
-Server führt eine Warteschlange (`Room.vertragsende`, gemerkt wird der Spieler, nicht der Platz).
-Im ersten Zug der neuen Saison öffnet der Client die Vertragsansicht beim ersten dieser Spieler
+Der Server wartet wie das Original, aber mit einem Zug statt eines Dialogs: Nach dem letzten
+Spieltag bleibt der Tagindex hinter Saisontag 322 stehen, der Übergangstag bucht seine Finanzen
+(17.6.), und alle Manager bekommen einen Zug. An dessen Ende laufen Saisonbilanz, Meister,
+Highscore und der erste Teil des Saisonwechsels bis zu den Vertragsgesprächen
+(`saisonwechselTeil1`). Die Spieler bleiben mit 0 Vertragsjahren im Kader (rot in der
+Vertragsansicht), und der Server führt eine Warteschlange (`Room.vertragsende`, gemerkt wird der
+Spieler, nicht der Platz). Hat ein menschlicher Manager solche Spieler, bekommt nur er einen
+weiteren Zug; erst danach folgt der zweite Teil (`saisonwechselTeil2`: Spielerpool, die Tage vom
+21.6. bis 28.7. über dieselbe Finanzroutine wie jeder Tag, Auslosung, erster Tag der neuen
+Saison). Wo ein Raum steht, liest der Server aus dem Spielstand (`saisonwechselStand`: Tagindex
+hinter Saisontag 322, Tabellen schon geleert oder nicht) - ein Neustart mitten in den
+Verhandlungen baut die Warteschlange aus den Kaderplätzen mit 0 Vertragsjahren neu auf.
+In diesem Zug öffnet der Client die Vertragsansicht beim ersten dieser Spieler
 und arbeitet sie nacheinander ab: "NEUER VERTRAG" verhandelt wie im Original - mit **einem**
 Versuch: lehnt der Spieler ab, geht er (0x0DC66, GitLab #95) -, "KEIN ANGEBOT" lässt den
 Spieler gehen. In der Version 2026 ist er danach ablösefrei; bieten dürfen nur die anderen

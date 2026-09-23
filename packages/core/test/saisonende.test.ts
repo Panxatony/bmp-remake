@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, seasonEvents, newSeason, MARKET_MANAGER, LOAN_FLAG } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, seasonEvents, newSeason, MARKET_MANAGER, LOAN_FLAG, saisonbilanz, saisonwechselStand, saisonwechselTeil1, setDayIndex } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -96,4 +96,27 @@ test("Torschützenkönig: bei gleich vielen Toren gewinnt, wer weniger Spiele ha
   g.players.at(fremd).setU8(34, 1);
   eigener.setU8(3, 1);
   assert.equal(probe(10), 0, "unter zwei Toren kein Torschützenkönig");
+});
+
+test("Saisonbilanz (0x1DD03) und Stand des Saisonwechsels für den Server", () => {
+  const g = load("TEST4.MAN");
+  const m = g.managers.at(0);
+  const st = g.standings.at(m.clubIndex);
+  st.setU8(30, 20);
+  st.setU8(31, 18);
+  st.setU8(38, 8);
+  st.setU8(42, 3);
+  const siege = m.u16(440);
+  const unent = m.u16(448);
+  setDayIndex(g, 92);
+  assert.equal(saisonwechselStand(g), null, "am letzten Spieltag");
+  setDayIndex(g, 93);
+  assert.equal(saisonwechselStand(g), "zug", "danach");
+  saisonbilanz(g);
+  assert.equal(m.u16(440), siege + 8);
+  assert.equal(m.u16(448), (unent + 20 - 3 - 8) & 0xffff);
+  assert.equal(m.i32(484), 0);
+  assert.equal(m.i32(492), 99999);
+  saisonwechselTeil1(g, mulberryRng(4), true);
+  assert.equal(saisonwechselStand(g), "vertraege");
 });

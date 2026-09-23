@@ -10,7 +10,7 @@ import { LEAGUES } from "./fixtures.ts";
 import { writePairings } from "./matchday.ts";
 import { tableOrder } from "./standings.ts";
 import { resetPoachCounts } from "./abwerben.ts";
-import { CAL_OFFSET, CALENDAR_DAYS, DAY_INDEX_OFFSET, setDayIndex, seasonStartYear } from "./calendar.ts";
+import { CAL_OFFSET, CALENDAR_DAYS, DAY_INDEX_OFFSET, LETZTER_SAISONTAG, dayIndex, seasonDay, setDayIndex, seasonStartYear } from "./calendar.ts";
 import { initialDraw, clearCupResults, europeanParticipants, remapCupClubs, orderList, PLAYOFF_RESULT, ORDER_LIST } from "./europa.ts";
 import { seasonEndAdvertising, generateOffers } from "./werbung.ts";
 import { texte } from "../data/texte.ts";
@@ -234,8 +234,69 @@ export interface SaisonHaken {
 }
 
 export function newSeason(g: GameState, rng: Rng, verlaengerung = false, haken: SaisonHaken = {}): SeasonEvent[] {
+  const teil = saisonwechselTeil1(g, rng, verlaengerung, haken.kp);
+  haken.vertraege?.(teil.events);
+  return saisonwechselTeil2(g, rng, teil, haken);
+}
+
+/**
+ * Saisonbilanz am Ende des letzten Kalendertags (0x1DD03, je Manager): Punkte, Tore, Siege,
+ * Niederlagen und Unentschieden der Abschlusstabelle wandern in die ewige Bilanz (u16 420..450,
+ * je Paar Hin- und Rückrunde), danach beginnen die Zuschauerzahlen von vorn: Gesamt und Rekord
+ * 0, Minuskulisse 99999 (0x1DDB9).
+ */
+export function saisonbilanz(g: GameState): void {
+  for (const m of g.activeManagers()) {
+    const st = g.standings.at(m.clubIndex);
+    const plus = (off: number, v: number) => m.setU16(off, (m.u16(off) + v) & 0xffff);
+    for (let j = 0; j < 2; j++) {
+      const punkte = st.u8(30 + j);
+      const siege = st.u8(38 + j);
+      const niederlagen = st.u8(42 + j);
+      plus(420 + 2 * j, st.u8(j));
+      plus(432 + 2 * j, 2 * punkte - st.u8(j));
+      plus(424 + 2 * j, st.u8(22 + j));
+      plus(428 + 2 * j, st.u8(26 + j));
+      plus(436 + 2 * j, punkte);
+      plus(440 + 2 * j, siege);
+      plus(444 + 2 * j, niederlagen);
+      plus(448 + 2 * j, punkte - niederlagen - siege);
+    }
+    for (let o = 484; o < 492; o++) m.setU8(o, 0);
+    m.setU8(314, 0);
+    m.setI32(492, 99999);
+  }
+}
+
+/**
+ * Wo steht ein Spielstand im Saisonwechsel? Nach dem letzten Spieltag steht der Tagindex hinter
+ * Saisontag 322 (0x1DC52). "zug": der Übergangstag mit seinem Zug steht an, die Saison ist noch
+ * nicht abgerechnet. "vertraege": der erste Teil ist gelaufen (Tabellen geleert), die
+ * Vertragsgespräche laufen. Sonst null.
+ */
+export function saisonwechselStand(g: GameState): "zug" | "vertraege" | null {
+  if (seasonDay(dayIndex(g)) <= LETZTER_SAISONTAG) return null;
+  for (let c = 0; c < 64; c++) {
+    const st = g.standings.at(c);
+    // Bytes 4..21 hält das Zurücksetzen auf seiner Vorlage, der Rest ist danach 0
+    for (let i = 0; i < 46; i++) if ((i < 4 || i >= 22) && st.u8(i) !== 0) return "zug";
+  }
+  return "vertraege";
+}
+
+/** Zwischenstand des Saisonwechsels bis zu den Vertragsgesprächen. */
+export interface SaisonTeil1 {
+  events: SeasonEvent[];
+  flags: number[];
+}
+
+/**
+ * Erster Teil des Saisonwechsels (0x1E319 bis 0x1E940): Tabellen, Auf- und Abstieg, Schwankung,
+ * Sponsoren, Ligaplätze, Saisonereignisse. Danach kommen die Vertragsgespräche der Manager.
+ */
+export function saisonwechselTeil1(g: GameState, rng: Rng, verlaengerung = false, kpHaken?: (id: number) => void): SaisonTeil1 {
   const p = g.save.plain;
-  const kp = haken.kp ?? (() => {});
+  const kp = kpHaken ?? (() => {});
   writeHistory(g);
   // Europapokalteilnehmer aus der Abschlusstabelle (0x18B12); Vereinstausche werden mitgeführt.
   // Das Original ruft es erst nach dem Mischen der Ligaplätze auf - gewürfelt wird dabei nicht.
@@ -289,12 +350,19 @@ export function newSeason(g: GameState, rng: Rng, verlaengerung = false, haken: 
   const z = (p[SAISONZAEHLER] | (p[SAISONZAEHLER + 1] << 8)) + 1;
   p[SAISONZAEHLER] = z & 0xff;
   p[SAISONZAEHLER + 1] = (z >> 8) & 0xff;
-  haken.vertraege?.(events);
+  void moves;
+  return { events, flags };
+}
+
+/** Zweiter Teil (ab 0x0F2A6): Spielerpool, Tage bis zum 28.7., neue Saison anlegen und auslosen. */
+export function saisonwechselTeil2(g: GameState, rng: Rng, teil: SaisonTeil1, haken: SaisonHaken = {}): SeasonEvent[] {
+  const p = g.save.plain;
+  const kp = haken.kp ?? (() => {});
+  const { events, flags } = teil;
   // Spielerpool der KI-Vereine nach den Vertragsdialogen (0x0DB40 -> 0x0F2A6)
   kp(41);
   seasonPlayerPool(g, rng, () => kp(42));
   haken.tage?.();
-  void moves;
   p.fill(0, TABLES.results.offset, TABLES.results.offset + TABLES.results.length);
   for (let l = 0; l < 3; l++) {
     p[SCALARS.nextMatchday + l] = 1;

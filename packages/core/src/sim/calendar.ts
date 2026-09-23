@@ -19,6 +19,13 @@ export const FLAG_EUROPE = 0x70;
 
 const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
+/**
+ * Letzter Spieltag der Saison (Saisontag 322, das Rückspiel der Relegation). Hat der Tageszähler
+ * ihn überschritten, springt der Tagesablauf in den Saisonwechsel (0x1DC52: 4cb3:07DC gegen
+ * 322 + 4cb3:224C) - die Kalendertage danach erreicht das Original nie.
+ */
+export const LETZTER_SAISONTAG = 322;
+
 export function seasonDay(dayIndex: number): number {
   return Math.trunc((7 * dayIndex + 1) / 2);
 }
