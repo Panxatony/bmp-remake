@@ -416,6 +416,11 @@ Chancen zählen jeden Schuss mit, unter der Szene steht "ELFMETER" zwischen den 
 dem Schuss "Torschütze: <Name>" bzw. "Chance vergeben: <Name>" - einen Namen gibt es nur beim
 Managerverein. Am Original gemessen (TEST1 mit srand(28), Wurf für Wurf und Bildschirmfotos,
 GitLab #72, #99).
+**Bewusst anders:** Das Original überschreibt beim Schießen den Ergebnisspeicher des Paares mit
+den Elfmetern (20 + Elfmeter Heim : Elfmeter Gast, 0x6830/0x6C65). Im Europapokal und in der
+Relegation entscheidet 0x19208 danach mit Hinspieltoren plus Elfmetern - der Verlierer des
+Schießens kann weiterkommen. Im Remake kommt immer der Sieger des Schießens weiter (Zweigbuch
+18E46, V2; Entscheidung lhuno).
 Europapokal: Hin- und Rückspiel an den Kalendertagen mit Flag 0x70 (1/5, 15/19, 31/35,
 63/67, 77/81, auch das Finale). Nach dem Hinspiel (Flag 28241 + Pokal - 1 = 0) speichert
 der Rundenabschluss das Ergebnis gespiegelt in 28137 (Gast, Heim) und tauscht die Paare.
