@@ -28,6 +28,8 @@ Aufruf: tools/kontrollpunkte.py [--spur 12] [--still 2,7] <Testkopie.EXE>   (än
     nach LOG+0x200 kopieren; 4cb3:xxxx liegt bei 4238:xxxx+0xA7B0
   --dump-einmal 1: nur beim ersten Erreichen kopieren (sonst gilt der letzte Durchlauf - und
     der Folgetag läuft bis zum Speichern oft noch einmal über denselben Punkt)
+  --dump-ziel ADR: Ziel des Abzugs in Segment 4238 (Vorgabe LOG+0x200)
+  --log ADR, --max N: anderer Ort und Höchstzahl der Einträge für das Protokoll
 """
 import os
 import subprocess
@@ -38,6 +40,21 @@ HDR = 512
 CAVE_ADDR = 0x3260C           # lineare Adresse im Abbild
 CAVE_SEG, CAVE_OFF = 0x322B, 0x035C
 CAVE_LEN = 0x32AAE - 0x3260C  # bis zum lret der Routine
+
+
+def hoehle(name: str) -> None:
+    """Andere Höhle für den Code: "statistik" = Statistikbildschirm (empfohlen), "zeremonie" = Ziehungsanzeige der Auslosung 0x17F98 bis 0x184BA
+    (1314 Bytes). Sie läuft nur, wenn jemand der Auslosung beiwohnen will - drive.py antwortet
+    immer KEIN GEDANKE. So bleibt der Spielerpool 0x3260C für das neue Spiel frei."""
+    global CAVE_ADDR, CAVE_SEG, CAVE_OFF, CAVE_LEN
+    if name == "zeremonie":
+        CAVE_ADDR, CAVE_SEG, CAVE_OFF, CAVE_LEN = 0x17F98, 0x17C2, 0x0378, 0x184BA - 0x17F98
+    elif name == "statistik":
+        # Statistikbildschirm 0x26DE7 (3568 Bytes, nur aus dem Hauptmenü 0xA58B aufgerufen);
+        # anders als in der Zeremonie hat er Lücken ohne Relokation, in die der Protokollierer passt
+        CAVE_ADDR, CAVE_SEG, CAVE_OFF, CAVE_LEN = 0x26DE7, 0x262F, 0x0AF7, 3568
+    elif name != "pool":
+        raise SystemExit(f"unbekannte Höhle: {name}")
 DGROUP, DATA = 0x4CB3, 0x4238
 LOG = 0x8686                  # 4238:8686 = Kaderplatz 75
 MAX_EINTRAEGE = 160
@@ -92,7 +109,38 @@ PUNKTE = [
     (42, 0xF4CA, 0x14A4, 0x1798),  # Sollzahlen 0x161D8, zweiter Aufruf
     # Elfmeterschießen mit Manager 0x6733
     (43, 0x69F9, 0x1A58, 0x0CA3),  # Chancenhandler 0x1B223 je Schuss (Modus Tor/vorbei, Elfmeter)
+    # Neues Spiel (0x08FD8 mit Startbildschirm 0x0AD44) - nur mit --hoehle zeremonie, denn die
+    # Vorgabehöhle ist der Spielerpool 0x3260C selbst
+    (44, 0x923B, 0x262F, 0x36EC), # Stammdaten 0x299DC
+    (45, 0x92E5, 0x0310, 0x09C5), # Ligaplätze mischen 0x3AC5
+    (46, 0x92EA, 0x17C2, 0x0EF2), # Europapokalteilnehmer 0x18B12
+    (47, 0x9300, 0x17C2, 0x09E0), # Auslosung 0x18600 (vor dem Startbildschirm)
+    (48, 0xBDAC, 0x322B, 0x035C), # Spielerpool 0x3260C
+    (49, 0xBE6C, 0x1ECD, 0x37D8), # Kaderplatz 0x224A8 je Managerspieler
+    (50, 0xBFAA, 0x0310, 0x0B24), # Tausch in die Oberliga 0x3C24 (erste Stelle)
+    (51, 0xC094, 0x0310, 0x0B24), # Tausch 0x3C24 (zweite Stelle)
+    (52, 0xC1C9, 0x2277, 0x25DE), # Marktwert 0x24D4E je Kaderplatz
+    (53, 0xC4E4, 0x14A4, 0x2CB4), # Sponsorenangebote 0x176F4
+    (54, 0x942A, 0x0F9D, 0x0697), # Schwankung 0x10067
+    (55, 0x943F, 0x14A4, 0x19FB), # Vereinsverteilung 0x1643B
+    (56, 0x9448, 0x17C2, 0x09E0), # Auslosung 0x18600
+    (57, 0x945B, 0x17C2, 0x09E0), # Auslosung 0x18600
+    (58, 0x9482, 0x2277, 0x1E38), # Transfermarkt 0x245A8
+    (59, 0x9D46, 0x1ECD, 0x3360), # Aufstellung 0x22030
+    # Vereinsverteilung 0x1643B: nach den Sollzahlen 0x161D8; Marktwert je Wechsel in 0x161D8
+    (60, 0x16467, 0x0CB5, 0x2A3B), # Vereinsliste 0x0F58B (nach 0x161D8)
+    (61, 0x16307, 0x2277, 0x25DE), # 0x161D8: Marktwert, Rückkehr eines Auslandsspielers
+    (62, 0x16368, 0x2277, 0x25DE), # 0x161D8: Marktwert je Wechsel
+    # Stärke 0x0F9D2 mit Flag 0 (schreibt die Vereinsmatrix ohne Würfel)
+    (63, 0x119C0, 0x0F9D, 0x0002),
+    (64, 0x1D7BA, 0x0F9D, 0x0002), # Tagesbeginn nach der Aufstellung
+    (65, 0x1DCA8, 0x0F9D, 0x0002),
+    (66, 0x242C2, 0x0F9D, 0x0002),
+    (67, 0x2B63F, 0x0F9D, 0x0002),
+    (68, 0x21190, 0x0F9D, 0x0002), # Kaderbildschirm verlassen (Flag aus dem Spielzustand)
 ]
+# Neue Punkte des neuen Spiels nur auf Wunsch einbauen
+NEUES_SPIEL = set(range(44, 69))
 # Punkte mit Speicherabzug: vor dem Eintrag werden DUMP_LAENGE Bytes ab 4238:DUMP_VON nach
 # 4238:LOG+DUMP_ZIEL kopiert (die Spielberichte 4238:90CA, 154 Bytes je Manager)
 DUMP_PUNKTE: set = set()
@@ -263,7 +311,9 @@ weiter:
 
 
 def aktive() -> list:
-    return [p for p in PUNKTE if p[0] not in OHNE_PUNKTE]
+    # Die Punkte des neuen Spiels hängen am Pool 0x3260C - mit der Vorgabehöhle geht das nicht
+    ohne = OHNE_PUNKTE | (NEUES_SPIEL if CAVE_ADDR == 0x3260C else set())
+    return [p for p in PUNKTE if p[0] not in ohne]
 
 
 def kennung(k: int) -> int:
@@ -321,7 +371,7 @@ def quelltext_stummel(protokoll: int, dump: int = 0) -> str:
 
 
 def main() -> None:
-    global SPUR_PUNKTE, STILL_PUNKTE, RING, HALT_PUNKTE, OHNE_PUNKTE, DUMP_PUNKTE, DUMP_VON, DUMP_LAENGE, SPUR_MANAGER, DUMP_EINMAL
+    global LOG, MAX_EINTRAEGE, DUMP_ZIEL, SPUR_PUNKTE, STILL_PUNKTE, RING, HALT_PUNKTE, OHNE_PUNKTE, DUMP_PUNKTE, DUMP_VON, DUMP_LAENGE, SPUR_MANAGER, DUMP_EINMAL
     args = sys.argv[1:]
     liste = lambda v: {int(x) for x in v.split(",") if x}
     while len(args) > 1 and args[0].startswith("--"):
@@ -345,6 +395,16 @@ def main() -> None:
             OHNE_PUNKTE = liste(args[1])
         elif args[0] == "--ring":
             RING = args[1] == "1"
+        elif args[0] == "--log":
+            # anderer Ort für das Protokoll, z. B. 0x9840 (Historieblock der Manager 2 und 3):
+            # die Verteilung 0x161D8 liest Kaderplätze bis 4238:965E als Spielerwerte
+            LOG = int(args[1], 0)
+        elif args[0] == "--dump-ziel":
+            DUMP_ZIEL = int(args[1], 0) - LOG
+        elif args[0] == "--max":
+            MAX_EINTRAEGE = int(args[1])
+        elif args[0] == "--hoehle":
+            hoehle(args[1])
         else:
             raise SystemExit(f"unbekannt: {args[0]}")
         args = args[2:]

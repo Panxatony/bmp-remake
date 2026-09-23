@@ -18,7 +18,7 @@ import { bookEvents } from "./matchday.ts";
 import { bookShootoutShot, bookDefence } from "./goals.ts";
 import { sommertagSperren } from "./training.ts";
 import { minuteIncidents, newIncidentState, type IncidentState } from "./incidents.ts";
-import { matchStrength } from "./matchday.ts";
+import { matchStrength, matrixInVerein, anzeigeStaerke } from "./matchday.ts";
 import { kaderVorbereitung } from "./matchday.ts";
 import { attendance, bookAttendance, bookGate } from "./attendance.ts";
 import { riotCheck } from "./finance.ts";
@@ -58,18 +58,6 @@ export interface Originaltag {
   lager?: number[];
 }
 
-/**
- * Die Spielmatrix steht nach 0x0F9D2 mit Flag 1 im Vereinssatz (Kondition 24.., Technik 27..,
- * Form 30..); die Live-Schleife und die Zuschauerrechnung lesen sie dort (0x04568).
- */
-function matrixInVerein(g: GameState, manager: number, s: { ko: number[]; te: number[]; fo: number[] }): void {
-  const c = g.clubs.at(g.managers.at(manager).clubIndex);
-  for (let l = 0; l < 3; l++) {
-    c.setU8(24 + l, s.ko[l] & 0xff);
-    c.setU8(27 + l, s.te[l] & 0xff);
-    c.setU8(30 + l, s.fo[l] & 0xff);
-  }
-}
 
 /**
  * `lager`: Öffnungszeiten der Trainingslager beim Laden (4cb3:0620). Sie stehen nicht im
@@ -109,6 +97,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
     for (let m = 0; m < n; m++) {
       g.save.plain[SYSTEM_OFFSET + 2 * m] = g.save.plain[SYSTEM_OFFSET + 2 * m + 1];
       autoLineupIfEnabled(g, m);
+      anzeigeStaerke(g, m);
     }
   }
   // Automatische Speicherung: 0x11E3D setzt am Monatsletzten mit Monat % 4 = 0 (Januar, Mai,

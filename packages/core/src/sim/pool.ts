@@ -45,14 +45,15 @@ function segment4238(g: GameState, adresse: number): number {
 /**
  * Wert/10000 für die Vereinswahl (0x161D8 -> 0x24D4E, #99): das Original übergibt die
  * Spielernummer als Kaderplatz, und zwar als vorzeichenbehaftetes Byte, zum aktuellen Manager
- * 4238:304A - der steht nach der Managerschleife des Saisonendes auf der Managerzahl. Gelesen
+ * 4238:304A (`aktuell`) - der steht nach der Managerschleife des Saisonendes auf der
+ * Managerzahl, beim neuen Spiel auf 0. Gelesen
  * wird also der "Kaderplatz" 25·Managerzahl + (int8) Spielernummer: leere Plätze eines
  * unbesetzten Managers, Marktplätze, dahinter Laufzeitspeicher (hier 0), für Nummern ab 128
  * Bytes vor der Kadertabelle (Ergebnisse, Pokalbereich). Bei angebotenen Spielern (Byte 9,
  * Bit 7) würfelt die Wertrechnung random(95,100) - auch hier.
  */
-function poolValue(g: GameState, player: number, rng: Rng): number {
-  const platz = 25 * g.activeManagers().length + ((player << 24) >> 24);
+function poolValue(g: GameState, player: number, aktuell: number, rng: Rng): number {
+  const platz = 25 * aktuell + ((player << 24) >> 24);
   const basis = 0x774a + 52 * platz;
   return div(wertAusDatensatz(g, (o) => segment4238(g, basis + o), 0, rng), 10000);
 }
@@ -65,7 +66,7 @@ function poolValue(g: GameState, player: number, rng: Rng): number {
  * (Kaderspieler der Manager in der Liga · 100 / X) · (150 - X) / 100 mit X = Kaderspieler aller
  * Manager + verbliebene Auslandsspieler.
  */
-export function poolTargets(g: GameState, rng: Rng): number[] {
+export function poolTargets(g: GameState, rng: Rng, aktuell = g.activeManagers().length): number[] {
   const count = [0, 0, 0];
   let x = 0;
   for (let l = 0; l < 3; l++) {
@@ -86,11 +87,11 @@ export function poolTargets(g: GameState, rng: Rng): number[] {
     const club = g.players.at(pl).u8(36);
     if (foreign > 4 && isForeign(club)) {
       foreign--;
-      g.players.at(pl).setU8(36, chooseOfferClub(g, poolValue(g, pl, rng), false, rng));
+      g.players.at(pl).setU8(36, chooseOfferClub(g, poolValue(g, pl, aktuell, rng), false, rng));
       pl = 0;
     }
     if (isManagerClub(g, club) || pl === 0 || foreign > 4) continue;
-    g.players.at(pl).setU8(36, chooseOfferClub(g, poolValue(g, pl, rng), false, rng));
+    g.players.at(pl).setU8(36, chooseOfferClub(g, poolValue(g, pl, aktuell, rng), false, rng));
     n++;
   }
   for (let i = 1; i <= PLAYERS; i++) if (isForeign(g.players.at(i).u8(36))) x++;
@@ -155,17 +156,20 @@ export function seasonPlayerPool(g: GameState, rng: Rng, vorZweitem?: () => void
 }
 
 /**
- * 0x1643B (Spielbeginn 0x942A): Sollzahlen je Liga (0x161D8); jeder Spieler ohne Verein
- * (Byte 36 = 255) bzw. bei einem neuen Spiel jeder Spieler außerhalb der Managervereine
- * erhält je Liga mit Restbedarf einen Verein (0x0F4D7) - die letzte Liga mit Bedarf gewinnt.
+ * 0x1643B (Spielbeginn 0x943F): Sollzahlen je Liga (0x161D8), dann erhält jeder Spieler ohne
+ * Verein (Byte 36 = 255) je Liga mit Restbedarf einen Verein (0x0F4D7) - die letzte Liga mit
+ * Bedarf gewinnt. Spieler mit Verein nimmt die Routine nur mit, wenn das Jahr 4238:A7A0 gesetzt
+ * ist (`alle`); beim neuen Spiel steht es dort noch auf 0, also bleiben die Spieler, die 0x161D8
+ * gerade versetzt hat, bei ihrem Verein (NG4 gegen das Original: 125 statt 130 Auswahlen, #100).
+ * `aktuell`: Manager am Zug 4238:304A für die Wertrechnung in 0x161D8 (neues Spiel: 0).
  */
-export function distributePlayers(g: GameState, newGame: boolean, rng: Rng): void {
-  const need = poolTargets(g, rng);
+export function distributePlayers(g: GameState, alle: boolean, rng: Rng, aktuell?: number): void {
+  const need = poolTargets(g, rng, aktuell);
   for (let i = 1; i <= PLAYERS; i++) {
     const p = g.players.at(i);
     const club = p.u8(36);
     if (isManagerClub(g, club)) continue;
-    if (club !== 0xff && !newGame) continue;
+    if (club !== 0xff && !alle) continue;
     for (let l = 0; l < 3; l++) {
       if (need[l] === 0) continue;
       p.setU8(36, pickPoolClub(g, l, rng));

@@ -151,6 +151,7 @@ import {
   driftClubs,
   driftInterest,
   autoLineupIfEnabled,
+  anzeigeStaerke,
   tagesroutine,
   standingsMessages,
   relegationMessage,
@@ -1268,6 +1269,8 @@ function nachTageswechsel(r: Room): void {
     for (let i = 0; i < n; i++) {
       restoreSystem(g, i);
       autoLineupIfEnabled(g, i);
+      // danach die Stärke mit Flag 0 in die Vereinsmatrix (0x1D7BA, #100)
+      anzeigeStaerke(g, i);
     }
   }
   const dt = dateOfSeasonDay(seasonDay(k), seasonStartYear(g));
@@ -2552,6 +2555,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const template = vorlage?.save.plain ?? SaveFile.decode(new Uint8Array(await readFile(join(savesDir, argOf("--load") ?? "TEST4.MAN")))).plain;
     const save = createGame(template, mana, opts, mulberryRng(Date.now() >>> 0));
     const neu = roomFromSave(meta, save);
+    // Der erste Tagesbeginn des Originals stellt auf und schreibt die Stärke mit Flag 0 in die
+    // Vereinsmatrix der Managervereine (0x1D7BA, #100)
+    neu.game.activeManagers().forEach((_, i) => anzeigeStaerke(neu.game, i));
     // Auslosung des DFB-Pokals als Zeremonie für alle (0x17C26), sobald alle Plätze besetzt sind
     neu.ceremony = { cup: 0, phase: "vote", ready: false, votes: {}, startedAt: null, skipped: false, seen: [] };
     neu.log.push(`Neues Spiel von ${user} (${opts.rules === 1 ? "Version 2026" : "Original"}): ${opts.managers.map((m: { name: string }) => m.name).join(", ")}`);

@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, parseMana, createGame, dayIndex, calendarFlag, playMatchday, playCupDay, cupPairs, dailyTraining, trainingInput, advertisingAmount } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, originalRng, originaltag, TABLES, parseMana, createGame, dayIndex, calendarFlag, playMatchday, playCupDay, cupPairs, dailyTraining, trainingInput, advertisingAmount } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 
@@ -46,7 +46,9 @@ test("Neues Spiel: Stammdaten lesen, Manager mit Wunschverein in der Oberliga, K
     // Europapokale auf 0, Werbeblock mit den Vorgaben aus dem Datensegment von BMMAIN.EXE
     for (let cup = 1; cup < 5; cup++) assert.equal(m.u8(306 + cup), 0);
     for (let k = 62; k < 262; k++) assert.equal(m.u8(k), 0, `Verlauf ${k}`);
-    for (let k = 267; k < 305; k++) assert.equal(m.u8(k), 0, `Reihe ${k}`);
+    // Byte 267 = Platz zum Saisonstart (Spieltag 0), wie nach jedem Saisonwechsel (NG12, #100)
+    assert.equal(m.u8(267), g.standings.at(m.clubIndex).u8(46));
+    for (let k = 268; k < 305; k++) assert.equal(m.u8(k), 0, `Reihe ${k}`);
     assert.equal(advertisingAmount(g, i, 0), 50000);
     for (let b = 1; b <= 6; b++) assert.equal(advertisingAmount(g, i, b), 6000);
     assert.equal(advertisingAmount(g, i, 7), 10000);
@@ -72,4 +74,54 @@ test("Neues Spiel: Stammdaten lesen, Manager mit Wunschverein in der Oberliga, K
   for (let league = 0; league < 3; league++) assert.equal(playMatchday(g, league, mulberryRng(7 + league)).length, league === 0 ? 9 : 10);
   g.save.plain[28233] = 1;
   assert.equal(playCupDay(g, mulberryRng(3)).length, 16);
+});
+
+// Neues Spiel im Original (tools/dosbox/neuesspiel.sh, seed-patch.py 1 tag, Kontrollpunkte 7, 10-13,
+// 54, 56, 58, 59): ein Manager TEST mit Dynamo Dresden, ein Klick auf das Wappen (Leiste 1),
+// gespeichert im ersten Zug. Das neue Spiel beginnt beim Zufallszustand 1 (randomize ist
+// überbrückt), der Tagesbeginn danach wieder bei srand(1).
+const NEUES_SPIEL = resolve(import.meta.dirname, "../../../tools/dosbox/KP-NEUESSPIEL.MAN");
+test("Neues Spiel wie das Original: Würfe und ganzer Spielstand (KP-NEUESSPIEL)", { skip: !existsSync(NEUES_SPIEL) }, () => {
+  const orig = SaveFile.decode(new Uint8Array(readFileSync(NEUES_SPIEL))).plain;
+  const log = TABLES.lineups.offset + 75 * 52;
+  const w = (i: number) => orig[log + i] | (orig[log + i + 1] << 8);
+  const zaehle = (z: number) => {
+    let s = 1;
+    let n = 0;
+    while (s !== z && n < 100_000) {
+      s = (Math.imul(s, 214013) + 2531011) >>> 0;
+      n++;
+    }
+    return s === z ? n : -1;
+  };
+  const protokoll = Array.from({ length: w(0) }, (_, i) => ({ punkt: w(2 + 8 * i), wurf: zaehle((w(4 + 8 * i) | (w(6 + 8 * i) << 16)) >>> 0) }));
+  const mana = parseMana(new Uint8Array(readFileSync(join(BMP_DIR, "MANA.DAT"))));
+  const template = SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))).plain;
+  const dresden = mana.names.findIndex((n) => n.startsWith("DYNAMO DRES"));
+  const rng = originalRng(1);
+  const lauf: { punkt: number; wurf: number }[] = [];
+  const save = createGame(template, mana, { managers: [{ name: "TEST", club: dresden, portrait: 1 }], level: orig[34062], leiste: 1, kp: (k) => { if ([54, 56, 58].includes(k)) lauf.push({ punkt: k, wurf: rng.zaehler() }); } }, rng);
+  const g = new GameState(save);
+  const tag = originalRng(1);
+  try {
+    originaltag(g, tag, undefined, (k) => {
+      if ([7, 10, 12].includes(k)) lauf.push({ punkt: k, wurf: tag.zaehler() });
+      if (k === 12) throw new Error("Zug");
+    });
+  } catch (e) {
+    if ((e as Error).message !== "Zug") throw e;
+  }
+  // 59: Aufstellung im Zug, nach dem Speicherpunkt des Modells
+  assert.deepEqual(lauf, protokoll.filter((p) => p.punkt !== 59));
+  // Ganzer Stand ab der Speicherkarte (davor der Kopf mit der beim Speichern gewürfelten Kennung);
+  // ausgenommen das Protokoll selbst, die Prüfsumme 56DC, die Öffnungszeiten der Trainingslager
+  // (4cb3:0620, Laufzeit) und der Monat vor der Datumsrechnung (4238:4BCE)
+  const p = g.save.plain;
+  const anders: string[] = [];
+  for (let i = 35; i < 34368; i++) {
+    if (i >= log && i < log + 2 + 8 * w(0)) continue;
+    if (i === 28006 || (i >= 34322 && i < 34339)) continue;
+    if (p[i] !== orig[i]) anders.push(`${i}:${orig[i]}/${p[i]}`);
+  }
+  assert.deepEqual(anders, []);
 });

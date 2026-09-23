@@ -689,23 +689,28 @@ random(1,3) << 4 | random(0,1) << 7, Stärken vom Spieler, Gehalt = Marktwert Va
 
 Managerschleife: das Original startet jeden Manager in der Oberliga: ist der Wunschverein kein
 Oberligist, wird er mit einem zufälligen freien Oberligaplatz random(38,57) getauscht (0x3C24, Name
-und Logo wandern mit). Kaderwerte: b = Level/2 + 27, Kondition und Technik random(b, b+5), Form
-random(40,60); Gehälter neu; Trainingsbälle 321.. = 5,4,6,5,6 und 326.. = 1,3,3,3; Liga 2;
+und Logo wandern mit). Kaderwerte: b = Level/2 + 27, je Wert random(b, b+5) und random(40,60),
+die Form nimmt den zweiten. In die Spielertabelle schreibt das Original sie über den Zähler der
+Wappenleiste des Startbildschirms: die Kaderspieler behalten ihre Poolwerte, der Spieler mit der
+Nummer der Leistenstellung (0..63) bekommt die Werte des letzten Kaderplatzes (*Eigenheit*,
+docs/abgleich/neuesspiel.md); Gehälter neu; Trainingsbälle 321.. = 5,4,6,5,6 und 326.. = 1,3,3,3; Liga 2;
 Eintritt 2·8 - 3·Liga = 10 DM; Stehplätze 4000·(5 - Liga) = 12000, Sitze 3000·(2 - Liga) = 0,
 Überdacht 3500·(2 - Liga) = 0, Komfort 390 = 4, 398 = 3; Einsatzregler 305 = 16; Fanwert 50 -
 20·Liga = 10; Trainer (0x09623) = L·(random(15,20) + 40) + ((L·(110 - Fans)) & 0xFE)·500 mit
 L = 2 - Liga, danach mal random(10·(L+10), 25·(L+4))/100; Fernsehgeld 1000·(30·L + Fans);
 Sponsorenangebote; Kontostand 1.500.000 DM (Level 4 gespeichert: 1.900.000), Zuschauerminimum
-99999; Bytes 267..304 = 10; Historie 62..261 = 0xFF. Danach Spieltag 1 aller Ligen, DFB-Pokal-
-Auslosung mit gesetzten Managervereinen, Transfermarkt (0x245A8: bis zu zwölf Spieler aus zufälligen
-Vereinen, Kondition/Technik aus der Vereinsstärke ± random(0,14) - 10, mit 1/5 plus random(12,20)).
+99999; Bytes 267..304 = 10; Historie 62..261 = 0xFF. Nach dem Startbildschirm (0x942A bis 0x9482):
+Schwankung der Vereinsmatrix mit 10 (0x10067), Vereinsverteilung (0x1643B; das Jahr 4238:A7A0 steht
+noch auf 0, also bekommen nur vereinslose Spieler einen Verein), DFB-Pokal-Auslosung mit gesetzten
+Managervereinen, Transfermarkt mit derselben Erneuerung wie im Tagesablauf (0x245A8). Der erste
+Tagesbeginn stellt auf und schreibt die Stärke mit Flag 0 in die Matrix der Managervereine.
 Abweichungen: Standardaufstellung (Nummern 1..11 nach Gruppen) wird vergeben, die zehn
 KI-Wochenläufe (0x10067) und die Vereinszuordnung der Marktspieler (0x1643B) sind inzwischen umgesetzt (sim/ai.ts, sim/pool.ts); historische
 Startjahre (1964/1966 mit Zuschlägen) sind nicht angeboten.
 
-Europapokal im neuen Spiel: die Auslosung erfolgt erst nach dem Tausch der Managervereine in
-die Oberliga; die Plätze der Vortabelle gehen an die nachgerückten Vereine, Managervereine
-spielen in der ersten Saison nicht in Europa. Fremde Vereine (Index ab 64) haben kein Wappen,
+Europapokal im neuen Spiel: Teilnehmer und Auslosung stehen vor dem Startbildschirm (0x92EA bis
+0x930E), also vor dem Tausch der Managervereine in die Oberliga; der Tausch lässt die Listen stehen
+(0x3C24), Managervereine spielen in der ersten Saison nicht in Europa. Fremde Vereine (Index ab 64) haben kein Wappen,
 die Tafel zeigt den Pokal des Wettbewerbs (145..147.VGA).
 
 ## Training, Trainingslager, Stadion, Bank (Bildschirme 0x139EC, 0x113E5, 0x0602, 0x1291F; sim/training.ts, sim/stadium.ts)

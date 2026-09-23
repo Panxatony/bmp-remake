@@ -17,6 +17,7 @@ import { initialDraw, clearCupResults, europeanParticipants, ORDER_LIST, EU_LIST
 import { generateOffers, SHIRT_OFFSET, ADV_OFFSET } from "./werbung.ts";
 import { playerValue } from "./value.ts";
 import { driftClubs } from "./ai.ts";
+import { refreshMarket } from "./transfer.ts";
 import { distributePlayers } from "./pool.ts";
 import { driftInterest } from "./stadium.ts";
 import { autoLineup, setSystem, sortIntoSquad } from "./lineup.ts";
@@ -39,6 +40,14 @@ export interface NewGameOptions {
   level: number;
   /** Regelwerk: 0 Original, 1 Version 2026 (sim/regeln.ts); ohne Angabe das Original */
   rules?: number;
+  /**
+   * Stellung der Wappenleiste im Startbildschirm (0..63, 4238:-0x4 in 0x0AD44; jeder Klick auf das
+   * Wappen dreht sie um eins). Das Original schreibt die Kaderwerte über diesen Zähler in die
+   * Spielertabelle (s. u.). Das Remake hat keine Leiste: Vorgabe 0, also Spieler 0.
+   */
+  leiste?: number;
+  /** Kontrollpunkte des bytegenauen Vergleichs (kontrollpunkte.py 44..68, #100) */
+  kp?: (punkt: number, stand: Uint8Array) => void;
 }
 
 const div = (a: number, b: number): number => Math.trunc(a / b);
@@ -50,9 +59,10 @@ const NAME_RANGE = [0, 2, 8, 15, 20];
 const HISTORY = 28435;
 const YEAR_MARK = 22251;
 
+/** Zeichenkette Byte für Byte; Namen aus MANA.DAT stehen schon im Zeichensatz des Spiels (0xDC in "LÜTTICH") */
 function writeStr(p: Uint8Array, off: number, len: number, s: string): void {
   p.fill(0, off, off + len);
-  const t = toDosText(s).slice(0, len - 1);
+  const t = s.slice(0, len - 1);
   for (let i = 0; i < t.length; i++) p[off + i] = t.charCodeAt(i) & 0xff;
 }
 
@@ -212,44 +222,6 @@ function buildPlayerPool(g: GameState, mana: ManaData, rng: Rng): void {
   }
 }
 
-/** 0x245A8: Transfermarkt zu Spielbeginn (bis zu zwölf Plätze 100..111). */
-export function fillMarket(g: GameState, rng: Rng): void {
-  const managers = g.activeManagers();
-  let free = 0;
-  for (let i = 0; i < 12; i++) if (g.lineups.at(100 + i).isEmpty) free++;
-  if (free === 0) return;
-  free -= rng(0, free);
-  for (let n = 0; n < free; n++) {
-    let club: number;
-    do club = rng(0, 57);
-    while (managers.some((m) => m.clubIndex === club));
-    const c = g.clubs.at(club);
-    const ko = Math.max(10, Math.min(99, c.u8(25) + rng(0, 14) - 10));
-    let te = c.u8(28) + rng(0, 14) - 10;
-    if (rng(0, 4) === 0) te += rng(12, 20);
-    te = Math.max(10, Math.min(99, te));
-    let idx = -1;
-    for (let tries = 0; tries < 1500; tries++) {
-      const cand = rng(1, 150);
-      if (g.players.at(cand).u8(33) === 5) {
-        idx = cand;
-        break;
-      }
-    }
-    if (idx < 0) return;
-    const pl = g.players.at(idx);
-    pl.setU8(28, ko);
-    pl.setU8(29, te);
-    pl.setU8(30, rng(45, 55));
-    pl.setU8(36, club);
-    const place = addToSquad(g, 4, idx, 0, rng);
-    if (place < 0) return;
-    pl.setU8(33, 4);
-    // Marktpreis wie 0x245A8: Marktwert mit Flag 4
-    writeI32(g.save.plain, TABLES.lineups.offset + (100 + place) * 52 + 40, playerValue(g, 4, place, 4, rng));
-  }
-}
-
 /** Startaufstellung (0x9D46: 0x22030 mit System 1-4-4-2 und Bank 12..15). */
 function defaultLineup(g: GameState, manager: number): void {
   setSystem(g, manager, 2);
@@ -264,6 +236,7 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
   const plain = new SaveFile(template).withMessages([]).plain.slice();
   const g = new GameState(new SaveFile(plain));
   const p = plain;
+  const kp = opt.kp ? (k: number) => opt.kp!(k, plain) : () => {};
   // Tabellen leeren
   for (const t of [TABLES.managers, TABLES.players, TABLES.lineups, TABLES.standings, TABLES.results, TABLES.advertising]) p.fill(0, t.offset, t.offset + t.length);
   p.fill(0, 5457, 5457 + 100);
@@ -274,10 +247,28 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
   p.fill(0, CUP_RESULTS, CUP_RESULTS + 128);
   p.fill(0, EU_LIST, EU_LIST + 10);
   p.fill(0x80, EU_SLOTS, EU_SLOTS + 18);
+  // Titelträger 4cb3:07AC..07B0 wie im Programmabbild: DFB-Sieger 7 (Verein 6), sonst keiner -
+  // das Mischen der Ligaplätze nimmt ihn mit, und so hat die erste Saison einen Pokalsieger im
+  // Europapokal (NG2 gegen das Original geprüft, #100)
   p.fill(0, DFB_WINNER, DFB_WINNER + 5);
+  p[DFB_WINNER] = 7;
   p.fill(0, PLAYOFF_FIRST_LEG, PLAYOFF_FIRST_LEG + 2);
   p[PLAYOFF_RESULT] = 0;
   p.fill(0, HISTORY, HISTORY + 5012);
+  // Weitere Startwerte wie im Programmabbild (gegen ein neues Spiel des Originals, NG2, #100);
+  // bis dahin blieben hier Werte der Vorlage stehen
+  p.fill(0, 45, 49); // 4238:5350
+  p.fill(2, 51, 59); // Spielsystem je Manager (4cb3:079E): 2
+  for (let i = 0; i < 15; i++) p[33447 + i] = i < 14 ? 1 : 0; // Anzeigeoptionen (4cb3:05FE)
+  p[34222] = 40; // Spielgeschwindigkeit (4cb3:063A)
+  p[34223] = 0;
+  p[34224] = 0; // Zahl der Spielzeiten (4cb3:07E2)
+  p[34225] = 0;
+  p.fill(0, 34065, 34065 + 30); // 4238:1D34
+  p.fill(0, 34095, 34095 + 120); // 4238:5664
+  // Tabellen: Vorlage der Bytes 4..21 wie beim Zurücksetzen (4cb3:53C7: achtmal 64, 0)
+  // (die Vereine außerhalb der Ligen, 58..63, nur die erste Hälfte)
+  for (let c = 0; c < 64; c++) for (let i = 0; i < (c < 58 ? 18 : 9); i++) p[TABLES.standings.offset + 54 * c + 4 + i] = i % 9 === 8 ? 0 : 64;
   p.fill(0, SHIRT_OFFSET, ADV_OFFSET);
   // Werbeblock: das Original startet nicht bei 0, sondern mit den Werten, die im Datensegment
   // von BMMAIN.EXE stehen (4cb3:066C): Trikotwerbung 50.000, jede der sechs Banden 6.000,
@@ -298,6 +289,7 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
   p[34064] = YEAR_MARK >> 8;
   p[SCALARS.managerCount] = opt.managers.length;
   // Vereine (0x299DC)
+  kp(44);
   for (let c = 0; c < 200; c++) {
     const o = TABLES.clubs.offset + 34 * c;
     writeStr(p, o, 23, mana.names[c]);
@@ -329,12 +321,22 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
   }
   opt.managers.forEach((mg, m) => {
     const o = TABLES.managers.offset + 778 * m;
-    writeStr(p, o, 29, mg.name.slice(0, 12).toUpperCase());
+    writeStr(p, o, 29, toDosText(mg.name.slice(0, 12).toUpperCase()));
     p[o + 29] = Math.max(1, Math.min(4, mg.portrait));
     p[o + 30] = Math.max(0, Math.min(63, mg.club));
   });
-  // Ligaplätze mischen (0x3AC5), Europapokal (0x18B12, 0x18600)
+  // Ligaplätze mischen (0x3AC5), Europapokalteilnehmer (0x18B12), Pokalergebnisse löschen und
+  // die drei Europapokale auslosen (0x92E5 bis 0x930E) - alles vor dem Startbildschirm, also vor
+  // dem Tausch der Managervereine in die Oberliga
+  kp(45);
   shuffleLeagues(g, rng);
+  kp(46);
+  europeanParticipants(g);
+  clearCupResults(g);
+  for (let cup = 1; cup < 4; cup++) {
+    kp(47);
+    initialDraw(g, cup, rng);
+  }
   // Wunschvereine nach dem Mischen wiederfinden
   opt.managers.forEach((mg, m) => {
     const name = mana.names[Math.max(0, Math.min(63, mg.club))];
@@ -343,6 +345,7 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
     g.managers.at(m).setU8(30, idx >= 0 ? idx : 11 * m);
   });
   // Spielerpool (0x3260C)
+  kp(48);
   buildPlayerPool(g, mana, rng);
   // Managerschleife (0x0AD44 ab 0xBDB8)
   const level = p[34062];
@@ -355,20 +358,30 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
       let y: number;
       do y = rng(38, 57);
       while (managers.slice(0, mi).some((x) => x.clubIndex === y));
+      kp(50);
       swapClubs(g, club, y, false);
     }
     const league = 2;
     const b = div(level, 2) + 27;
-    g.squadOf(mi).forEach((l, slot) => {
-      const pl = g.players.at(l.playerIndex);
-      const vals = [rng(b, b + 5), rng(b, b + 5), rng(40, 60)];
+    // Kaderwerte (0xC0A8 bis 0xC1AE): je Wert random(b, b+5) und immer auch random(40,60) - die
+    // Form nimmt den zweiten. Die Spielertabelle (Bytes 28, 29, 30) schreibt das Original über
+    // -0x4 - das ist aber die Stellung der Wappenleiste aus dem Startbildschirm, nicht der Spieler
+    // des Kaderplatzes: die Kaderspieler behalten ihre Poolwerte, und der Spieler mit der Nummer
+    // der Leistenstellung bekommt die Werte des letzten Kaderplatzes (NG18 gegen das Original:
+    // ein Klick auf das Wappen, Spieler 1 mit 28/33/47, #100)
+    const zeiger = g.players.at((opt.leiste ?? 0) & 63);
+    g.squadOf(mi).forEach((l) => {
       for (let k = 0; k < 3; k++) {
-        l.setU8(16 + k, vals[k]);
-        pl.setU8(28 + k, vals[k]);
+        const v = rng(b, b + 5);
+        const f = rng(40, 60);
+        l.setU8(16 + k, k === 2 ? f : v);
+        zeiger.setU8(28 + k, k === 2 ? f : v);
       }
-      void slot;
     });
-    g.squadOf(mi).forEach((_, slot) => writeI32(p, TABLES.lineups.offset + (mi * 25 + slot) * 52 + 40, playerValue(g, mi, slot, 1, rng)));
+    g.squadOf(mi).forEach((_, slot) => {
+      kp(52);
+      writeI32(p, TABLES.lineups.offset + (mi * 25 + slot) * 52 + 40, playerValue(g, mi, slot, 1, rng));
+    });
     [5, 4, 6, 5, 6].forEach((v, i) => (p[o + 321 + i] = v));
     [1, 3, 3, 3].forEach((v, i) => (p[o + 326 + i] = v));
     p[o + 312] = league;
@@ -383,10 +396,11 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
     p[o + 476] = fans & 0xff;
     p[o + 477] = fans >> 8;
     trainerUndFernsehgeld(g, mi, rng);
+    kp(53);
     generateOffers(g, mi, rng);
     writeI32(p, o + 496, level === 4 ? 1900000 : 1500000);
     writeI32(p, o + 492, 99999);
-    // Verlauf (62..261) und Zuschauerreihe (267..304) bleiben leer, die Pokalrunden auf 0:
+    // Verlauf (62..261) und Zuschauerreihe (268..304) bleiben leer, die Pokalrunden auf 0:
     // so sieht ein frisches Spiel des Originals aus (TEST-LAS)
     defaultLineup(g, mi);
   });
@@ -395,21 +409,33 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
     p[SCALARS.nextMatchday + l] = 1;
     writePairings(g, l, 1);
   }
-  // Europapokal (0x18B12, 0x18600) erst nach dem Tausch der Managervereine in die Oberliga:
-  // die Plätze der Vortabelle gehören dann den nachgerückten Vereinen, Managervereine spielen
-  // in der ersten Saison nicht in Europa
-  europeanParticipants(g);
-  // Ligaverteilung der freien Spieler (0x942A -> 0x1643B): Vereine der Managerligen
-  distributePlayers(g, true, rng);
-  clearCupResults(g);
-  for (let cup = 1; cup < 4; cup++) initialDraw(g, cup, rng);
+  // Nach dem Startbildschirm (0x9427 bis 0x9482): Vereinsmatrix mit 10 (0x10067), Ligaverteilung
+  // der freien Spieler (0x1643B), DFB-Pokal-Auslosung; die Europapokal-Aufrufe mit Schalter 1
+  // kehren sofort zurück (0x18644), dann der Transfermarkt
+  // Zinstabelle der Bank am Ende des Startbildschirms (0xC745 -> 0x112AA) vom Programmstartwert 5
+  driftInterest(g, rng, 5);
+  kp(54);
+  driftClubs(g, 10, rng);
+  kp(55);
+  distributePlayers(g, false, rng, 0); // Jahr 4238:A7A0 noch 0, Manager am Zug 0
+  kp(56);
   initialDraw(g, 0, rng);
+  for (let cup = 1; cup < 4; cup++) kp(57);
   managers.forEach((m) => {
     for (let cup = 1; cup < 4; cup++) m.setU8(306 + cup, 0);
   });
-  fillMarket(g, rng);
-  // Vereinsmatrix zu Spielbeginn (0x942A: 0x10067 mit 10)
-  driftClubs(g, 10, rng);
+  kp(58);
+  // Transfermarkt: dieselbe Erneuerung 0x245A8 wie im Tagesablauf (bis #100 eine eigene Füllung
+  // mit anderen Spielern und Stärken)
+  refreshMarket(g, rng);
+  kp(59);
+  // Tabellenplatz aus der Reihenfolgeliste und der Platz zum Saisonstart je Manager (Byte 267 =
+  // Spieltag 0), wie nach jedem Saisonwechsel; Spieler 0 gehört wie alle freien dem Manager 5
+  for (let league = 0; league < 3; league++) {
+    for (let i = 0; i < LEAGUES[league].teams; i++) g.standings.at(p[ORDER_LIST + 20 * league + i]).setU8(46, i);
+  }
+  managers.forEach((m) => m.setU8(267, g.standings.at(m.clubIndex).u8(46)));
+  p[TABLES.players.offset + 33] = 5;
   for (let i = 0; i < CALENDAR_DAYS; i++) p[CAL_OFFSET + i] = CALENDAR_TEMPLATE[i];
   p[DAY_INDEX_OFFSET] = 0;
   writeI32(p, SCALARS.counter, 0);
@@ -418,7 +444,5 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
   writeI32(p, SCALARS.year, 1992);
   p[SCALARS.year16] = 1992 & 0xff;
   p[SCALARS.year16 + 1] = 1992 >> 8;
-  // Zinstabelle der Bank (0xAD44 -> 0x112AA) vom Programmstartwert 5 aus
-  driftInterest(g, rng, 5);
   return new SaveFile(plain).withMessages([]);
 }
