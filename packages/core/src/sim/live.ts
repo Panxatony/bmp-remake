@@ -95,13 +95,17 @@ export class LiveMatch {
 
   /**
    * Nach glatt Rot oder einer Verletzung beim Manager `manager` (0x0657F): die Chancenzahl der
-   * ganzen Halbzeit wird mit den neuen Stärken noch einmal gewürfelt (0x102BA, ohne Minuten) und
-   * je Seite verrechnet - neu = alt - schon gespielt + (neu - alt), aber nur wenn neu >= alt;
-   * sonst wird die ganze neue Zahl draufgeschlagen (*Eigenheit* des Originals: der geschwächten
-   * Seite bleiben so eher mehr Chancen). Deren Minuten werden ab der laufenden Minute bis zum
-   * Halbzeitende neu verteilt (0x043FF), die alten verfallen. Die laufende Minute zählt mit.
+   * ganzen Halbzeit wird mit den neuen Stärken noch einmal gewürfelt (0x102BA, ohne Minuten).
+   * Übrig bleibt je Seite die neue Zahl abzüglich der schon gespielten Chancen. Deren Minuten
+   * werden ab der laufenden Minute bis zum Halbzeitende neu verteilt (0x043FF), die alten
+   * verfallen. Die laufende Minute zählt mit.
+   *
+   * **Bewusst anders als das Original (GitLab #87).** Das Original verrechnet
+   * rest = alt - gespielt + (neu - alt), aber nur wenn neu >= alt; sonst schlägt es die ganze
+   * neue Zahl drauf - die geschwächte Seite bekommt so eher mehr Chancen. `wieOriginal` rechnet
+   * so, für den bytegenauen Vergleich (originaltag.ts).
    */
-  neuAuslosen(manager: number): void {
+  neuAuslosen(manager: number, wieOriginal = false): void {
     const [from, to] = this.halbzeit;
     const alt = this.chancenJeManager.get(manager) ?? this.halbzeitChancen;
     const n = chanceCounts(this.home, this.away, from, to, this.rng);
@@ -110,9 +114,11 @@ export class LiveMatch {
     const seiten = ["home", "away"] as const;
     for (let i = 0; i < 2; i++) {
       const seite = seiten[i];
-      if (alt[i] <= neu[i]) neu[i] -= alt[i];
       const gespielt = this.events.filter((e) => e.side === seite && e.minute >= from && e.minute < this.minute).length;
-      rest[i] = Math.max(0, alt[i] - gespielt + neu[i]);
+      if (wieOriginal) {
+        if (alt[i] <= neu[i]) neu[i] -= alt[i];
+        rest[i] = Math.max(0, alt[i] - gespielt + neu[i]);
+      } else rest[i] = Math.max(0, neu[i] - gespielt);
       this.pending = this.pending.filter((c) => c.side !== seite);
       chanceMinutes(rest[i], this.minute, to, this.rng, !this.pokal).forEach((minute, slot) => minute > 0 && this.pending.push({ minute, side: seite, slot }));
     }

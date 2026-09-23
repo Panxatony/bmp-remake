@@ -323,7 +323,7 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
         }
         if (neu !== undefined) {
           kp(6);
-          s.match.neuAuslosen(neu);
+          s.match.neuAuslosen(neu, true);
         }
         s.match.chances((c) => {
           if (!beteiligt(s)) return;
@@ -464,7 +464,7 @@ function ligaMinute(g: GameState, rng: Rng, kp: (punkt: number) => void, spiele:
     }
     if (neu !== undefined) {
       kp(6);
-      s.match.neuAuslosen(neu);
+      s.match.neuAuslosen(neu, true);
     }
     s.match.chances((c) => {
       if (!beteiligt(s)) return;

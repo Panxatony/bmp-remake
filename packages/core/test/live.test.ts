@@ -69,7 +69,8 @@ test("Pokal: Chancenminuten ohne Doppelprüfung, Liga mit (0x043FF, #82)", () =>
   assert.deepEqual(chanceMinutes(2, 1, 45, () => folge2.shift()!), [10, 20]);
 });
 
-test("Neuauslosung nach Rot/Verletzung: Rechnung und Minutenfenster wie 0x0657F (#82)", () => {
+test("Neuauslosung nach Rot/Verletzung: Rechnung und Minutenfenster (0x0657F, #82, #87)", () => {
+  for (const wieOriginal of [false, true]) {
   const g = load("TEST4.MAN");
   for (let seed = 1; seed <= 30; seed++) {
     const h = g.clubs.at(seed % 18).strengthMatrix;
@@ -88,9 +89,10 @@ test("Neuauslosung nach Rot/Verletzung: Rechnung und Minutenfenster wie 0x0657F 
     while (echt.minute < 30) echt.step();
     echt.beginMinute();
     const n = chanceCounts(h, a, 1, 45, kopie);
-    const rest = (alt: number, neu: number, gs: number) => Math.max(0, alt - gs + (alt <= neu ? neu - alt : neu));
+    // Original: alt - gespielt + (neu - alt bzw. neu); geradegezogen (#87): neu - gespielt
+    const rest = (alt: number, neu: number, gs: number) => (wieOriginal ? Math.max(0, alt - gs + (alt <= neu ? neu - alt : neu)) : Math.max(0, neu - gs));
     const erwartet = { home: Math.min(8, rest(n0.home, n.home, vorher.home)), away: Math.min(8, rest(n0.away, n.away, vorher.away)) };
-    live.neuAuslosen(0);
+    live.neuAuslosen(0, wieOriginal);
     live.chances();
     while (!live.finished) live.step();
     const danach = (s: "home" | "away") => live.events.filter((e) => e.side === s && e.minute >= 31 && e.minute <= 45).length;
@@ -99,5 +101,6 @@ test("Neuauslosung nach Rot/Verletzung: Rechnung und Minutenfenster wie 0x0657F 
     assert.equal(danach("home"), erwartet.home, `Wurf ${seed} Heim`);
     assert.equal(danach("away"), erwartet.away, `Wurf ${seed} Gast`);
     assert.ok(inMinute31("home") <= 1 && inMinute31("away") <= 1);
+  }
   }
 });
