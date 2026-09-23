@@ -1032,14 +1032,21 @@ function platzVon(g: GameState, manager: number, playerIndex: number): number {
   return -1;
 }
 
-/** Einen Spieler mit abgelaufenem Vertrag ziehen lassen, mit Kasten und Eintrag im Verlauf. */
-function vertragsendeFreigeben(r: Room, manager: number, playerIndex: number): void {
+/**
+ * Einen Spieler mit abgelaufenem Vertrag ziehen lassen, mit Kasten und Eintrag im Verlauf. Ohne
+ * `kasten` (der Manager hat den Zug beendet, ohne zu verhandeln) kommt die Nachricht in die
+ * Meldungsliste: den Kasten löscht das Zugende, bevor ihn jemand sieht.
+ */
+function vertragsendeFreigeben(r: Room, manager: number, playerIndex: number, kasten = true): void {
   const place = platzVon(r.game, manager, playerIndex);
   r.vertragsende = r.vertragsende.filter((v) => !(v.manager === manager && v.playerIndex === playerIndex));
   if (place < 0) return;
   const erg = releaseExpiring(r.game, manager, place);
   r.log.push(`${r.game.managers.at(manager).displayName}: ${erg.text}`);
-  if (!isAi(r.game, manager)) r.hinweise.push({ manager, zeilen: wrap(erg.text).map((z) => toDosText(z)) });
+  if (!isAi(r.game, manager)) {
+    if (kasten) r.hinweise.push({ manager, zeilen: wrap(erg.text).map((z) => toDosText(z)) });
+    else pushMessage(r, manager, wrap(erg.text));
+  }
   if (erg.free) {
     r.freeAgents.push({ ...erg.free, bids: [] });
     r.freeAgentsDay = dayIndex(r.game);
@@ -1057,7 +1064,9 @@ function vertragsendeFreigeben(r: Room, manager: number, playerIndex: number): v
 function vertragsendeAufloesen(r: Room, manager: number): void {
   const offen = r.vertragsende.filter((v) => v.manager === manager);
   if (offen.length === 0) return;
-  for (const v of offen) vertragsendeFreigeben(r, manager, v.playerIndex);
+  // Die Meldungen bleiben in der Warteschlange: flushMessages ersetzt r.game, und der
+  // Saisonwechsel hält es gerade fest (saisonwechselAbschliessen)
+  for (const v of offen) vertragsendeFreigeben(r, manager, v.playerIndex, false);
   r.version++;
 }
 
