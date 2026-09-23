@@ -96,7 +96,7 @@ export function pickPoolClub(g: GameState, league: number, rng: Rng): number {
  * Ligen (in Ligareihenfolge) zu einem Verein der Liga versetzt (0x0F4D7). Zum Schluss läuft
  * 0x161D8 noch einmal (zweite Drift, weitere Wechsel).
  */
-export function seasonPlayerPool(g: GameState, rng: Rng): void {
+export function seasonPlayerPool(g: GameState, rng: Rng, vorZweitem?: () => void): void {
   const need = poolTargets(g, rng);
   need.push(0);
   const cand: number[][] = [[], [], [], []];
@@ -126,6 +126,7 @@ export function seasonPlayerPool(g: GameState, rng: Rng): void {
       }
     }
   }
+  vorZweitem?.();
   poolTargets(g, rng);
 }
 

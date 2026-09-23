@@ -259,6 +259,9 @@ export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaenger
         if (place >= 0) events.push({ manager: i, text: `${T("ui.jugendaufstieg").slice(0, -1)}: ${p.displayName}.` });
       }
     }
+    // Aprilscherz (0x0D161): bei gleichen Kennungen 4cb3:224E/2252 - im Original stets -
+    // random(0,4), bei 0 nur ein Text (nicht portiert). Der Wurf zählt (#99).
+    rng(0, 4);
     if (i === 0) jahrgangswechsel(g, rng);
 
     // Karriereende (0x0D475 bis 0x0D65B): eine Schleife über alle 150 Spieler je Manager.

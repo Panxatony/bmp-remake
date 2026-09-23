@@ -167,6 +167,46 @@ export function promoteRelegate(g: GameState, rng: Rng): Relegation {
   return res;
 }
 
+/** Zahl der gespielten Spielzeiten (4cb3:07E2). */
+const SAISONZAEHLER = 34224;
+
+/**
+ * Ewigkeitspunkte (0x1EB17) je Verein 0..63: 25 je Ligastufe (Bundesliga 2, 2. Liga 1) minus
+ * Tabellenplatz plus 19, für Vereine außerhalb (über 57) nichts; Pokalsieger bekommen dazu
+ * 20 (DFB-Pokal), 50 (Landesmeister), 40 (Pokalsieger), 30 (UEFA-Pokal); der Meister 12, die
+ * Plätze 2..5 der Bundesliga 3, der Erste der unteren Ligen 3. Bis #99 zählte das Remake statt
+ * dessen die Saisonpunkte.
+ */
+export function ewigkeitspunkte(g: GameState): void {
+  const p = g.save.plain;
+  const sieger: [number, number][] = [[2340, 20], [2343, 30], [2342, 40], [2341, 50]];
+  for (let c = 0; c < 64; c++) {
+    const s = g.standings.at(c);
+    const platz = s.u8(46);
+    let v = 25 * ((c < 38 ? 1 : 0) + (c < 18 ? 1 : 0)) - platz + 19;
+    if (c > 57) v = 0;
+    for (const [o, bonus] of sieger) if (p[o] - c - 1 === 0) v += bonus;
+    if (c < 18) v += platz === 0 ? 12 : platz < 5 ? 3 : 0;
+    else if (platz === 0 && c <= 57) v += 3;
+    const neu = s.i32(50) + v;
+    for (let i = 0; i < 4; i++) s.setU8(50 + i, (neu >>> (8 * i)) & 0xff);
+  }
+}
+
+/**
+ * Tabellen zurücksetzen (0x1E29E): alle Saisonwerte auf 0, die Bytes 4..21 auf die Vorlage
+ * 4cb3:53C7 (achtmal 64, dann 0 - zweimal); Tabellenplatz (46) und Ewigkeitspunkte (50) bleiben,
+ * der Platz wandert beim Tausch mit dem Verein.
+ */
+function tabellenZuruecksetzen(g: GameState): void {
+  const vorlage = [64, 64, 64, 64, 64, 64, 64, 64, 0];
+  for (let c = 0; c < 64; c++) {
+    const s = g.standings.at(c);
+    for (let i = 0; i < 46; i++) s.setU8(i, 0);
+    for (let i = 0; i < 18; i++) s.setU8(4 + i, vorlage[i % 9]);
+  }
+}
+
 /** Mischt die Plätze innerhalb jeder Liga (0x3AC5: 55 Zufallstausche je Liga). */
 export function shuffleLeagues(g: GameState, rng: Rng): void {
   for (const L of LEAGUES) {
@@ -186,6 +226,11 @@ export interface SaisonHaken {
    * Sperren der Kaderplätze (0x0F6D8) und die Finanzen 0x11D0D. Ohne Haken fallen sie aus.
    */
   tage?: () => void;
+  /**
+   * Die Vertragsgespräche des Saisonendes (0x0DB40 -> 0x251FF) laufen im Original vor dem
+   * Spielerpool; der Haken bekommt die Ereignisse und entscheidet sie.
+   */
+  vertraege?: (events: SeasonEvent[]) => void;
 }
 
 export function newSeason(g: GameState, rng: Rng, verlaengerung = false, haken: SaisonHaken = {}): SeasonEvent[] {
@@ -198,6 +243,22 @@ export function newSeason(g: GameState, rng: Rng, verlaengerung = false, haken: 
   const managersBefore = g.activeManagers().map((m) => m.clubIndex);
   // Reihenfolge des Tagesablaufs (0x1E319 bis 0x1E935, #99): Auf- und Abstieg, Schwankung aller
   // Vereine, Sponsorenangebote je Manager, Ligaplätze mischen, Saisonende je Manager
+  // Ewigkeitspunkte (0x1EB17), danach die Fans aus deren Zuwachs (0x1E1C8) und das Zurücksetzen
+  // der Tabellen (0x1E29E) - alles vor dem Auf- und Abstieg
+  const managers = g.activeManagers();
+  const ewigVorher = managers.map((m) => g.standings.at(m.clubIndex).i32(50));
+  ewigkeitspunkte(g);
+  const jahre = Math.min(5, (p[SAISONZAEHLER] | (p[SAISONZAEHLER + 1] << 8)) + 1);
+  // Eigenheit des Originals: der neue Fanwert landet in einer einzigen Variablen - am Ende gilt
+  // der des letzten Managers, und den bekommen nach der Schwankung alle (0x1E6C7)
+  let fansNeu = 0;
+  managers.forEach((m, i) => {
+    const d = g.standings.at(m.clubIndex).i32(50) - ewigVorher[i];
+    const fans = m.u8(476) | (m.u8(477) << 8);
+    const v = fans + (Math.trunc(Math.trunc((d * 100) / 108) / jahre) - Math.trunc(fans / jahre));
+    fansNeu = Math.max(0, Math.min(100, v));
+  });
+  tabellenZuruecksetzen(g);
   kp(30);
   const moves = promoteRelegate(g, rng);
   const flags = g.activeManagers().map((m) => m.u8(320));
@@ -205,6 +266,14 @@ export function newSeason(g: GameState, rng: Rng, verlaengerung = false, haken: 
   kp(31);
   // Vereinsmatrix zum Saisonbeginn neu gewürfelt (0x10067 mit 10, 0x1E665)
   driftClubs(g, 10, rng);
+  // Fans: der Wert von oben, in den oberen Ligen mindestens 30, in der Bundesliga mindestens 61 -
+  // die Anhebung wirkt für die folgenden Manager mit (0x1E671)
+  for (const m of managers) {
+    if (fansNeu < 30 && m.u8(312) < 2) fansNeu = 30;
+    if (fansNeu < 61 && m.u8(312) === 0) fansNeu = 61;
+    m.setU8(476, fansNeu & 0xff);
+    m.setU8(477, fansNeu >> 8);
+  }
   g.activeManagers().forEach((_, i) => {
     kp(33);
     generateOffers(g, i, rng);
@@ -216,19 +285,16 @@ export function newSeason(g: GameState, rng: Rng, verlaengerung = false, haken: 
   // Vertragsjahre, Alter, Rückkehr der Leihspieler und Saisonwerte der Kader laufen im
   // Ereignisbildschirm in der Reihenfolge des Originals (seasonEvents, 0x0CB62)
   const events = seasonEvents(g, flags, rng, verlaengerung);
+  // Zahl der Spielzeiten (4cb3:07E2) eins weiter (0x1E940)
+  const z = (p[SAISONZAEHLER] | (p[SAISONZAEHLER + 1] << 8)) + 1;
+  p[SAISONZAEHLER] = z & 0xff;
+  p[SAISONZAEHLER + 1] = (z >> 8) & 0xff;
+  haken.vertraege?.(events);
   // Spielerpool der KI-Vereine nach den Vertragsdialogen (0x0DB40 -> 0x0F2A6)
-  seasonPlayerPool(g, rng);
+  kp(41);
+  seasonPlayerPool(g, rng, () => kp(42));
   haken.tage?.();
   void moves;
-  // Tabellen: alles außer Ewigkeitspunkten (i32 bei 50) löschen, Ewigkeitspunkte += Saisonpunkte
-  for (let c = 0; c < 58; c++) {
-    const s = g.standings.at(c);
-    const allTime = s.i32(50) + s.u8(0) + s.u8(1);
-    for (let i = 0; i < TABLES.standings.record; i++) s.setU8(i, 0);
-    for (let i = 0; i < 4; i++) s.setU8(50 + i, (allTime >>> (8 * i)) & 0xff);
-    s.setU8(46, c - (c < 18 ? 0 : c < 38 ? 18 : 38));
-    p[28244 + (c < 18 ? c : c < 38 ? 20 + c - 18 : 40 + c - 38)] = c;
-  }
   p.fill(0, TABLES.results.offset, TABLES.results.offset + TABLES.results.length);
   for (let l = 0; l < 3; l++) {
     p[SCALARS.nextMatchday + l] = 1;

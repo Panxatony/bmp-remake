@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, originalRng, originaltag, TABLES, calendarFlag } from "../src/index.ts";
+import { SaveFile, GameState, originalRng, originaltag, saisonwechseltag, TABLES, calendarFlag } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const KP = resolve(import.meta.dirname, "../../../tools/dosbox/KP-TEST4.MAN");
@@ -258,3 +258,26 @@ for (const [name, start, lager, anzahl] of [
     assert.deepEqual(punkte.slice(0, anzahl), bisEnde);
   });
 }
+
+// Übergangstag zur neuen Saison (aus RIED2017 weitergespielt; der Stand steht nach dem letzten
+// Kalendertag): Tagesbeginn, ein Zug, dann Auf- und Abstieg (random(61,62) für die Oberliga),
+// Schwankung, Fans, Sponsorenangebote, Mischen, Saisonende je Manager (Jugend, Aprilscherz,
+// Karriereende), Vertragsdialog mit ABBRUCH und der Beginn des Spielerpools. Der Pool selbst
+// weicht noch ab (#99).
+const SAISON = resolve(import.meta.dirname, "../../../tools/dosbox/KP-SAISON.MAN");
+const SAISON_POOL = resolve(import.meta.dirname, "../../../tools/dosbox/KP-SAISON-POOL.MAN");
+const SAISON_START = resolve(import.meta.dirname, "../../../tools/dosbox/KP-SAISON-START.MAN");
+test("Saisonwechseltag: bis zum Spielerpool wie das Original", { skip: !existsSync(SAISON) || !existsSync(SAISON_POOL) || !existsSync(SAISON_START) }, () => {
+  const neuerTag = (datei: string) => {
+    const alle = protokoll(SaveFile.decode(new Uint8Array(readFileSync(datei))).plain);
+    // Der Stand trägt das Protokoll seines eigenen Laufs (bis zu dessen Tagesroutinen, Punkt 9);
+    // der neue Tag beginnt danach
+    return alle.slice(alle.findLastIndex((p) => p.punkt === 9) + 1);
+  };
+  const lauf = saisonwechseltag(new GameState(SaveFile.decode(new Uint8Array(readFileSync(SAISON_START)))), originalRng(0x1234), [60, 60, 60, 60, -60, -60, 60, 60]).punkte;
+  for (const [datei, ids, anzahl] of [[SAISON, [7, 10, 12, 30, 31, 33, 34, 35, 36], 13], [SAISON_POOL, [38, 41], 2]] as const) {
+    const orig = neuerTag(datei).filter((p) => (ids as readonly number[]).includes(p.punkt)).slice(0, anzahl);
+    const remake = lauf.filter((p) => (ids as readonly number[]).includes(p.punkt)).slice(0, anzahl);
+    assert.deepEqual(remake, orig);
+  }
+});

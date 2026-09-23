@@ -83,6 +83,13 @@ PUNKTE = [
     (35, 0x1E92B, 0x17C2, 0x0EF2), # Europapokalteilnehmer und Auslosung 0x18B12
     (36, 0x1E935, 0x0CB5, 0x0012), # Saisonende je Manager 0x0CB62
     (37, 0x1E9E5, 0x112A, 0x0A6D), # Finanzen 0x11D0D
+    # Saisonende je Manager 0x0CB62
+    (38, 0xDC5C, 0x2277, 0x2A8F),  # Vertragsdialog 0x251FF
+    (39, 0xCF2A, 0x076B, 0x0CC7),  # Jugend: Wurf 1/3
+    (40, 0xD4E6, 0x076B, 0x0CC7),  # Karriereende: erster Wurf
+    # Spielerpool 0x0F2A6
+    (41, 0xF310, 0x14A4, 0x1798),  # Sollzahlen 0x161D8, erster Aufruf
+    (42, 0xF4CA, 0x14A4, 0x1798),  # Sollzahlen 0x161D8, zweiter Aufruf
 ]
 # Punkte mit Speicherabzug: vor dem Eintrag werden DUMP_LAENGE Bytes ab 4238:DUMP_VON nach
 # 4238:LOG+DUMP_ZIEL kopiert (die Spielberichte 4238:90CA, 154 Bytes je Manager)
