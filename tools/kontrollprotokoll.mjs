@@ -45,11 +45,35 @@ export const PUNKTE = {
   41: "Pool: Sollzahlen 1",
   42: "Pool: Sollzahlen 2",
   43: "Elfmeterschießen: Chancenhandler je Schuss",
+  44: "Neues Spiel: Stammdaten",
+  45: "Neues Spiel: Ligaplätze mischen",
+  46: "Neues Spiel: Europapokalteilnehmer",
+  47: "Neues Spiel: Auslosung Europapokal",
+  48: "Neues Spiel: Spielerpool",
+  49: "Neues Spiel: Kaderplatz",
+  50: "Neues Spiel: Tausch in die Oberliga",
+  51: "Neues Spiel: Tausch (zweite Stelle)",
+  52: "Neues Spiel: Marktwert je Kaderplatz",
+  53: "Neues Spiel: Sponsorenangebote",
+  54: "Neues Spiel: Schwankung",
+  55: "Neues Spiel: Vereinsverteilung",
+  56: "Neues Spiel: Auslosung DFB-Pokal",
+  57: "Neues Spiel: Auslosung Europapokal (kehrt zurück)",
+  58: "Neues Spiel: Transfermarkt",
+  59: "Aufstellung im Zug",
+  60: "Verteilung: Vereinsliste",
+  61: "Sollzahlen: Marktwert, Rückkehr aus dem Ausland",
+  62: "Sollzahlen: Marktwert je Wechsel",
+  63: "Stärke Flag 0: Trainingslager",
+  64: "Stärke Flag 0: Tagesbeginn",
+  65: "Stärke Flag 0: Saisonwechsel",
+  66: "Stärke Flag 0: Transfermarkt",
+  67: "Stärke Flag 0: Spielplan",
+  68: "Stärke: Kaderbildschirm verlassen",
 };
 
 /** Einträge des Protokolls: Kennung und Zustand des Generators. */
-export function protokoll(plain) {
-  const o = TABLES.lineups.offset + 75 * 52;
+export function protokoll(plain, o = TABLES.lineups.offset + 75 * 52) {
   const w = (i) => plain[o + i] | (plain[o + i + 1] << 8);
   const n = w(0);
   const out = [];

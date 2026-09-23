@@ -40,6 +40,32 @@ export interface PlayedMatch {
   bewertungen?: { manager: number; werte: [number, number][] }[];
 }
 
+/**
+ * Die Spielmatrix steht nach 0x0F9D2 im Vereinssatz (Kondition 24.., Technik 27.., Form 30..);
+ * die Live-Schleife und die Zuschauerrechnung lesen sie dort (0x04568).
+ */
+export function matrixInVerein(g: GameState, manager: number, s: { ko: number[]; te: number[]; fo: number[] }): void {
+  const c = g.clubs.at(g.managers.at(manager).clubIndex);
+  for (let l = 0; l < 3; l++) {
+    c.setU8(24 + l, s.ko[l] & 0xff);
+    c.setU8(27 + l, s.te[l] & 0xff);
+    c.setU8(30 + l, s.fo[l] & 0xff);
+  }
+}
+
+/**
+ * 0x0F9D2 mit Flag 0: Byte 317 (100 bei weniger als acht Spielern mit Nummer 1..11, sonst 0),
+ * dann springt die Routine ohne Würfel und ohne Moral an ihr Ende (0xFFAD) und schreibt die
+ * Matrix in den Vereinssatz. So am Tagesbeginn nach der Aufstellung (0x1D7BA) und beim Verlassen
+ * einiger Bildschirme (Transfermarkt 0x242C2, Trainingslager 0x119C0, Spielplan 0x2B63F). Bis
+ * #100 schrieb das Remake die Matrix nur mit Flag 1 vor den Spielen.
+ */
+export function anzeigeStaerke(g: GameState, manager: number): void {
+  const inp = strengthInput(g, manager, 0);
+  g.managers.at(manager).setU8(317, inp.starters.length < 8 ? 100 : 0);
+  matrixInVerein(g, manager, teamStrength(inp, (lo) => lo, false)); // Flag 0 würfelt nicht
+}
+
 /** Stärkematrix eines Vereins; Managervereine über den Spielweg aus der Aufstellung. */
 /**
  * Spielstärke eines Managervereins und die Moral dazu: Das Original schreibt sie bei jeder
