@@ -6,6 +6,7 @@
 import type { GameState, Lineup } from "../records.ts";
 import { texte } from "../data/texte.ts";
 import type { Rng } from "./match.ts";
+import { autoLineupIfEnabled } from "./lineup.ts";
 
 /** Trainingsmatrix DGROUP 0x292: Zeilen Kondition/Spiel/Schuss/Taktik, Spalten Ko/Te/Fo. */
 const MATRIX = [
@@ -193,6 +194,27 @@ export function injurePlayer(g: GameState, l: Lineup, rng: Rng): void {
   l.setU8(9, l.u8(9) | 2);
   l.setU8(23, kind);
   l.setU8(10, 0);
+}
+
+/**
+ * Ein Sommertag des Saisonwechsels (0x1E955 bis 0x1EA2E, vor den Finanzen des Tages): je
+ * Manager zählen die Sperren und Verletzungen der belegten Kaderplätze herunter (0x0F6D8). Läuft
+ * eine ab, stellt 0x0F6D8 gleich neu auf (0x22030, würfelt nicht) - hier einmal danach, das
+ * Ergebnis ist dasselbe. Bis Zweigbuch 0F6D8 (#100) fiel das weg: Sperren und Verletzungen
+ * überdauerten den Sommer.
+ */
+export function sommertagSperren(g: GameState, seasonDay: number): void {
+  g.activeManagers().forEach((_, m) => {
+    const n = g.squadOf(m).length;
+    let frei = false;
+    for (let place = 0; place < n; place++) {
+      const l = g.lineups.at(m * 25 + place);
+      const vorher = l.u8(9) & 3;
+      injuryCountdown(l, seasonDay);
+      if (vorher && !(l.u8(9) & 3)) frei = true;
+    }
+    if (frei) autoLineupIfEnabled(g, m);
+  });
 }
 
 /** Verletzung (Flag-Bit 1) zählt wöchentlich herunter; abgelaufene Sperre/Verletzung wird gelöscht (0x0F6D8). */

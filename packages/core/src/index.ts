@@ -47,7 +47,7 @@ export { JUGEND_KENNUNG, JUGEND_FASSUNG, JUGEND_TEAMS, JUGEND_PLAETZE, JUGEND_SA
 export { baueSzene, alsFassung, pruefeBeschreibung, SZENE_GRENZEN, TOR_LINKS, TOR_RECHTS, UNSICHTBAR, type Beschreibung, type Figur, type Abschnitt, type Kamera, type Fassung, type Szene, type SzenenBild, type SzenenSprite } from "./tore/szene.ts";
 export { MED_LEVELS, MED_SETBACK, MED_LONG, injuryKind, medLevel, setMedLevel, isInjured, injuryFloor, medWeek, medRows, medCost, medSet, type MedEvent } from "./sim/medizin.ts";
 export { tagesroutine, type Tagesergebnis } from "./sim/tagesroutine.ts";
-export { dailyTraining, trainingInput, trainingInjuries, injurePlayer, injuries, trainingSettings, setTraining, trainingBars, trainingCamp, campCost, camps, INJURY_WEEKS, campTraits, CAMP_OPEN_START, advanceCampOpen, campCountdown, TRAINING_BUDGET, type TrainingSettings, type CampResult } from "./sim/training.ts";
+export { dailyTraining, sommertagSperren, trainingInput, trainingInjuries, injurePlayer, injuries, trainingSettings, setTraining, trainingBars, trainingCamp, campCost, camps, INJURY_WEEKS, campTraits, CAMP_OPEN_START, advanceCampOpen, campCountdown, TRAINING_BUDGET, type TrainingSettings, type CampResult } from "./sim/training.ts";
 export { attendance, bookAttendance, bookGate, pokalZuschlag, FINALE_KULISSE, FINALE_PAUSCHALE } from "./sim/attendance.ts";
 export { monthlyIncome, monthlyExpenses, loanTotal, lenderDebt, bookMonth, dailyFinance, riotCheck, DAYS_IN_MONTH, INTEREST_CAP, sponsorSubsidy, acceptSubsidy, christmasPresents, christmasLines, scherztagWurf, type ChristmasResult } from "./sim/finance.ts";
 export { playCupDay, cupPairs, cupRound, CUP_OUT } from "./sim/cup.ts";
