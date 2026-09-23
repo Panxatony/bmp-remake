@@ -111,12 +111,11 @@ export function bookChampion(g: GameState): { club: number; manager: number } {
   return { club, manager };
 }
 
-/** Pokalsieg eines Managervereins (0x192FC): Titel Byte 58 + Pokal, Abschlussbild "gewinnt den <Pokal>". */
-export function bookCupTitle(g: GameState, cup: number, winner: number): number {
-  const manager = g.activeManagers().findIndex((m) => m.clubIndex === winner);
-  if (manager >= 0) {
-    const m = g.managers.at(manager);
-    m.setU8(58 + cup, (m.u8(58 + cup) + 1) & 0xff);
-  }
-  return manager;
+/**
+ * Pokalsieg eines Managervereins (0x192FC): der Manager fürs Abschlussbild "gewinnt den <Pokal>".
+ * Den Titel (Byte 58 + Pokal) zählt das Original erst am Saisonende mit dem Historieneintrag
+ * (0x1DF63, 0x1DFB6; `writeHistory`), nicht beim Finale (#100).
+ */
+export function bookCupTitle(g: GameState, _cup: number, winner: number): number {
+  return g.activeManagers().findIndex((m) => m.clubIndex === winner);
 }

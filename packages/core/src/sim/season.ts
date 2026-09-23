@@ -11,7 +11,7 @@ import { writePairings } from "./matchday.ts";
 import { tableOrder } from "./standings.ts";
 import { resetPoachCounts } from "./abwerben.ts";
 import { CAL_OFFSET, CALENDAR_DAYS, DAY_INDEX_OFFSET, LETZTER_SAISONTAG, dayIndex, seasonDay, setDayIndex, seasonStartYear } from "./calendar.ts";
-import { initialDraw, clearCupResults, europeanParticipants, titelTraegerTauschen, orderList, PLAYOFF_RESULT, ORDER_LIST } from "./europa.ts";
+import { initialDraw, clearCupResults, europeanParticipants, titelTraegerTauschen, orderList, PLAYOFF_RESULT, ORDER_LIST, DFB_WINNER, HOLDER, CUP_OUT } from "./europa.ts";
 import { seasonEndAdvertising, generateOffers } from "./werbung.ts";
 import { texte } from "../data/texte.ts";
 import { seasonEvents, type SeasonEvent } from "./seasonEvents.ts";
@@ -41,6 +41,11 @@ export function swapClubs(g: GameState, a: number, b: number, mitTitel = true): 
   swap(HIST + 2560, 21);
   swap(HIST + 3988, 8);
   swap(HIST + 4500, 8);
+  // ... und die Gegner darin sind Vereinsnummern: a und b tauschen auch dort (0x4044)
+  for (let i = HIST + 4500; i < HIST + 4500 + 64 * 8; i++) {
+    if (p[i] === a) p[i] = b;
+    else if (p[i] === b) p[i] = a;
+  }
   for (const pl of g.players.toArray()) {
     if (pl.isEmpty) continue;
     const o = pl.u8(36);
@@ -61,20 +66,39 @@ export function swapClubs(g: GameState, a: number, b: number, mitTitel = true): 
 
 /** Eintrag in die Managerhistorie (Byte 62 + 4i: Rang 1..58 über alle Ligen, Pokalrunde, Liga 1..3, Europa). */
 export function writeHistory(g: GameState): void {
-  const orders = [0, 1, 2].map((l) => tableOrder(g, l));
+  const p = g.save.plain;
+  const zaehler = p[SAISONZAEHLER] | (p[SAISONZAEHLER + 1] << 8);
   g.activeManagers().forEach((m) => {
-    const c = m.clubIndex;
-    const league = c < 18 ? 0 : c < 38 ? 1 : 2;
-    const pos = orders[league].indexOf(c);
-    const rank = [0, 18, 38][league] + pos + 1;
-    for (let i = 0; i < 20; i++) {
-      const o = 62 + 4 * i;
-      if (m.u8(o) !== 0) continue;
-      m.setU8(o, rank);
-      m.setU8(o + 1, m.u8(306));
-      m.setU8(o + 2, league + 1);
-      m.setU8(o + 3, 0);
-      break;
+    // Eintrag am Saisonzähler (4cb3:07E2); ab 50 rückt alles einen nach vorn, Byte 315 + 1
+    // (0x1DDF7 bis 0x1DE62)
+    let z = zaehler;
+    if (z > 49) {
+      for (let i = 0; i < 49; i++) for (let k = 0; k < 4; k++) m.setU8(62 + 4 * i + k, m.u8(66 + 4 * i + k));
+      m.setU8(315, (m.u8(315) + 1) & 0xff);
+      z = 49;
+    }
+    const o = 62 + 4 * z;
+    const liga = m.u8(312);
+    // Byte 0: Platz aus der Reihe 267 + Spieltag - gelesen wird 266 + Spieltagszahl (4cb3:2262),
+    // also der Platz nach dem vorletzten Spieltag (Eigenheit des Originals), + 1, dazu der
+    // Ligaversatz 4cb3:226E; den Meistertitel zählt bookChampion
+    m.setU8(o, (m.u8(266 + [34, 38, 38][liga]) + 1 + [0, 18, 38][liga]) & 0xff);
+    // Byte 1: Liga; Byte 2: DFB-Pokalrunde + 1, + 128 und Titel für den DFB-Sieger (0x1DF14)
+    m.setU8(o + 1, liga);
+    const dfb = p[DFB_WINNER] !== 0 && m.clubIndex === p[DFB_WINNER] - 1;
+    m.setU8(o + 2, ((dfb ? 128 : 0) + m.u8(306) + 1) & 0xff);
+    if (dfb) m.setU8(58, (m.u8(58) + 1) & 0xff);
+    // Byte 3: der letzte Europapokal mit Teilnahme, Wettbewerb · 8 + Runde; + 128 und Titel für
+    // den Titelverteidiger dieses Wettbewerbs (0x1DFBB bis 0x1E031)
+    for (let k = 1; k <= 3; k++) {
+      const runde = m.u8(306 + k);
+      if (runde === 0 || runde === CUP_OUT) continue;
+      let b3 = 8 * k + runde;
+      if (p[HOLDER + k - 1] !== 0 && m.clubIndex === p[HOLDER + k - 1] - 1) {
+        b3 += 128;
+        m.setU8(58 + k, (m.u8(58 + k) + 1) & 0xff);
+      }
+      m.setU8(o + 3, b3 & 0xff);
     }
   });
 }
@@ -364,6 +388,15 @@ export function saisonwechselTeil1(g: GameState, rng: Rng, verlaengerung = false
   // Vertragsjahre, Alter, Rückkehr der Leihspieler und Saisonwerte der Kader laufen im
   // Ereignisbildschirm in der Reihenfolge des Originals (seasonEvents, 0x0CB62)
   const events = seasonEvents(g, flags, rng, verlaengerung);
+  // Werbung nach einem Aufstieg (0x0CC00, im Saisonende 0x0CB62 - also vor den Sommertagen): die
+  // Verträge enden, ein laufender Trikotvertrag behält seine Einnahmen, der Hinweiskasten erklärt
+  // es (0x0CC77). Stand bis #100 nach den Sommertagen: ein Vertrag mit einem Monat Rest lief dort
+  // zum 30.6. aus und wurde danach ein zweites Mal gezehntelt.
+  g.activeManagers().forEach((_, i) => {
+    if (!((flags[i] ?? 0) & 1)) return;
+    const zeilen = texte("ui.werbepartner");
+    if (seasonEndAdvertising(g, i)) events.push({ manager: i, text: zeilen.join(" "), kasten: zeilen });
+  });
   // Zahl der Spielzeiten (4cb3:07E2) eins weiter (0x1E940)
   const z = (p[SAISONZAEHLER] | (p[SAISONZAEHLER + 1] << 8)) + 1;
   p[SAISONZAEHLER] = z & 0xff;
@@ -386,7 +419,8 @@ export function saisonwechselTeil2(g: GameState, rng: Rng, teil: SaisonTeil1, ha
     p[SCALARS.nextMatchday + l] = 1;
     writePairings(g, l, 1);
   }
-  p.fill(0, 5457, 5457 + 100); // Nachholspiele
+  // Die Nachholtabelle (4238:5714) lässt das Original stehen - abgetragene Einträge tragen Tag 0,
+  // offene gibt es am Saisonende keine (gegen KP-SAISON geprüft, #100)
   resetPoachCounts(g); // Abwerbungen der Version 2026 gelten je Saison
   for (let i = 0; i < CALENDAR_DAYS; i++) p[CAL_OFFSET + i] = CALENDAR_TEMPLATE[i];
   // Datum: 29. Juli des Folgejahres, Tagindex 0
@@ -403,16 +437,10 @@ export function saisonwechselTeil2(g: GameState, rng: Rng, teil: SaisonTeil1, ha
     pl.setU8(34, 0);
     pl.setU8(35, 0);
   }
-  // Manager: Krawall-Flag, Zuschauerhistorie; Werbung (0x0CC00) und neue Sponsorenangebote (0x176F4).
-  // Die Werbeverträge rührt das Original nur nach einem Aufstieg an (0x0D924); lief der
-  // Trikotvertrag noch, erklärt danach der Hinweiskasten, warum die Einnahmen bleiben (0x0CC77).
-  g.activeManagers().forEach((m, i) => {
+  // Manager: Krawall-Flag, Zuschauerhistorie
+  g.activeManagers().forEach((m) => {
     m.setU8(314, 0);
     m.setU8(318, m.u8(318) & ~1);
-    if ((flags[i] ?? 0) & 1) {
-      const zeilen = texte("ui.werbepartner");
-      if (seasonEndAdvertising(g, i)) events.push({ manager: i, text: zeilen.join(" "), kasten: zeilen });
-    }
   });
   // Pokale: Ergebnistabelle löschen (0x1978D), alle vier Wettbewerbe auslosen (0x18600). Die
   // Vereinsverteilung 0x1643B gehört nur zum Spielbeginn (0x942A) - im Saisonwechsel des
@@ -437,7 +465,7 @@ export function saisonwechselTeil2(g: GameState, rng: Rng, teil: SaisonTeil1, ha
   });
   g.activeManagers().forEach((m) => m.setU8(267, g.standings.at(m.clubIndex).u8(46)));
   clearCupResults(g);
-  g.save.plain[PLAYOFF_RESULT] = 0;
+  // Den Relegationsausgang (4238:3060) lässt das Original stehen; das Rückspiel setzt ihn neu
   for (let cup = 0; cup < 4; cup++) initialDraw(g, cup, rng);
   void orderList;
   return events;

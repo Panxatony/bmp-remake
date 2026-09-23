@@ -72,6 +72,7 @@ import {
   saisonwechselTeil2,
   saisonwechselStand,
   saisonbilanz,
+  optionenNachLigen,
   sommertagSperren,
   LETZTER_SAISONTAG,
   releaseExpiring,
@@ -1112,6 +1113,10 @@ function saisonwechselBeginnen(r: Room): void {
   }
   r.msgFlags = [];
   const { events } = saisonwechselTeil1(g, r.rng, true);
+  // Anzeigeoptionen je Liga wie im Original an die neuen Ligen der Manager anpassen (0x0DA40)
+  const managerJeLiga = [0, 0, 0];
+  for (const m of g.activeManagers()) managerJeLiga[m.u8(312)]++;
+  optionenNachLigen(r.options.flags.slice(0, 9), managerJeLiga).forEach((v, k) => (r.options.flags[k] = v));
   // Spieler der KI-Manager verhandeln nicht: ihre auslaufenden Verträge enden sofort
   events.filter((ev) => ev.vertrag && isAi(g, ev.manager)).forEach((ev) => {
     const place = platzVon(g, ev.manager, ev.vertrag!.playerIndex);
