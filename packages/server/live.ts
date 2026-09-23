@@ -682,9 +682,11 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
   const used = (state.subs[manager] ??= { goalkeeper: 0, field: 0 });
   let gk = 0;
   let field = 0;
-  for (const slot of outs) {
+  // Das Kontingent zählt nach dem Eingewechselten (0x20DF7: Spielerbyte 31 des Platzes, der die
+  // Nummer bekommt; Zweigbuch 20DBC, #100)
+  for (const slot of ins) {
     const p = g.players.at(g.lineups.at(manager * 25 + slot).playerIndex);
-    if (p.positionValue < 25) gk++;
+    if (p.u8(31) < 1) gk++;
     else field++;
   }
   // Grenzen nach Regelwerk: im Original ein Torwart und zwei Feldspieler, in der Version 2026
@@ -698,6 +700,21 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
     return { ok: false, error: texte("ui.keinwechsel").join(" ") };
   used.goalkeeper += gk;
   used.field += field;
+  // Der Eingewechselte bekommt einen Einsatz im Wettbewerb (Kaderbyte 6/7/8), in der Liga dazu
+  // Spielerbyte 35, und Frische + 4 + random(2,4) (0x20E0B bis 0x20E72); die 16-Bit-Zähler der
+  // Starter (28/30/32) bleiben unberührt
+  const club = g.managers.at(manager).clubIndex;
+  const e = state.entries.find((x) => x.home === club || x.away === club);
+  const art = !e || e.kind === "league" ? 0 : e.cup === 0 ? 1 : 2;
+  for (const slot of ins) {
+    const l = g.lineups.at(manager * 25 + slot);
+    l.setU8(6 + art, (l.u8(6 + art) + 1) & 0xff);
+    if (art === 0) {
+      const p = g.players.at(l.playerIndex);
+      p.setU8(35, (p.u8(35) + 1) & 0xff);
+    }
+    l.setU8(19, (l.u8(19) + 4 + rng(2, 4)) & 0xff);
+  }
   return { ok: true };
 }
 
