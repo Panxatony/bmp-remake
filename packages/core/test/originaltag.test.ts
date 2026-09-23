@@ -77,6 +77,18 @@ test("Originaltag TEST4: Ligabuchung und Zeitung nach dem Schlusspfiff", { skip:
   assert.equal(punkte.find((p) => p.punkt === 25)?.wurf, finanzen?.wurf, "Zeitung endet vor den Finanzen des Saisontags");
 });
 
+// Der ganze Tag (Punkte 9 und 27): Tagesroutine aller Manager und das Tagesende vor dem srand des
+// nächsten Tages. Die Lagerzeiten beim Laden stammen aus einer Messung (sie stehen nicht im Stand).
+const TAG = resolve(import.meta.dirname, "../../../tools/dosbox/KP-TEST4-TAG.MAN");
+test("Originaltag TEST4: Tagesroutine und Tagesende", { skip: !existsSync(TAG) || !existsSync(join(BMP_DIR, "TEST4.MAN")) }, () => {
+  const orig = protokoll(SaveFile.decode(new Uint8Array(readFileSync(TAG))).plain);
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+  const punkte = originaltag(g, originalRng(0x1234), [-40, 7, 56, -53, 11, 31, 60, 13]).punkte;
+  assert.deepEqual(punkte.filter((p) => p.punkt === 9), orig.filter((p) => p.punkt === 9));
+  const ende = orig.filter((p) => p.punkt === 27).at(-1);
+  assert.equal(punkte.find((p) => p.punkt === 26)?.wurf, ende?.wurf, "Tagesende");
+});
+
 // Ringprotokoll (kontrollpunkte.py --ring 1 --halt 21): die letzten 160 Punkte der ersten
 // Halbzeit - Karten, Verletzungen, Torwürfel, Chancenhandler - nach Wurfzahl geordnet
 const RING = resolve(import.meta.dirname, "../../../tools/dosbox/KP-TEST4-RING.MAN");
