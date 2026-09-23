@@ -216,3 +216,22 @@ test("Originaltag RIED-4TE: Nachholtag mit Managerderby bis zum Tagesende", { sk
   assert.deepEqual(g.save.plain.subarray(5458, 5558), plain.subarray(5458, 5558), "Nachholtabelle");
   assert.equal(calendarFlag(g, 71), calendarFlag(new GameState(SaveFile.decode(new Uint8Array(readFileSync(DERBY)))), 71), "Kalendermarke gelöscht");
 });
+
+// DFB-Pokalfinale ohne Managerverein (aus RIED2017 zwei Tage mit festem Zufall weitergespielt,
+// 26.5.): feste Kulisse, keine Auslosung danach. Dabei gefunden: der Transfermarkt bleibt nach
+// Spielernummer geordnet (0x224A8), neue Spieler werden einsortiert - sonst trifft die
+// Markterneuerung mit random(0,11) andere Plätze.
+const FINALE = resolve(import.meta.dirname, "../../../tools/dosbox/KP-FINALE.MAN");
+const FINALE_START = resolve(import.meta.dirname, "../../../tools/dosbox/KP-FINALE-START.MAN");
+test("Originaltag FA0: DFB-Pokalfinale bis zum Tagesende", { skip: !existsSync(FINALE) || !existsSync(FINALE_START) }, () => {
+  const orig = protokoll(SaveFile.decode(new Uint8Array(readFileSync(FINALE))).plain);
+  const bisEnde = orig.slice(0, orig.findIndex((p) => p.punkt === 27 && p.wurf > 0) + 1);
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(FINALE_START))));
+  const lauf = originaltag(g, originalRng(0x1234), [60, 60, 60, 60, -60, -60, 60, 60]);
+  const ids = new Set(bisEnde.map((p) => p.punkt));
+  const punkte = lauf.punkte.map((p) => (p.punkt === 26 ? { ...p, punkt: 27 } : p)).filter((p) => ids.has(p.punkt));
+  assert.equal(bisEnde.length, 31);
+  assert.deepEqual(punkte, bisEnde);
+  const markt = [...Array(12).keys()].map((s) => g.lineups.at(100 + s).playerIndex).filter((x) => x > 0);
+  assert.deepEqual(markt, markt.slice().sort((a, b) => a - b), "Markt nach Spielernummer");
+});

@@ -1762,6 +1762,10 @@ Schluss Abrunden auf 1000 DM (Ablösewert) bzw. 100 DM (Gehaltsbasis).
 ## Transfermarkt (Bildschirm 0x22C15, Dialog 0x242CF, KI-Entscheid 0x248E1, Vereinswahl 0x16EFF, Vereinsstärkung 0x16E1A, Platz entfernen 0x1FDBE, Erneuerung 0x245A8, Tagesroutine 0x0DF0D; sim/transfer.ts)
 
 Marktplätze sind die Aufstellungsplätze 100..111 (Manager 4, Spielerbyte 33 = 4; 5 = frei).
+Der Markt bleibt nach Spielernummer geordnet: jeder Zugang - neuer KI-Spieler wie angebotener
+eigener - kommt vor den ersten Platz mit gleicher oder größerer Nummer, der Rest rückt nach
+hinten (0x224A8 ab 0x22584; in allen Originalständen so, #99). Die Erneuerung würfelt danach
+Plätze mit random(0,11) - mit anderer Reihenfolge träfe sie andere Spieler.
 Je Platz: Byte 3 Ablehnungsbits (1 << Manager, dazu 0x80), Byte 9 Bit 6 Angebot eines
 KI-Vereins für einen Kaderspieler, Bit 7 für einen eigenen Spieler auf dem Markt, Byte 12
 Leihe (Verein | 0x80), Byte 22 anbietender Verein, i32 bei 40 Marktpreis (KI-Spieler:

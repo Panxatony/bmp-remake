@@ -37,7 +37,8 @@ import { refreshMarket } from "./transfer.ts";
 import { replays, verlegen, istVerlegt, removeReplays } from "./postpone.ts";
 import { fixtures } from "./fixtures.ts";
 import { afterCupDay, dfbFinale, shootout, currentPairs, legPlayed, tieBreak, CUP_RESULTS, CUP_ROUND, FIRST_LEG } from "./europa.ts";
-import { pokalZuschlag, ERSATZ_PREIS, ligaBand } from "./attendance.ts";
+import { pokalZuschlag, ERSATZ_PREIS, FINALE_PAUSCHALE, ligaBand } from "./attendance.ts";
+import { addBalance } from "./transfer.ts";
 
 export interface Kontrollpunkt {
   punkt: number;
@@ -257,7 +258,6 @@ function folgetage(g: GameState, rng: Rng, kp: (punkt: number) => void, lager: n
  */
 function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: number[]): string | undefined {
   const p = g.save.plain;
-  if (cups.includes(0) && dfbFinale(g, 0)) return "DFB-Pokalfinale fehlt noch";
   const tag = seasonDay(dayIndex(g));
   const managers = g.activeManagers();
   const managerOf = new Map(managers.map((m, i) => [m.clubIndex, i] as const));
@@ -271,7 +271,11 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
     for (const mi of beteiligt) {
       // Die Rückgabe der 0:2-Prüfung verwirft der Treiber im Pokal (V2) - hier nicht nachgebaut
       if (isForfeit(g, mi)) return "0:2-Prüfung im Pokal fehlt noch";
-      if (managers[mi].clubIndex === home) {
+      if (cup === 0 && dfbFinale(g, 0)) {
+        // Endspiel in Berlin: jeder beteiligte Manager bekommt dieselbe Pauschale (0x1C8F5,
+        // 0x1CAA2), die Kulisse steht fest - gewürfelt wird nur die Randale beim Heimmanager
+        addBalance(g, mi, FINALE_PAUSCHALE);
+      } else if (managers[mi].clubIndex === home) {
         const att = pokalZuschlag(g, mi, away, attendance(g, { manager: mi, home, away, importance, level: p[34062] }, rng), rng);
         bookGate(g, mi, att, 2);
         const ma = managerOf.get(away);
