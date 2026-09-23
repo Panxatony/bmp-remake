@@ -34,6 +34,7 @@ import { applyResult } from "./standings.ts";
 import { bookHistory } from "./history.ts";
 import { autoLineupIfEnabled, backupSystem, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
+import { newSeason } from "./season.ts";
 import { replays, verlegen, istVerlegt, removeReplays } from "./postpone.ts";
 import { fixtures } from "./fixtures.ts";
 import { afterCupDay, dfbFinale, shootout, currentPairs, legPlayed, tieBreak, decideTie, CUP_RESULTS, CUP_ROUND, CUP_TABLE, FIRST_LEG, LEG_FLAG, ORDER_LIST, PLAYOFF_FIRST_LEG, PLAYOFF_RESULT } from "./europa.ts";
@@ -49,6 +50,8 @@ export interface Kontrollpunkt {
 export interface Originaltag {
   punkte: Kontrollpunkt[];
   bis: string;
+  /** Öffnungszeiten der Trainingslager am Ende des Laufs (für den Folgetag) */
+  lager?: number[];
 }
 
 /**
@@ -134,17 +137,17 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   if ((flag & 7) === 0) {
     if (flag === 0x80) {
       const bis = nachholtag(g, rng, kp);
-      return { punkte, bis: bis ?? folgetage(g, rng, kp, lager) };
+      return { punkte, lager, bis: bis ?? folgetage(g, rng, kp, lager) };
     }
     if (flag === 0x10) {
       const bis = relegationstag(g, rng, kp);
-      return { punkte, bis: bis ?? folgetage(g, rng, kp, lager) };
+      return { punkte, lager, bis: bis ?? folgetage(g, rng, kp, lager) };
     }
     const cups = flag === 8 ? [0] : flag === 0x70 ? [1, 2, 3] : undefined;
-    if (!cups) return { punkte, bis: "weder Liga-, Pokal- noch Nachholtag - weitere Tagesarten fehlen noch" };
+    if (!cups) return { punkte, lager, bis: "weder Liga-, Pokal- noch Nachholtag - weitere Tagesarten fehlen noch" };
     const bis = pokaltag(g, rng, kp, cups);
     if (bis) return { punkte, bis };
-    return { punkte, bis: folgetage(g, rng, kp, lager) };
+    return { punkte, lager, bis: folgetage(g, rng, kp, lager) };
   }
   // Verlegungen je Liga (0x1D87E -> 0x3563, nur im Winterfenster): die Bundesliga nur mit ihrem
   // Ligabit, die beiden anderen Ligen ruft das Original an jedem Ligatag auf
@@ -207,7 +210,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   // Noten (ohne Würfel), dann die Seite (0x2F243)
   zeitungen(g, rng, kp, spiele, zuschauer);
   kp(25);
-  return { punkte, bis: folgetage(g, rng, kp, lager) };
+  return { punkte, lager, bis: folgetage(g, rng, kp, lager) };
 }
 
 /**
@@ -546,6 +549,47 @@ function nachholtag(g: GameState, rng: Rng, kp: (punkt: number) => void): string
   removeReplays(g, faellig);
   kp(25);
   return undefined;
+}
+
+/**
+ * Der Übergangstag zur neuen Saison (#99): nach dem letzten Kalendertag beginnt ein weiterer
+ * Tag mit srand, Finanzen je Manager, Schwankung und den Zügen; statt der Spiele läuft dann der
+ * Saisonwechsel des Tagesablaufs (0x1E319 bis 0x1EB02) mit den Finanzen jedes Tages bis zum
+ * 28. Juli und der Auslosung aller vier Pokale.
+ */
+export function saisonwechseltag(g: GameState, rng: Rng & { zaehler(): number }, lagerBeimLaden: readonly number[] = CAMP_OPEN_START): Originaltag {
+  const punkte: Kontrollpunkt[] = [];
+  const kp = (punkt: number) => punkte.push({ punkt, wurf: rng.zaehler() });
+  const n = g.activeManagers().length;
+  const lager = lagerBeimLaden.slice();
+  const finanzen = (punkt: number, dt: { day: number; month0: number; year: number }) => {
+    for (let m = 0; m < n; m++) {
+      kp(punkt);
+      for (const _ of dailyConstruction(g, m)) rng(0, 3);
+      advanceCampOpen(lager, rng);
+      if (rng(0, 60) === 0) driftInterest(g, rng);
+      dailyFinance(g, m, dt, rng, undefined, false);
+    }
+  };
+  const start = dateOfSeasonDay(seasonDay(dayIndex(g)) + 1, seasonStartYear(g));
+  finanzen(7, start);
+  driftClubs(g, 1, rng);
+  // Nur ein Zug: nach dem Hauptmenü des ersten Managers beginnt der Saisonwechsel
+  kp(10);
+  if (rng(0, n + 3) === 0) {
+    kp(11);
+    refreshMarket(g, rng);
+  }
+  kp(12);
+  let tag = seasonDay(dayIndex(g)) + 1;
+  newSeason(g, rng, true, {
+    kp,
+    tage: () => {
+      for (let i = 0; i < 38; i++) finanzen(37, dateOfSeasonDay(++tag, seasonStartYear(g)));
+    },
+  });
+  kp(26);
+  return { punkte, bis: "neue Saison" };
 }
 
 /** Szenenwahl des Laders 0x1502C (nur die Würfel): Nummer, Elfmeter, seltene Jubelszene. */

@@ -6,7 +6,7 @@ import {
   SaveFile, GameState, mulberryRng, dayIndex, seasonDay, setDayIndex,
   generateOffers, stadiumValue, signShirt, signBoard, monthlyAdvertising, seasonEndAdvertising, offerAmount, offerYears, shirtContract, boardContract, advertisingAmount,
   playCupMatch, shootout, type Elfmeter, playEuropaDay, playPlayoffDay, initialDraw, decideTie, europeanParticipants, currentPairs, cupRoundOf, legPlayed, orderList, clearCupResults,
-  CUP_TABLE, CUP_ROUND, LEG_FLAG, HOLDER, DFB_WINNER, PLAYOFF_RESULT, ROUND_PAIRS, CUP_OUT, playCupDay, newSeason, tableOrder, texte, seasonEvents, releaseExpiring, playerValue
+  CUP_TABLE, CUP_ROUND, LEG_FLAG, HOLDER, DFB_WINNER, PLAYOFF_RESULT, ROUND_PAIRS, CUP_OUT, playCupDay, newSeason, tableOrder, updatePositions, texte, seasonEvents, releaseExpiring, playerValue
 } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
@@ -101,6 +101,8 @@ test("Werbung am Saisonende: nur der Aufsteiger, alle anderen unberührt (0x0D92
   // wird an die Spitze der 2. Liga gesetzt und steigt damit auf, Verein 31 bleibt unten.
   const spitze = g.standings.at(21);
   for (const [off, v] of [[0, 99], [1, 99], [22, 99], [23, 99], [26, 0], [27, 0]] as [number, number][]) spitze.setU8(off, v);
+  // Der Auf- und Abstieg liest wie das Original die Reihenfolgeliste (28244)
+  updatePositions(g, 1);
   // Allen einen laufenden Trikot- und Bandenvertrag geben, damit der Unterschied sichtbar wird
   g.activeManagers().forEach((_, i) => {
     g.save.plain[33462 + 2 * i] = 20;
