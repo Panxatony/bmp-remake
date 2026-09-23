@@ -64,6 +64,7 @@ import {
   sponsorSubsidy,
   acceptSubsidy,
   christmasPresents,
+  scherztagWurf,
   christmasLines,
   playCupDay,
   playEuropaDay,
@@ -1775,6 +1776,8 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
         });
       }
     }
+    // 12.11. und 19.4.: dieselbe Routine würfelt für ihre (nicht portierten) Scherzbildschirme
+    scherztagWurf(dt, r.rng);
     if (dt.day === DAYS_IN_MONTH[dt.month0]) {
       // Überschuldung (Version 2026): Punktabzug und Kaufsperre
       for (const d of checkDebt(g)) {

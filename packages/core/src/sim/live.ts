@@ -33,6 +33,12 @@ export class LiveMatch {
   private chancenJeManager = new Map<number, [number, number]>();
   private halbzeit: readonly [number, number] = [1, 45];
   private pokal: boolean;
+  /**
+   * Markierung im Heimergebnis während der Verlängerung (0x18E46 setzt +10 nur beim offenen
+   * Spiel). Die Live-Schleife spielt die Verlängerung aber für alle Paare des Wettbewerbs; bei den
+   * entschiedenen steht keine Markierung.
+   */
+  marke = 10;
 
   home: TeamStrength;
   away: TeamStrength;
@@ -125,7 +131,10 @@ export class LiveMatch {
       const c = this.pending.shift()!;
       // In der Verlängerung liest das Original das Ergebnisbyte, in dem die Markierung +10 schon
       // steht: der Torwürfel bekommt den Heimwert um 10 erhöht (wie `extraTime`).
-      const hg = this.minute > 90 ? this.hg + 10 : this.hg;
+      const hg = this.minute > 90 ? this.hg + this.marke : this.hg;
+      // 0x10703: nach der 90. Minute würfelt nur ein Spiel mit Markierung (Heimwert ab 10); die
+      // Chancen der entschiedenen Paare verfallen ohne Würfel und ohne Chancenhandler
+      if (this.minute > 90 && hg < 10) continue;
       vorWuerfel?.(c.side);
       const goal = goalDice(this.home, this.away, c.side, this.minute, hg, this.ag, this.rng);
       if (goal) c.side === "home" ? this.hg++ : this.ag++;

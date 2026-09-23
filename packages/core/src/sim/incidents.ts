@@ -47,8 +47,13 @@ export interface IncidentState {
   incidents: Incident[];
 }
 
-export function newIncidentState(): IncidentState {
-  return { foulsLeft: FOULS_PER_MATCH, redUsed: false, yellows: new Set(), incidents: [] };
+/**
+ * Foulbudget und Platzverweis setzt die Spielvorbereitung (0x1CD0A) nur im Ligaspiel; im Pokal,
+ * im Europapokal und in der Relegation stehen beide auf 0 - dort gibt es keine Karten, nur
+ * Verletzungen (V8, im Vergleich des DFB-Pokaltags TEST1 bestätigt, GitLab #99).
+ */
+export function newIncidentState(karten = true): IncidentState {
+  return { foulsLeft: karten ? FOULS_PER_MATCH : 0, redUsed: !karten, yellows: new Set(), incidents: [] };
 }
 
 function clamp(v: number, lo: number, hi: number): number {

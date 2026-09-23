@@ -76,7 +76,10 @@ def probe(im):
     # Optionsbildschirm (dunkelblaue Tafel) und Live-Konferenz (Rasen)
     blue = sum(1 for x in range(20, 300, 10) for y in range(20, 180, 10) if near(px((x, y)), (0, 0, 113), 20))
     if blue >= 200 and near(px((290, 60)), (0, 0, 113), 20) and near(px((160, 8)), (48, 48, 81), 30):
-        return "optionen"
+        # Die Pokal- und Europacup-Übersichten (0x198EB) stehen auf derselben blauen Tafel, aber
+        # ohne die orangen AN/AUS-Knöpfe der Optionen; sie schließt WEITER unten rechts
+        orange = sum(1 for x in range(120, 300, 4) for y in range(35, 140, 4) if near(px((x, y)), (195, 113, 32), 30))
+        return "optionen" if orange >= 5 else "weiter"
     olive = sum(1 for x in range(0, 320, 5) for y in range(0, 240, 5) if near(px((x, y)), (97, 130, 48), 12))
     if olive >= 12:
         return "live"
@@ -88,6 +91,10 @@ def probe(im):
         return "live"
     if near(px((160, 118)), (120, 20, 20), 50):
         return "dialog"
+    # Frage vor der Pokalauslosung (0x17C26, "An Alle:"): beiger Titel über rotem Kasten mit
+    # ABER KLAR / KEIN GEDANKE. Ohne Zeremonie bleibt der Lauf ohne Uhrabhängigkeit
+    if near(px((160, 114)), (211, 195, 178), 20) and near(px((160, 140)), (97, 0, 16), 20) and near(px((80, 130)), (97, 0, 16), 20):
+        return "auslosung"
     # Schaltfläche WEITER unten rechts: dunkles Feld mit hellem Text
     dark = sum(1 for x in range(278, 306, 3) for y in range(204, 222, 3) if sum(px((x, y))) < 120)
     if dark >= 12:
@@ -173,6 +180,10 @@ def day(max_steps=200):
             click(120, 220)  # schließt ein evtl. offenes Info-Fenster ("REICHT MIR")
             time.sleep(0.8)
             click(290, 213)
+            time.sleep(3)
+            continue
+        if st == "auslosung":
+            click(205, 166)  # KEIN GEDANKE
             time.sleep(3)
             continue
         if st == "dialog":

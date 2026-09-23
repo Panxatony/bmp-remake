@@ -290,8 +290,8 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
       e.match.ag = e.forfeit === e.managerHome ? 2 : 0;
       e.match.minute = 90;
     } else {
-      if (e.managerHome !== undefined) e.incidentHome = newIncidentState();
-      if (e.managerAway !== undefined) e.incidentAway = newIncidentState();
+      if (e.managerHome !== undefined) e.incidentHome = newIncidentState(e.kind === "league");
+      if (e.managerAway !== undefined) e.incidentAway = newIncidentState(e.kind === "league");
     }
   }
   const now = Date.now();

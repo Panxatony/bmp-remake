@@ -295,6 +295,15 @@ export interface ChristmasResult {
 }
 
 /**
+ * Die beiden anderen Sondertage (12.11. und 19.4., 0x1CF86 mit Index 1 und 2): ihre
+ * Scherzbildschirme sind nicht portiert, aber gewürfelt wird auch dort - random(0,3) gleich zu
+ * Beginn (0x1CFA1), erst danach entscheidet sich, ob etwas erscheint (GitLab #99).
+ */
+export function scherztagWurf(dt: { day: number; month0: number }, rng: Rng): void {
+  if ((dt.day === 12 && dt.month0 === 10) || (dt.day === 19 && dt.month0 === 3)) rng(0, 3);
+}
+
+/**
  * Weihnachten (Tagesroutine 0x1D6F6 -> 0x1CF86 am 24.12.): der Bildschirm "Frohe Weihnachten !"
  * erscheint nur mit random(0,3) = 0 (null = nichts); darin mit random(0,1) <> 0 die
  * Weihnachtspakete: Grundbetrag random(15,85)·10000 DM, angezeigt als "BUNDESLIGA: b DM,
