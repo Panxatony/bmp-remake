@@ -235,3 +235,26 @@ test("Originaltag FA0: DFB-Pokalfinale bis zum Tagesende", { skip: !existsSync(F
   const markt = [...Array(12).keys()].map((s) => g.lineups.at(100 + s).playerIndex).filter((x) => x > 0);
   assert.deepEqual(markt, markt.slice().sort((a, b) => a - b), "Markt nach Spielernummer");
 });
+
+// Relegation (Flag 0x10, aus RIED2017 mit festem Zufall weitergespielt): Hin- und Rückspiel
+// Bundesliga-16. gegen Zweitliga-3. über Pokalbereich 1, Abschluss ohne Auslosung. Nach dem
+// Rückspiel kommt kein normaler Tagesbeginn mehr (Saisonwechsel), das Protokoll endet mit den
+// Tagesroutinen, die ab Saisontag 322 nicht mehr würfeln.
+for (const [name, start, lager, anzahl] of [
+  ["KP-RELEG1", "KP-RELEG1-START", [6, 60, 60, 60, -60, -60, 60, 60], 28],
+  ["KP-RELEG2", "KP-RELEG2-START", [1, 9, 10, 60, -60, -60, 60, 60], 30],
+] as const) {
+  const vorlage = resolve(import.meta.dirname, `../../../tools/dosbox/${name}.MAN`);
+  const stand = resolve(import.meta.dirname, `../../../tools/dosbox/${start}.MAN`);
+  test(`Originaltag ${name}: Relegationstag`, { skip: !existsSync(vorlage) || !existsSync(stand) }, () => {
+    const orig = protokoll(SaveFile.decode(new Uint8Array(readFileSync(vorlage))).plain);
+    const ende = orig.findIndex((p) => p.punkt === 27 && p.wurf > 0);
+    const bisEnde = ende < 0 ? orig : orig.slice(0, ende + 1);
+    const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(stand))));
+    const lauf = originaltag(g, originalRng(0x1234), [...lager]);
+    const ids = new Set(bisEnde.map((p) => p.punkt));
+    const punkte = lauf.punkte.map((p) => (p.punkt === 26 ? { ...p, punkt: 27 } : p)).filter((p) => ids.has(p.punkt));
+    assert.equal(bisEnde.length, anzahl);
+    assert.deepEqual(punkte.slice(0, anzahl), bisEnde);
+  });
+}

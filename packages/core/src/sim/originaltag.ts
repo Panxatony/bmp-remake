@@ -36,7 +36,7 @@ import { autoLineupIfEnabled, backupSystem, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
 import { replays, verlegen, istVerlegt, removeReplays } from "./postpone.ts";
 import { fixtures } from "./fixtures.ts";
-import { afterCupDay, dfbFinale, shootout, currentPairs, legPlayed, tieBreak, CUP_RESULTS, CUP_ROUND, FIRST_LEG } from "./europa.ts";
+import { afterCupDay, dfbFinale, shootout, currentPairs, legPlayed, tieBreak, decideTie, CUP_RESULTS, CUP_ROUND, CUP_TABLE, FIRST_LEG, LEG_FLAG, ORDER_LIST, PLAYOFF_FIRST_LEG, PLAYOFF_RESULT } from "./europa.ts";
 import { pokalZuschlag, ERSATZ_PREIS, FINALE_PAUSCHALE, ligaBand } from "./attendance.ts";
 import { addBalance } from "./transfer.ts";
 
@@ -134,6 +134,10 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   if ((flag & 7) === 0) {
     if (flag === 0x80) {
       const bis = nachholtag(g, rng, kp);
+      return { punkte, bis: bis ?? folgetage(g, rng, kp, lager) };
+    }
+    if (flag === 0x10) {
+      const bis = relegationstag(g, rng, kp);
       return { punkte, bis: bis ?? folgetage(g, rng, kp, lager) };
     }
     const cups = flag === 8 ? [0] : flag === 0x70 ? [1, 2, 3] : undefined;
@@ -256,7 +260,7 @@ function folgetage(g: GameState, rng: Rng, kp: (punkt: number) => void, lager: n
  * (91,105) und (106,120); danach 0x18E46 noch einmal mit dem Elfmeterschießen, Rundenabschluss
  * 0x192FC. Eine Zeitung gibt es nach Pokaltagen nicht. Liefert, woran der Lauf scheiterte.
  */
-function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: number[]): string | undefined {
+function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: number[], init = false): string | undefined {
   const p = g.save.plain;
   const tag = seasonDay(dayIndex(g));
   const managers = g.activeManagers();
@@ -359,8 +363,34 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
     p[CUP_RESULTS + 32 * s.cup + s.idx] = h & 0xff;
     p[CUP_RESULTS + 32 * s.cup + s.idx + 1] = a & 0xff;
   }
-  afterCupDay(g, cups, tag, rng);
+  afterCupDay(g, cups, tag, rng, init);
   kp(25);
+  return undefined;
+}
+
+/**
+ * Relegationstag (Kalenderflag 0x10, 0x33C0): Bundesliga-16. gegen Zweitliga-3. über Pokalbereich
+ * 1, Platz 0, eingerichtet wie `playPlayoffDay`; der Treiber spielt ihn wie einen Pokaltag, der
+ * Rundenabschluss läuft im Initialisierungsmodus (keine Auslosung).
+ */
+function relegationstag(g: GameState, rng: Rng, kp: (punkt: number) => void): string | undefined {
+  const p = g.save.plain;
+  p[CUP_ROUND + 1] = 5;
+  const a = CUP_TABLE + 32;
+  const ra = CUP_RESULTS + 32;
+  const saved = [p[a], p[a + 1], p[ra], p[ra + 1], p[FIRST_LEG], p[FIRST_LEG + 1]];
+  const second = p[LEG_FLAG] !== 0;
+  p[ra] = p[ra + 1] = 0;
+  for (let i = 0; i < 2; i++) p[FIRST_LEG + i] = second ? p[PLAYOFF_FIRST_LEG + i] : 0;
+  const bl16 = p[ORDER_LIST + 15];
+  const third = p[ORDER_LIST + 22];
+  p[a] = second ? bl16 : third;
+  p[a + 1] = second ? third : bl16;
+  const bis = pokaltag(g, rng, kp, [1], true);
+  if (bis) return bis;
+  if (p[LEG_FLAG] === 0) p[PLAYOFF_RESULT] = decideTie(g, 1, 0, seasonDay(dayIndex(g)));
+  else for (let i = 0; i < 2; i++) p[PLAYOFF_FIRST_LEG + i] = p[FIRST_LEG + i];
+  [p[a], p[a + 1], p[ra], p[ra + 1], p[FIRST_LEG], p[FIRST_LEG + 1]] = saved;
   return undefined;
 }
 
