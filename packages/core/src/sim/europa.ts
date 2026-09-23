@@ -286,7 +286,7 @@ export interface Elfmeter {
  * Elfmeterschießen (0x666D). Ohne Managerbeteiligung: beide Seiten random(2,5) Treffer,
  * neu gewürfelt bis ungleich. Mit Managerbeteiligung (im Original auf eigener Tafel gezeigt):
  * fünf Schützen je Seite, Abbruch sobald entschieden, danach abwechselnd bis zur Entscheidung;
- * die zuerst schießende Seite ist random(0,1).
+ * die zuerst schießende Seite ist random(0,1) - gewürfelt wird sie immer, auch ohne Manager.
  *
  * Getroffen wird bei random(0,2) **ungleich 0**: 0x6999 wirft die 0 bis 2 und macht bei
  * 0x69A3 aus der 2 eine 1, 0x6A04 zählt jede 1 als Tor. Zwei von drei Elfmetern sitzen also.
@@ -295,6 +295,9 @@ export interface Elfmeter {
  * Das Protokoll sammelt jeden Schuss in der Reihenfolge, in der er fällt.
  */
 export function shootout(rng: Rng, managerInvolved: boolean, protokoll?: Elfmeter[]): [number, number] {
+  // Wer zuerst schießt, würfelt 0x666D gleich am Anfang (0x6689) - auch im kurzen Zweig ohne
+  // Manager, wo der Wurf ungenutzt bleibt (#99, DFB-Pokaltag TEST1 mit srand(12))
+  const first = rng(0, 1);
   if (!managerInvolved) {
     let h: number;
     let a: number;
@@ -305,7 +308,6 @@ export function shootout(rng: Rng, managerInvolved: boolean, protokoll?: Elfmete
     return [h, a];
   }
   const score: [number, number] = [0, 0];
-  const first = rng(0, 1);
   let side = first;
   let round = 0;
   for (;;) {

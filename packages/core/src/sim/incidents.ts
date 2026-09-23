@@ -180,6 +180,10 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
     if (i >= 0) {
       const l = squad[i];
       injurePlayer(g, l, rng);
+      // Danach würfelt der Chancenhandler, ob die Trage kommt (0x1C3AC: random(0, 15) = 0, im
+      // Autoplay 4cb3:05D4 nicht). Nur Anzeige - der Wurf fehlte aber in der Würfelfolge (#99,
+      // DFB-Pokaltag TEST1 mit srand(12))
+      rng(0, 15);
       record(i, "injury", l.u8(13), injuries()[injuryKind(l)]?.name);
     }
   }

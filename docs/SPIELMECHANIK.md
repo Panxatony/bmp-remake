@@ -394,9 +394,10 @@ Heimrecht für Unterklassige.
 
 Spielablauf: 1..45, 46..90. In der Verlängerung geht der Heimwert mit der Markierung +10 in
 den Torwürfel: das Original liest dort das Ergebnisbyte, in dem sie schon steht. DFB-Pokal:
-bei Gleichstand Verlängerung 91..105 und 106..120, danach Elfmeterschießen (0x666D: ohne
-Managerbeteiligung beide Seiten random(2,5) Treffer, neu gewürfelt bis ungleich; mit
-Managerbeteiligung random(0,1) beginnt, fünf Schützen je Seite, Abbruch sobald entschieden,
+bei Gleichstand Verlängerung 91..105 und 106..120, danach Elfmeterschießen (0x666D: zuerst
+immer random(0,1), wer beginnt - auch ohne Manager, wo der Wurf ungenutzt bleibt; ohne
+Managerbeteiligung dann beide Seiten random(2,5) Treffer, neu gewürfelt bis ungleich; mit
+Managerbeteiligung beginnt die gewürfelte Seite, fünf Schützen je Seite, Abbruch sobald entschieden,
 sonst abwechselnd). **Getroffen wird bei random(0,2) ungleich 0**, also in zwei von drei
 Fällen: 0x6999 wirft die Zahl, 0x69A3 macht aus der 2 eine 1, und 0x6A04 zählt jede 1 als
 Tor (bis GitLab #72 stand hier die Gegenprobe - nur die 2 -, das war ein Drittel).
