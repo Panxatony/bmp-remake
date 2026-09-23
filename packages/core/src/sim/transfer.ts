@@ -13,7 +13,7 @@
  *   Byte 40  i32 Preis (KI-Spieler: Marktwert mit Flag 4 bei der Aufnahme)
  * Spielerdatensatz Byte 33 = Besitzer (Manager, 4 = Markt, 5 = frei), Byte 36 = Verein.
  */
-import { GameState, TABLES } from "../records.ts";
+import { GameState, TABLES, type Lineup } from "../records.ts";
 import type { Rng } from "./match.ts";
 import { playerValue } from "./value.ts";
 import { sortIntoSquad } from "./lineup.ts";
@@ -185,6 +185,8 @@ export interface TransferEvent {
   kind: "offer-squad" | "offer-market";
   /** Marktplatz (offer-market) bzw. Kaderplatz (offer-squad) des Angebots */
   place: number;
+  /** Tage, um die die Meldungsroutine 0x30AA0 das Datum zurücksetzt (random(0,3)) */
+  zurueck?: number;
 }
 
 /**
@@ -193,8 +195,9 @@ export interface TransferEvent {
  * von Ablehnungen, KI-Angebote für eigene Spieler auf dem Markt (Bit 7) und für Kaderspieler
  * (Bit 6, bis Saisontag 321). Liefert die Meldungen.
  */
-export function dailyTransfers(g: GameState, manager: number, day: number, rng: Rng): TransferEvent[] {
+export function dailyTransfers(g: GameState, manager: number, day: number, rng: Rng, teil: "alles" | "markt" | "kader" = "alles", plaetze?: number, meldung?: () => number): TransferEvent[] {
   const events: TransferEvent[] = [];
+  if (teil === "kader") return kaderAngebote(g, manager, day, rng, events, plaetze, meldung);
   const clubName = (c: number) => (c <= 199 ? g.clubs.at(c).displayName : `Verein ${c}`);
   if (manager === 0) {
     for (let s = 0; s < MARKET_SIZE; s++) {
@@ -220,16 +223,28 @@ export function dailyTransfers(g: GameState, manager: number, day: number, rng: 
       l.setU8(9, l.u8(9) | OFFER_MARKET);
       const club = chooseOfferClub(g, v, false, rng);
       l.setU8(22, club);
-      events.push({ manager, kind: "offer-market", place: s, lines: [clubName(club), texte("ui.interesse")[0], `${p.displayName} ${texte("ui.interesse")[1]}`] });
+      events.push({ manager, kind: "offer-market", place: s, lines: [clubName(club), texte("ui.interesse")[0], `${p.displayName} ${texte("ui.interesse")[1]}`], zurueck: meldung?.() ?? 0 });
     }
   }
-  const squad = g.squadOf(manager);
-  squad.forEach((l) => {
-    if (rng(0, 3) === 0 && l.u8(9) > 0x1f && (l.u8(9) & (OFFER_SQUAD | OFFER_MARKET)) !== 0) l.setU8(9, l.u8(9) & 0x1f);
-  });
+  if (teil === "markt") return events;
+  for (const l of g.squadOf(manager)) angebotsbitsVerfallen(l, rng);
+  return kaderAngebote(g, manager, day, rng, events, undefined, meldung);
+}
+
+/** Kaderschleife der Tagesroutine (0x0E591): mit 1/4 fallen die Angebotsbits über 0x1F weg. */
+export function angebotsbitsVerfallen(l: Lineup, rng: Rng): void {
+  if (rng(0, 3) === 0 && l.u8(9) > 0x1f && (l.u8(9) & (OFFER_SQUAD | OFFER_MARKET)) !== 0) l.setU8(9, l.u8(9) & 0x1f);
+}
+
+/** Angebote fremder Vereine für Kaderspieler (0x0E9D8, bis Saisontag 321). */
+function kaderAngebote(g: GameState, manager: number, day: number, rng: Rng, events: TransferEvent[], plaetze?: number, meldung?: () => number): TransferEvent[] {
+  const clubName = (c: number) => (c <= 199 ? g.clubs.at(c).displayName : `Verein ${c}`);
+  // Wie in der Kaderschleife davor die Plätze 0..Anzahl-1; leere überspringt das Original hier
+  // (0x0EAA3 prüft Byte 15)
+  const squad = plaetze === undefined ? g.squadOf(manager) : Array.from({ length: plaetze }, (_, i) => g.lineups.at(manager * 25 + i));
   if (day < 322) {
     squad.forEach((l, place) => {
-      if (l.u8(12) !== 0 || l.u8(24) & 0x80) return;
+      if (l.isEmpty || l.u8(12) !== 0 || l.u8(24) & 0x80) return;
       const v = div(playerValue(g, manager, place, 0, rng), 10000);
       if (rng(0, 200) >= v || rng(0, 450) !== 0 || (l.u8(9) & OFFER_SQUAD) !== 0) return;
       l.setU8(9, l.u8(9) | OFFER_SQUAD);
@@ -237,7 +252,7 @@ export function dailyTransfers(g: GameState, manager: number, day: number, rng: 
       const club = chooseOfferClub(g, v, foreign, rng);
       l.setU8(22, club);
       const p = g.players.at(l.playerIndex);
-      events.push({ manager, kind: "offer-squad", place, lines: [clubName(club), texte("ui.interesse")[0], `${p.displayName} ${texte("ui.interesse")[1]}`] });
+      events.push({ manager, kind: "offer-squad", place, lines: [clubName(club), texte("ui.interesse")[0], `${p.displayName} ${texte("ui.interesse")[1]}`], zurueck: meldung?.() ?? 0 });
     });
   }
   return events;

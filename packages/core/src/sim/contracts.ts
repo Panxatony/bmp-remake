@@ -129,21 +129,34 @@ export interface ContractOffer {
  * beiden Meldungen der Tagesroutine vertauscht. In allen Originalspielständen sind die
  * Spieler mit Bit 7 zwischen 33 und 35 Jahre alt.
  */
-export function retirementAnnouncements(g: GameState, manager: number, rng: Rng): { place: number; playerIndex: number; name: string; zeilen: string[] }[] {
-  const out: { place: number; playerIndex: number; name: string; zeilen: string[] }[] = [];
+export function retirementAnnouncements(g: GameState, manager: number, rng: Rng): Karriereende[] {
+  const out: Karriereende[] = [];
   for (let place = 0; place < 25; place++) {
-    const l = g.lineups.at(manager * 25 + place);
-    if (l.isEmpty) continue;
-    // Das Original würfelt vor der Prüfung von Byte 24 (0x0E788)
-    if (rng(32, 45) >= contractScore(g, manager, place)) continue;
-    const b24 = l.u8(24);
-    if (b24 & 0x80 || b24 >= 100) continue;
-    l.setU8(24, b24 | 0x80);
-    const p = g.players.at(l.playerIndex);
-    const t = texte("ui.keineverlaengerung");
-    out.push({ place, playerIndex: l.playerIndex, name: p.displayName, zeilen: [`${p.displayName} ${t[0]}`, t[1], t[2]] });
+    const a = karriereAnkuendigung(g, manager, place, rng);
+    if (a) out.push(a);
   }
   return out;
+}
+
+export interface Karriereende {
+  place: number;
+  playerIndex: number;
+  name: string;
+  zeilen: string[];
+}
+
+/** Karriereankündigung eines Kaderplatzes (0x0E76F). */
+export function karriereAnkuendigung(g: GameState, manager: number, place: number, rng: Rng, auchLeer = false): Karriereende | null {
+  const l = g.lineups.at(manager * 25 + place);
+  if (l.isEmpty && !auchLeer) return null;
+  // Das Original würfelt vor der Prüfung von Byte 24 (0x0E788)
+  if (rng(32, 45) >= contractScore(g, manager, place)) return null;
+  const b24 = l.u8(24);
+  if (b24 & 0x80 || b24 >= 100) return null;
+  l.setU8(24, b24 | 0x80);
+  const p = g.players.at(l.playerIndex);
+  const t = texte("ui.keineverlaengerung");
+  return { place, playerIndex: l.playerIndex, name: p.displayName, zeilen: [`${p.displayName} ${t[0]}`, t[1], t[2]] };
 }
 
 /**
@@ -169,8 +182,17 @@ export function retirementAnnouncements(g: GameState, manager: number, rng: Rng)
 export function contractOffers(g: GameState, manager: number, rng: Rng): ContractOffer[] {
   const out: ContractOffer[] = [];
   for (let place = 0; place < 25; place++) {
+    const o = verlaengerungsangebot(g, manager, place, rng);
+    if (o) out.push(o);
+  }
+  return out;
+}
+
+/** Verlängerungsangebot eines Kaderplatzes (0x0E83E); Leihspieler bieten nicht an. */
+export function verlaengerungsangebot(g: GameState, manager: number, place: number, rng: Rng, auchLeer = false): ContractOffer | null {
+  {
     const l = g.lineups.at(manager * 25 + place);
-    if (l.isEmpty || l.u8(12) !== 0) continue;
+    if ((l.isEmpty && !auchLeer) || l.u8(12) !== 0) return null;
     const p = g.players.at(l.playerIndex);
     const s = div(l.u8(16) + l.u8(17) + l.u8(18), 3);
     const lo = Math.min(8, Math.abs(25 - p.u8(26)));
@@ -180,17 +202,16 @@ export function contractOffers(g: GameState, manager: number, rng: Rng): Contrac
     const t = Math.min(5, div((u16(28) + u16(30) + u16(32)) & 0xffff, 36));
     const n = n0 - div(n0 * t * 10, 100);
     // Gewürfelt wird vor den übrigen Bedingungen (0x0E91F, 0x0E931)
-    if (rng(0, n) !== 0 || rng(0, 3) !== 0) continue;
+    if (rng(0, n) !== 0 || rng(0, 3) !== 0) return null;
     // Kein liegendes Angebot (das Original prüft dessen Meldungszeiger in Feld 48), keine
     // Karriereankündigung, letztes Vertragsjahr
     const b24 = l.u8(24);
-    if (b24 & 0x80 || b24 >= 100 || l.u8(11) !== 1) continue;
+    if (b24 & 0x80 || b24 >= 100 || l.u8(11) !== 1) return null;
     const wurf = rng(0, 100);
     const jahre = wurf > 90 ? 4 : wurf > 70 ? 3 : 2;
     l.setU8(24, 100 + jahre);
-    out.push({ manager, place, playerIndex: l.playerIndex, name: p.displayName, yearsFrom: l.u8(11), yearsTo: jahre, salary: salaryDemand(g, manager, place, jahre) });
+    return { manager, place, playerIndex: l.playerIndex, name: p.displayName, yearsFrom: l.u8(11), yearsTo: jahre, salary: salaryDemand(g, manager, place, jahre) };
   }
-  return out;
 }
 
 /**
@@ -247,17 +268,21 @@ export function vertragsgespraechSperren(g: GameState, manager: number, place: n
  */
 export function contractCooldown(g: GameState, manager: number, rng: Rng): number[] {
   const zurueck: number[] = [];
-  for (let place = 0; place < 25; place++) {
-    const l = g.lineups.at(manager * 25 + place);
-    if (l.isEmpty) continue;
-    const b = l.u8(24);
-    if (b & 0x80) continue;
-    if (b > 99) {
-      if (rng(0, 5) === 0) {
-        l.setU8(24, rng(9, 17));
-        zurueck.push(place);
-      }
-    } else if (b !== 0) l.setU8(24, b - 1);
-  }
+  for (let place = 0; place < 25; place++) if (vertragszaehler(g, manager, place, rng)) zurueck.push(place);
   return zurueck;
+}
+
+/** Verhandlungszähler eines Kaderplatzes (0x0E5DC); true, wenn ein liegendes Angebot verfällt. */
+export function vertragszaehler(g: GameState, manager: number, place: number, rng: Rng, auchLeer = false): boolean {
+  const l = g.lineups.at(manager * 25 + place);
+  if (l.isEmpty && !auchLeer) return false;
+  const b = l.u8(24);
+  if (b & 0x80) return false;
+  if (b > 99) {
+    if (rng(0, 5) === 0) {
+      l.setU8(24, rng(9, 17));
+      return true;
+    }
+  } else if (b !== 0) l.setU8(24, b - 1);
+  return false;
 }

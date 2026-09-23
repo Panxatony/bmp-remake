@@ -440,8 +440,13 @@ export class Advertising extends Record {
  * Original abgeglichen.
  */
 export class Lineup extends Record {
+  /**
+   * Leer ist ein Kaderplatz ohne Spieler (Byte 15 = 0) - so zählt das Original (0x31A19,
+   * 0x1FDBE). Eine liegengebliebene Rückennummer (Byte 10) macht ihn nicht zu einem Spieler:
+   * bis #99 galt so ein Platz als belegt, mit Spieler 0, und wurde mittrainiert.
+   */
   get isEmpty(): boolean {
-    return this.u8(15) === 0 && this.u8(10) === 0;
+    return this.u8(15) === 0;
   }
   /** Gelbe Karten (bestätigt). */
   get yellowCards(): number {

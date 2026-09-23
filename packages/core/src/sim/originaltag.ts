@@ -24,13 +24,15 @@ import { isForfeit } from "./incidents.ts";
 const szenen = true;
 const beteiligt = (s: { seiten: unknown[] }) => s.seiten.length > 0;
 import { calendarFlag, dayIndex, FLAG_LEAGUE, dateOfSeasonDay, seasonDay, seasonStartYear } from "./calendar.ts";
-import { dailyFinance, DAYS_IN_MONTH } from "./finance.ts";
+import { dailyFinance, DAYS_IN_MONTH, christmasPresents } from "./finance.ts";
 import { driftInterest, dailyConstruction } from "./stadium.ts";
-import { advanceCampOpen, CAMP_OPEN_START } from "./training.ts";
+import { advanceCampOpen, CAMP_OPEN_START, trainingInput } from "./training.ts";
+import { tagesroutine } from "./tagesroutine.ts";
+import { generateOffers } from "./werbung.ts";
 import { driftClubs, bookBaseBonus, creditAiGoals } from "./ai.ts";
 import { applyResult } from "./standings.ts";
 import { bookHistory } from "./history.ts";
-import { autoLineupIfEnabled, SYSTEM_OFFSET } from "./lineup.ts";
+import { autoLineupIfEnabled, backupSystem, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
 
 export interface Kontrollpunkt {
@@ -57,7 +59,12 @@ function matrixInVerein(g: GameState, manager: number, s: { ko: number[]; te: nu
   }
 }
 
-export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Originaltag {
+/**
+ * `lager`: Öffnungszeiten der Trainingslager beim Laden (4cb3:0620). Sie stehen nicht im
+ * Spielstand, und bis das Original den Stand lädt, sind sie schon etliche Tage gelaufen; für
+ * einen Vergleich gibt man den im Original gemessenen Wert mit (kontrollpunkte.py --dump).
+ */
+export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lagerBeimLaden: readonly number[] = CAMP_OPEN_START): Originaltag {
   const punkte: Kontrollpunkt[] = [];
   const kp = (punkt: number) => punkte.push({ punkt, wurf: rng.zaehler() });
   const managers = g.activeManagers();
@@ -68,10 +75,10 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
   // mit 1/61, Kredite und Monatsende). Die Lagerzeiten stehen nicht im Stand; nach dem Laden
   // gelten die Startwerte.
   const dt = dateOfSeasonDay(seasonDay(dayIndex(g)), seasonStartYear(g));
-  const lager = CAMP_OPEN_START.slice();
+  const lager = lagerBeimLaden.slice();
   for (let m = 0; m < n; m++) {
     kp(7);
-    dailyConstruction(g, m);
+    for (const _ of dailyConstruction(g, m)) rng(0, 3);
     advanceCampOpen(lager, rng);
     if (rng(0, 60) === 0) driftInterest(g, rng);
     dailyFinance(g, m, dt, rng, undefined, false);
@@ -110,6 +117,8 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
   managers.forEach((_, m) => {
     kp(13);
     matrixInVerein(g, m, matchStrength(g, m, rng));
+    // 0x1D817: System sichern und auf manuell - bis zum nächsten Spieltag
+    backupSystem(g, m);
   });
 
   if ((flag & 7) === 0) return { punkte, bis: "kein Ligatag - weitere Tagesarten fehlen noch" };
@@ -250,7 +259,36 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }): Ori
     composeZeitung(report, rng);
   });
   kp(25);
-  return { punkte, bis: "nach der Zeitung fehlt noch" };
+  // Tage bis zum nächsten Kalendereintrag (0x1DADC): je Tag das Datum, die Finanzen je Manager
+  // (0x1DAFA -> 0x11D0D) und die Sondertage (0x1CF86, Weihnachten). Der Ankunftstag selbst
+  // bekommt seine Finanzen erst am nächsten Tagesbeginn (0x1D757).
+  const k = dayIndex(g);
+  const bisTag = seasonDay(k + 1);
+  for (let d = seasonDay(k) + 1; d < bisTag; d++) {
+    const dtd = dateOfSeasonDay(d, seasonStartYear(g));
+    for (let m = 0; m < n; m++) {
+      kp(8);
+      // "Der Ausbau ... ist abgeschlossen" geht durch die Meldungsroutine (0x022E2 -> 0x30AA0)
+      for (const _ of dailyConstruction(g, m)) rng(0, 3);
+      advanceCampOpen(lager, rng);
+      if (rng(0, 60) === 0) driftInterest(g, rng);
+      dailyFinance(g, m, dtd, rng, undefined, false);
+    }
+    if (dtd.day === 24 && dtd.month0 === 11) christmasPresents(g, rng);
+  }
+  // Ankunftstag: je Manager die Tagesroutine (0x1DBFE -> 0x0DF0D), alle 14 Saisontage danach
+  // neue Sponsorenangebote (0x1DC27 -> 0x176F4)
+  const kNeu = k + 1;
+  const tagNeu = seasonDay(kNeu);
+  const tr = trainingInput(g);
+  const spielfrei = calendarFlag(g, kNeu) === 0;
+  for (let m = 0; m < n; m++) {
+    kp(9);
+    tagesroutine(g, m, tagNeu, tr, rng, spielfrei);
+    if (tagNeu % 14 === 0) generateOffers(g, m, rng);
+  }
+  kp(26);
+  return { punkte, bis: "nächster Tag" };
 }
 
 /** Szenenwahl des Laders 0x1502C (nur die Würfel): Nummer, Elfmeter, seltene Jubelszene. */

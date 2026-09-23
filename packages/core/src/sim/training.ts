@@ -53,10 +53,12 @@ function inWindow(seasonDay: number, endless: number): boolean {
  * Frische, Trainingsgewinn (Kaderplatz Bytes 16..18) und Trainingsfaktor (Byte 14)
  * aller Kaderplätze eines Managers für einen Kalendertag.
  */
-export function dailyTraining(g: GameState, manager: number, seasonDay: number, inp: TrainingInput, rng: Rng, freeDay = false): void {
+export function dailyTraining(g: GameState, manager: number, seasonDay: number, inp: TrainingInput, rng: Rng, freeDay = false, ohneVerletzungen = false, plaetze?: number): void {
   if (seasonDay > 321) return;
   const m = g.managers.at(manager);
-  trainingInjuries(g, manager, inp.level, freeDay, rng);
+  // Die Trainingsverletzungen würfelt das Original in der Kaderschleife davor (0x0E668); die
+  // Tagesroutine ruft sie dort je Platz auf (sim/tagesroutine.ts)
+  if (!ohneVerletzungen) trainingInjuries(g, manager, inp.level, freeDay, rng);
   const balls = [321, 322, 323, 324].map((o) => 20 * m.u8(o));
   const gainBase = [0, 1, 2].map((l) => div(balls.reduce((s, b, k) => s + MATRIX[k][l] * b, 0), 400));
   const threshold = 37 - (inp.level === 5 ? 1 : 0);
@@ -64,7 +66,10 @@ export function dailyTraining(g: GameState, manager: number, seasonDay: number, 
   const loFr = 7 * inp.endless + 130;
   const hiFr = 207 - 14 * inp.endless;
 
-  for (const l of g.squadOf(manager)) {
+  // `plaetze`: die Tagesroutine geht wie das Original die Plätze 0..Anzahl-1 durch (0x31A19
+  // zählt die belegten), auch über eine Lücke hinweg
+  const liste = plaetze === undefined ? g.squadOf(manager) : Array.from({ length: plaetze }, (_, i) => g.lineups.at(manager * 25 + i));
+  for (const l of liste) {
     injuryCountdown(l, seasonDay);
     let intens = m.u8(325);
     // Frische
@@ -160,16 +165,21 @@ export function dailyTraining(g: GameState, manager: number, seasonDay: number, 
 export function trainingInjuries(g: GameState, manager: number, level: number, freeDay: boolean, rng: Rng): number[] {
   const injured: number[] = [];
   g.squadOf(manager).forEach((l, i) => {
-    // Kaderbyte 9 muss ganz leer sein (0x0E6D1), nicht nur Sperre und Verletzung: wer etwa ein
-    // Angebot eines fremden Vereins hat (Bit 6/7), verletzt sich nicht (GitLab #83, F5)
-    if (l.u8(13) !== 0 || l.u8(9) !== 0) return;
-    let d = 2 * (160 - l.u8(19) + (freeDay ? 25 : 0));
-    if (d < 40) d = 40;
-    if (rng(0, 30 * level + d + 80) !== 0) return;
-    injurePlayer(g, l, rng);
-    injured.push(i);
+    if (trainingsverletzung(g, l, level, freeDay, rng)) injured.push(i);
   });
   return injured;
+}
+
+/** Trainingsverletzung eines Kaderplatzes (0x0E668); true, wenn er sich verletzt hat. */
+export function trainingsverletzung(g: GameState, l: Lineup, level: number, freeDay: boolean, rng: Rng): boolean {
+  // Kaderbyte 9 muss ganz leer sein (0x0E6D1), nicht nur Sperre und Verletzung: wer etwa ein
+  // Angebot eines fremden Vereins hat (Bit 6/7), verletzt sich nicht (GitLab #83, F5)
+  if (l.u8(13) !== 0 || l.u8(9) !== 0) return false;
+  let d = 2 * (160 - l.u8(19) + (freeDay ? 25 : 0));
+  if (d < 40) d = 40;
+  if (rng(0, 30 * level + d + 80) !== 0) return false;
+  injurePlayer(g, l, rng);
+  return true;
 }
 
 /** Verletzung eines Kaderplatzes (0x17B0F): Form - random(12,19), Art, Dauer, Flag-Bit 1, Nummer 0. */
