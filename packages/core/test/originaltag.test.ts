@@ -281,3 +281,26 @@ test("Saisonwechseltag: bis zum Spielerpool wie das Original", { skip: !existsSy
     assert.deepEqual(remake, orig);
   }
 });
+
+// Nach dem Spielerpool (der am Laufzeitspeicher des Originals hängt, #99) setzt der Test den
+// Generator auf den Stand des Originals beim ersten Finanztag: danach stimmen die 38 Tage bis
+// 28.7. (ab 21.6., mit der Monatsbuchung am 30.6.) und die Auslosung bis zum Tagesende. Die
+// Lagerzeiten am Tagesbeginn sind gemessen (kontrollpunkte.py --dump 7 --dump-einmal 1).
+test("Saisonwechseltag: Finanztage und Auslosung nach dem Spielerpool", { skip: !existsSync(SAISON) || !existsSync(SAISON_START) }, () => {
+  const alle = protokoll(SaveFile.decode(new Uint8Array(readFileSync(SAISON))).plain);
+  const orig = alle.slice(alle.findLastIndex((p) => p.punkt === 9) + 1);
+  const ab37 = orig.slice(orig.findIndex((p) => p.punkt === 37));
+  let inner = originalRng(0x1234);
+  const rng = Object.assign((lo: number, hi: number) => inner(lo, hi), { zaehler: () => inner.zaehler() });
+  let gesetzt = false;
+  const lauf = saisonwechseltag(new GameState(SaveFile.decode(new Uint8Array(readFileSync(SAISON_START)))), rng, [29, 21, 39, 34, -12, 16, -27, 42], (k) => {
+    if (k !== 37 || gesetzt) return;
+    gesetzt = true;
+    inner = originalRng(0x1234);
+    for (let i = 0; i < ab37[0].wurf; i++) inner(0, 0);
+  });
+  const remake = lauf.punkte.map((p) => (p.punkt === 26 ? { ...p, punkt: 27 } : p)).filter((p) => p.punkt === 37 || p.punkt === 27);
+  const nach = remake.slice(remake.findIndex((p) => p.punkt === 37) + 1);
+  assert.equal(ab37.length, 115);
+  assert.deepEqual(nach, ab37.slice(1));
+});

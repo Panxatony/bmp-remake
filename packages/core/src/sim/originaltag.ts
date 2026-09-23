@@ -585,7 +585,11 @@ export function saisonwechseltag(g: GameState, rng: Rng & { zaehler(): number },
     refreshMarket(g, rng);
   }
   kp(12);
-  let tag = seasonDay(dayIndex(g)) + 1;
+  // Die Tagesschleife des Originals bucht 38 Tage, vom 21. Juni bis einschließlich 28. Juli
+  // (am Protokoll gemessen: nur so liegt die Monatsbuchung am 30.6. richtig) - im Kalender der
+  // alten Saison
+  let tag = seasonDay(dayIndex(g)) + 4;
+  const altesJahr = seasonStartYear(g);
   newSeason(g, rng, true, {
     kp,
     // Für den Vergleich antwortet jeder Manager mit ABBRUCH: der Dialog setzt Kaderbyte 24 =
@@ -601,7 +605,7 @@ export function saisonwechseltag(g: GameState, rng: Rng & { zaehler(): number },
       }
     },
     tage: () => {
-      for (let i = 0; i < 38; i++) finanzen(37, dateOfSeasonDay(++tag, seasonStartYear(g)));
+      for (let i = 0; i < 38; i++) finanzen(37, dateOfSeasonDay(++tag, altesJahr));
     },
   });
   kp(26);

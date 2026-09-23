@@ -31,7 +31,22 @@ function random16(rng: Rng, lo: number, hi: number): number {
 /** Marktwert des Kaderplatzes `manager*25 + place` (Transfermarkt: manager 4, place 0..11). */
 export function playerValue(g: GameState, manager: number, place: number, flags = 0, rng?: Rng): number {
   const l = g.lineups.at(manager * 25 + place);
-  const p = g.players.at(l.playerIndex);
+  return wertAusDatensatz(g, (o) => l.u8(o), flags, rng);
+}
+
+/** Datensatz eines Kaderplatzes (52 Bytes), gelesen über eine Funktion. */
+export interface RohDatensatz {
+  (offset: number): number;
+}
+
+/**
+ * Marktwert auf einem beliebigen 52-Byte-Datensatz (0x24D4E). Das Original rechnet manchmal auf
+ * Speicher, der gar kein Kaderplatz ist (Spielerpool, #99); der Spieler kommt aus Byte 15.
+ */
+export function wertAusDatensatz(g: GameState, byte: RohDatensatz, flags = 0, rng?: Rng): number {
+  const l = { u8: byte };
+  const idx = byte(15);
+  const p = { u8: (o: number) => (idx <= 150 ? g.players.at(idx).u8(o) : 0) };
   const K = COEF[flags & 1];
   const u16 = (o: number) => l.u8(o) | (l.u8(o + 1) << 8);
   const s = Math.trunc((l.u8(16) + l.u8(17)) / 2);
