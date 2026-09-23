@@ -203,3 +203,17 @@ Je Kaderplatz, in dieser Reihenfolge:
 | 0f0b6 | L | `cmp $0x87,%cl` | <= (vzl.) → 0xf0f0 |  |
 | 0f0e9 | L | `cmpw $0xa,-0x8(%bp)` | >= → 0xf0f0 |  |
 | 0f10d | L | `or %al,%al` | != → 0xf113 |  |
+
+## Nachtrag #99 (bytegenauer Vergleich)
+
+Wurf für Wurf gegen das Original geprüft (TEST4, drei Manager, Speicherabzug des Kaders):
+
+- Die Abschnitte laufen als eine Funktion in dieser Reihenfolge (sim/tagesroutine.ts); die
+  Kaderschleife G ist je Platz verschränkt. Vorher liefen die Teile in eigenen Schleifen.
+- E/F (Krawall, Komfort) laufen einmal am Ankunftstag, nicht für jeden übersprungenen Tag.
+- Jede Meldung (0x30AA0) würfelt random(0,3) und datiert sich um so viele Tage zurück.
+- Die Schleifen G, H und I-L gehen die Plätze 0..Anzahl-1 durch (Anzahl = belegte Plätze,
+  0x31A19). Hat der Kader eine Lücke, kommt die leere Stelle dran und der letzte Spieler nicht.
+- Die Automatik-Aufstellung am Ende (0x0F118) läuft an Spieltagen ins Leere: 0x1D817 hat das
+  System vor den Spielen auf manuell gestellt, erst der nächste Spieltag stellt es zurück.
+- Offen: Nummernvergabe und Feldpositionen der Aufstellung (GitLab #103).

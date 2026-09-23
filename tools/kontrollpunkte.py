@@ -71,6 +71,7 @@ PUNKTE = [
     (23, 0x5C74, 0x14A4, 0x1662),  # nach 90: Torschützen der KI-Vereine 0x160A2
     (24, 0x4CC1, 0x2E3A, 0x23AA),  # Noten und Zeitung aller Manager 0x3074A
     (27, 0x1D717, 0x076B, 0x0CF0), # Tagesbeginn vor srand (nur nach seed-patch.py "tag"): Stand am Ende des Vortags
+    (28, 0x1D7BA, 0x0F9D, 0x0002), # Tagesbeginn: Anzeigestärke je Manager, gleich nach der Aufstellung 0x22030
 ]
 # Punkte mit Speicherabzug: vor dem Eintrag werden DUMP_LAENGE Bytes ab 4238:DUMP_VON nach
 # 4238:LOG+DUMP_ZIEL kopiert (die Spielberichte 4238:90CA, 154 Bytes je Manager)
