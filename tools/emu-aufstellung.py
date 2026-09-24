@@ -11,6 +11,8 @@ SaveFile.decode(...).plain in eine Datei schreiben.
 
 Aufruf: tools/emu-aufstellung.py STAND.plain [...]
 """
+import json
+import sys
 from unicorn import *
 from unicorn.x86_const import *
 img = open('/home/lhuno/Documents/bmp-remake/tools/out/bmmain.bin','rb').read()

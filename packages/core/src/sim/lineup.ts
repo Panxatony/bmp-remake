@@ -56,9 +56,11 @@ export const groupOf = (g: GameState, playerIndex: number): number => div(g.play
 /**
  * Spielerwahl (0x22305): bester noch nummernloser, einsatzfähiger Spieler der Gruppe (Stärke =
  * (Ko+Te+Fo)/3 des Kaderplatzes); ist die Gruppe leer, wird in Richtung dir (Angriff und
- * Mittelfeld bei System < 4 abwärts, sonst aufwärts) mit Umlauf weitergesucht. Torhüter
- * werden nie im Feld aufgestellt; ohne Torwart darf ein Feldspieler ins Tor. `best.v`
- * verfolgt die größte gesehene Stärke (ab -1 unverändert).
+ * Mittelfeld bei System < 4 abwärts, sonst aufwärts) mit Umlauf weitergesucht. Erreicht die
+ * Suche für eine Feldgruppe die Torhüter, bleibt der erste stehen, jeder weitere zählt mit
+ * Stärke 1; ohne Torwart darf ein Feldspieler ins Tor. `best.v` verfolgt die größte gesehene
+ * Stärke (ab -1 unverändert). `suspendedAllowed` entspricht 4238:513E (Hauptmenü: der eigene
+ * Verein spielt am Pokaltag nicht).
  */
 export function selectPlace(g: GameState, manager: number, group: number, system: number, best: { v: number }, suspendedAllowed = false): number {
   let result = -1;
@@ -77,11 +79,16 @@ export function selectPlace(g: GameState, manager: number, group: number, system
       any = true;
       const pg = groupOf(g, l.playerIndex);
       if (pg !== cur) continue;
+      let s = div(l.u8(16) + l.u8(17) + l.u8(18), 3);
       if (pg === 0 && group !== 0) {
-        gkSeen = true;
-        continue;
+        // Torhüter bei der Suche für eine Feldgruppe (0x22450): den ersten lässt das Original mit
+        // Stärke -1 stehen, jeder weitere zählt mit Stärke 1 (#100; bis dahin nie ins Feld)
+        if (!gkSeen) {
+          gkSeen = true;
+          continue;
+        }
+        s = 1;
       }
-      const s = div(l.u8(16) + l.u8(17) + l.u8(18), 3);
       if (bestStrength > s) continue;
       if (best.v !== -1 && best.v < s) best.v = s;
       bestStrength = s;
