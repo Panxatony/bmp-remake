@@ -1127,8 +1127,9 @@ Browser klart eine schwarze Fläche auf).
 ## Historieblock und Statistik (28435, 4238:9336; Fortschreibung 0x2D182/0x2DBDF, Anzeige 0x26F88/0x2B31E, Ewige Tabelle 0x27C98, Ewige Bilanz 0x27DC9; sim/history.ts, sim/display.ts)
 
 Der Historieblock (5012 Bytes) enthält: 0..2559 die Bilanz je Manager gegen jeden Verein
-([(Manager·64 + Verein)·5 + k]·2, ungerades Byte Heimspiel, gerades Auswärtsspiel, Byte =
-eigene Tore·16 + Gegentore, 0xff leer, k = die letzten fünf Spiele); ab 2560 die laufenden
+([(Manager·64 + Verein)·5 + k]·2, gerades Byte Heimspiel, ungerades Auswärtsspiel, Byte =
+Gegentore·16 + eigene Tore, 0xff leer, k = die letzten fünf Spiele; gegen KP-TEST4-TAG geprüft,
+bis #100 stand es hier und im Remake umgekehrt); ab 2560 die laufenden
 Serien je Verein (21 Bytes: gewonnen, verloren, unentschieden, nicht gewonnen, nicht
 verloren, ohne Gegentor, ohne Torerfolg × gesamt/heim/auswärts); ab 3904 die Serienrekorde
 je Manager (21 Bytes); ab 3988 die Vereinsrekorde (8 Bytes: höchster Heimsieg, höchste

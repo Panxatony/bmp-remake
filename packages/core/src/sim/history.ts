@@ -75,8 +75,8 @@ export function resultsAgainst(g: GameState, manager: number, club: number): { h
   const away: [number, number][] = [];
   for (let k = 0; k < 5; k++) {
     const o = HISTORY + ((manager << 6) + club) * 10 + 2 * k;
-    if (p[o + 1] !== 0xff) home.push([p[o + 1] >> 4, p[o + 1] & 15]);
-    if (p[o] !== 0xff) away.push([p[o] >> 4, p[o] & 15]);
+    if (p[o] !== 0xff) home.push([p[o] & 15, p[o] >> 4]);
+    if (p[o + 1] !== 0xff) away.push([p[o + 1] & 15, p[o + 1] >> 4]);
   }
   return { home, away };
 }
@@ -146,14 +146,16 @@ export function bookHistory(g: GameState, home: number, away: number, hg: number
     const own = club === home ? hg : ag;
     const other = club === home ? ag : hg;
     const base = HISTORY + ((i << 6) + opp) * 10;
-    const side = club === home ? 1 : 0;
+    // Heimspiel ins gerade, Auswärtsspiel ins ungerade Byte (KP-TEST4-TAG gegen TEST4, #100)
+    const side = club === home ? 0 : 1;
     let k = 0;
     while (k < 5 && p[base + 2 * k + side] !== 0xff) k++;
     if (k === 5) {
       for (let j = 0; j < 4; j++) p[base + 2 * j + side] = p[base + 2 * (j + 1) + side];
       k = 4;
     }
-    p[base + 2 * k + side] = ((Math.min(15, own) << 4) | Math.min(15, other)) & 0xff;
+    // Byte = Gegentore·16 + eigene Tore (21 gegen 27 zu Hause 4:0 -> 0x04, 31 bei 23 1:4 -> 0x41)
+    p[base + 2 * k + side] = ((Math.min(15, other) << 4) | Math.min(15, own)) & 0xff;
   });
   const h = Math.min(15, hg);
   const a = Math.min(15, ag);
