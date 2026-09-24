@@ -428,12 +428,15 @@ const GANZSTAND: [string, string, number[], boolean][] = [
   ["KP-RUNA0-RUECKSPIEL.MAN", "RUNA0.MAN", [60, 60, 60, 60, -60, -60, 60, 60], true],
   ["KP-RUN0-NACHHOL.MAN", "RUN0.MAN", [2, 60, 60, 60, -60, -60, 60, 60], false],
   ["KP-RIED4-NACHHOL.MAN", "RIED-4TE.MAN", [6, 60, 60, 60, -60, -60, 60, 60], true],
+  ["KP-RELEG1.MAN", "KP-RELEG1-START.MAN", [6, 60, 60, 60, -60, -60, 60, 60], true],
 ];
 for (const [messung, start, lager, vereine] of GANZSTAND) {
   const pfad = resolve(import.meta.dirname, `../../../tools/dosbox/${messung}`);
-  test(`Ganzstand nach Tag und Folgetag wie das Original: ${messung}`, { skip: !existsSync(pfad) || !existsSync(join(BMP_DIR, start)) }, () => {
+  // Startstände aus einer Messung (KP-*-START) liegen bei den Messständen, die übrigen im Spielordner
+  const startPfad = start.startsWith("KP-") ? resolve(import.meta.dirname, `../../../tools/dosbox/${start}`) : join(BMP_DIR, start);
+  test(`Ganzstand nach Tag und Folgetag wie das Original: ${messung}`, { skip: !existsSync(pfad) || !existsSync(startPfad) }, () => {
     const orig = SaveFile.decode(new Uint8Array(readFileSync(pfad))).plain;
-    const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, start)))));
+    const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(startPfad))));
     const summen = g.activeManagers().map(() => ({ sum: 0 }));
     const tag1 = originaltag(g, originalRng(0x1234), lager, undefined, summen);
     for (const off of [27972, 27973, 28432, 28433, 28434, 34226]) g.save.plain[off] = orig[off];
