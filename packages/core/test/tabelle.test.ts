@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { SaveFile, GameState, tableOrder, clubStrength, matchdayDate, matchdayView, leagueScorers, playerScorers, statistics, allTimeTable, allTimeBalance } from "../src/index.ts";
 
@@ -133,3 +133,18 @@ test("Gesamttabelle über alle Saisons und die Vereinsbilanz (P4.MAN in DOSBox a
   assert.deepEqual(b.rows[3].columns, [[44, null], [10, null], [34, null]]);
   assert.deepEqual(b.rows[4].columns, [[38, null], [18, null], [20, null]]);
 });
+
+// Sortierung 0x2D144 (#100): Tabellenwerte des späteren Stands, Reihenfolgeliste des früheren -
+// herauskommen muss die Reihenfolgeliste, die das Original geschrieben hat. Bei gleichen Punkten
+// steht der Verein mit weniger Spielen vorn; ohne dieses Kriterium lag CLAUDE3 in allen drei
+// Ligen daneben.
+const PAARE: [string, string][] = [["CLAUDE3.MAN", "CLAUDE.MAN"], ["CLAUDE4.MAN", "CLAUDE.MAN"], ["RUNB0.MAN", "RUNA0.MAN"], [resolve(import.meta.dirname, "../../../tools/dosbox/KP-TEST4-TAG.MAN"), "TEST4.MAN"]];
+for (const [nach, vor] of PAARE) {
+  const pn = nach.startsWith("/") ? nach : join(BMP_DIR, nach);
+  test(`Tabellenreihenfolge wie das Original: ${nach.split("/").pop()}`, { skip: !existsSync(pn) || !existsSync(join(BMP_DIR, vor)) }, () => {
+    const o = SaveFile.decode(new Uint8Array(readFileSync(pn))).plain;
+    const g = load(vor);
+    g.save.plain.set(o.slice(12357, 12357 + 3456), 12357);
+    for (let l = 0; l < 3; l++) assert.deepEqual(tableOrder(g, l), [...o.slice(28244 + 20 * l, 28244 + 20 * l + (l ? 20 : 18))], `Liga ${l}`);
+  });
+}
