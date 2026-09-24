@@ -378,7 +378,10 @@ export function trainingCamp(g: GameState, manager: number, camp: number, rng: R
   const level = g.save.plain[34062];
   let freshSum = 0;
   const strengthSum = [0, 0, 0];
-  const squad = g.squadOf(manager);
+  // Wie 0x119CD (Kaderzahl aus 0x31A19 bei 0x11CA2) die Plätze 0..Anzahl-1 ohne Prüfung auf
+  // einen leeren Platz: bei einer Lücke würfelt auch der leere Platz, der letzte Spieler nicht (#100)
+  const anzahl = g.squadOf(manager).length;
+  const squad = Array.from({ length: anzahl }, (_, place) => g.lineups.at(manager * 25 + place));
   for (const l of squad) {
     let w = div(s[0] + s[1] + s[2], -3) + 2 * (s[0] - s[2] + 10) + s[1];
     if (w < 80) w = 80;

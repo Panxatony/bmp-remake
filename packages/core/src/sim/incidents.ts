@@ -63,17 +63,21 @@ function clamp(v: number, lo: number, hi: number): number {
 
 /** Spielerwahl 0x04E45: zufälliger Starter, technisch starke Spieler bevorzugt; -1 wenn keiner spielt. */
 export function pickStarter(g: GameState, manager: number, rng: Rng): number {
+  // Wie 0x4E45: random(0, Anzahl - 1) mit der Kaderzahl aus 0x31A19 **direkt als Kaderplatz** -
+  // bei einer Lücke im Kader kann der leere Platz gezogen werden, der letzte Spieler nie (#100).
+  // Liefert den Kaderplatz.
   const squad = g.squadOf(manager);
-  const eligible = squad.filter((l) => l.number >= 1 && l.number <= 11 && (l.u8(9) & 3) === 0);
+  const platz = (i: number) => g.lineups.at(manager * 25 + i);
+  const eligible = Array.from({ length: squad.length }, (_, i) => i).filter((i) => platz(i).number >= 1 && platz(i).number <= 11 && (platz(i).u8(9) & 3) === 0);
   if (eligible.length === 0) return -1;
   for (let tries = 0; tries < 200; tries++) {
     const i = rng(0, squad.length - 1);
-    const l = squad[i];
+    const l = platz(i);
     if (l.number < 1 || l.number > 11 || (l.u8(9) & 3) !== 0) continue;
     const d = l.u8(17) - l.u8(16);
     if (d > 0 ? d > rng(0, 3) : rng(0, 10) === 0) return i;
   }
-  return squad.indexOf(eligible[0]);
+  return eligible[0];
 }
 
 /** Einsatzfähige Starter (Nummer 1..11 ohne Sperre/Verletzung). */
@@ -117,7 +121,7 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
   // auch für einen Gegner, der später in der Schleife stünde; bei uns gilt es je Verein.
   if (squad.filter((l) => l.number >= 1 && l.number <= 11).length < 4) return out;
   const record = (i: number, kind: Incident["kind"], duration: number, injury?: string) => {
-    const l = squad[i];
+    const l = g.lineups.at(manager * 25 + i);
     // Das Original zeigt hinter dem Namen die Kartenzahl des Spielers (Kaderbytes 0/1/2)
     const count = kind === "yellow" ? l.u8(1) : kind === "red" ? l.u8(0) : kind === "yellowred" ? l.u8(2) : undefined;
     const inc: Incident = { minute, manager, place: i, playerIndex: l.playerIndex, name: g.players.at(l.playerIndex).displayName, kind, duration, count, injury };
@@ -130,7 +134,7 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
     st.redUsed = true;
     const i = pickStarter(g, manager, rng);
     if (i >= 0) {
-      const l = squad[i];
+      const l = g.lineups.at(manager * 25 + i);
       l.setU8(0, l.u8(0) + 1);
       l.setU8(10, 0);
       l.setU8(9, l.u8(9) | 1);
@@ -150,7 +154,7 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
     // (GitLab #84, G2). Hat jeder Starter schon Gelb, hinge das Original hier fest; wir geben auf.
     for (let versuch = 0; i >= 0 && st.redUsed && st.yellows.has(i) && versuch < 200; versuch++) i = pickStarter(g, manager, rng);
     if (i >= 0 && !(st.redUsed && st.yellows.has(i))) {
-      const l = squad[i];
+      const l = g.lineups.at(manager * 25 + i);
       if (st.yellows.has(i)) {
         // Gelb-Rot: zweite Gelbe im selben Spiel (0x1BF8E)
         l.setU8(2, l.u8(2) + 1);
@@ -178,7 +182,7 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
   if (rng(0, 55 * x + 60 * level + 200) === 0) {
     const i = pickStarter(g, manager, rng);
     if (i >= 0) {
-      const l = squad[i];
+      const l = g.lineups.at(manager * 25 + i);
       injurePlayer(g, l, rng);
       // Danach würfelt der Chancenhandler, ob die Trage kommt (0x1C3AC: random(0, 15) = 0, im
       // Autoplay 4cb3:05D4 nicht). Nur Anzeige - der Wurf fehlte aber in der Würfelfolge (#99,
