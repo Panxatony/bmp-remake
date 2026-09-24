@@ -370,7 +370,7 @@ test("Saisonwechsel: Verletzungen heilen über den Sommer wie im Original", { sk
 // Spielvorbereitung geht die Plätze 0..Anzahl-1 durch, der Spieler auf Platz 15 behält seine Note.
 // Ausgenommen: Bytes 48..51 von Platz 60 (ein Zeiger aus der Laufzeit des Originals) und das
 // Protokoll ab Platz 75.
-test("Originaltag TEST4: Tabelle und Kader nach dem Spieltag wie das Original", { skip: !existsSync(TAG) || !existsSync(join(BMP_DIR, "TEST4.MAN")) }, () => {
+test("Originaltag TEST4: Tabelle, Bilanzen und Kader nach dem Spieltag wie das Original", { skip: !existsSync(TAG) || !existsSync(join(BMP_DIR, "TEST4.MAN")) }, () => {
   const orig = SaveFile.decode(new Uint8Array(readFileSync(TAG))).plain;
   const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
   let st: Uint8Array | undefined;
@@ -384,6 +384,8 @@ test("Originaltag TEST4: Tabelle und Kader nach dem Spieltag wie das Original", 
   };
   assert.deepEqual(anders(12357, 3456), [], "Tabellen");
   assert.deepEqual(anders(28244, 60), [], "Reihenfolge");
+  // Bilanz je Manager gegen jeden Verein: Heimspiel gerades Byte, Gegentore·16 + eigene Tore
+  assert.deepEqual(anders(28435, 2560), [], "Bilanzen im Historieblock");
   const zeiger = 21400 + 60 * 52 + 48;
   assert.deepEqual(anders(21400, 75 * 52, (i) => i >= zeiger && i < zeiger + 4), [], "Kaderplätze");
 });
