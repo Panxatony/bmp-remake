@@ -32,7 +32,7 @@ import { advanceCampOpen, CAMP_OPEN_START, trainingInput } from "./training.ts";
 import { tagesroutine } from "./tagesroutine.ts";
 import { generateOffers } from "./werbung.ts";
 import { driftClubs, bookBaseBonus, creditAiGoals } from "./ai.ts";
-import { applyResult } from "./standings.ts";
+import { applyResult, updatePositions } from "./standings.ts";
 import { bookHistory } from "./history.ts";
 import { autoLineupIfEnabled, backupSystem, restoreSystem, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
@@ -512,6 +512,8 @@ function ligaBuchung(g: GameState, rng: Rng, kp: (punkt: number) => void, paare:
     bookBaseBonus(g, sp.home, hg - ag, rng);
     bookBaseBonus(g, sp.away, ag - hg, rng);
   }
+  // 0x2D144 sortiert am Ende die Tabelle (Austauschsortieren, Byte 46, Managerbyte 267 + Spieltag)
+  for (const league of new Set(paare.map((sp) => (sp.home < 18 ? 0 : sp.home < 38 ? 1 : 2)))) updatePositions(g, league, g.nextMatchday(league));
   kp(23);
   for (const sp of paare) {
     creditAiGoals(g, sp.home, sp.match.hg, rng);

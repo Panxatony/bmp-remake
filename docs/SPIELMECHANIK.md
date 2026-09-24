@@ -1586,9 +1586,11 @@ Zeilen ab y 28 im Abstand 7, Trennlinie bei y 169, die Knöpfe HEIM/GESAMT/AUSW[
 x 31, 133 und 235 (je 55 breit, 13 hoch, kleine Schrift, der gewählte in Rot #920010), darunter
 die Beschriftung "Tabelle Bundesliga" bei y 212 und rechts das Symbol WEITER. Aller Text ist
 #a2a2c3. Die Reihenfolge der Gesamttabelle steht im Spielstand (Standing-Byte 46) und wird nach
-jedem Spieltag fortgeschrieben; sie darf nicht neu sortiert werden, weil gleichauf liegende
-Vereine sonst anders stehen als im Original (CLAUDE.MAN, 1. Spieltag: Stuttgart, Köln,
-Frankfurt, Rostock alle 2:0 Punkte und 2:0 Tore). Heim- und Auswärtstabelle rechnet das
+jedem Spieltag fortgeschrieben: 0x2D144 sortiert die Reihenfolgeliste 4238:535A durch
+Austauschen (für jeden Platz i und jeden späteren Platz j tauschen, wenn j vorn stehen muss) nach
+Punkten, bei gleichen Punkten nach **weniger Spielen**, dann Tordifferenz, dann Toren
+(docs/abgleich/2D144.md). Gleichauf liegende Vereine behalten dabei ihre Folge nicht immer
+(CLAUDE.MAN, 1. Spieltag: Stuttgart, Köln, Frankfurt, Rostock alle 2:0 Punkte und 2:0 Tore). Heim- und Auswärtstabelle rechnet das
 Original eigens; das Remake sortiert dort nach Punkten, Tordifferenz, Toren und zuletzt nach
 dem Tabellenplatz. Der Platz bekommt einen Kasten bei x 9, 11 breit und 8 hoch, in drei Farben: helles Grün
 (#71a241) für den Meister bzw. die direkten Aufsteiger, Oliv (#516110) für die weiteren Chancen

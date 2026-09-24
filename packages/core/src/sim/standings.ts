@@ -58,35 +58,40 @@ export function applyResult(g: GameState, home: number, away: number, hg: number
 }
 
 /**
- * Tabellenreihenfolge einer Liga: Punkte, Tordifferenz, erzielte Tore. Die Vereine
- * werden in der bisherigen Reihenfolge (Byte 46) durchlaufen und jeweils vor den
- * ersten Verein gesetzt, der nicht besser ist; völlig gleichauf liegende Vereine
- * tauschen dadurch jeden Spieltag die Plätze (beobachtet TEST4 -> RUNA0,
- * Gladbach/Dortmund).
+ * Tabellenreihenfolge einer Liga wie 0x2D144 (ab 0x2D8B5): Austauschsortieren auf der
+ * Reihenfolgeliste 28244 (4238:535A) - für jeden Platz i und jeden späteren Platz j wird
+ * getauscht, wenn der Verein auf j vorn stehen muss. Reihenfolge der Kriterien: Punkte; bei
+ * gleichen Punkten **weniger Spiele** (Bytes 30/31; der Schalter 4cb3:224D, der das abschaltet,
+ * wird nie gesetzt); Tordifferenz; erzielte Tore. Völlig gleichauf liegende Vereine tauschen
+ * nicht miteinander, können aber durch einen anderen Tausch die Plätze wechseln. Bis #100 fügte
+ * das Remake nach Punkten, Tordifferenz und Toren ein, ohne die Spielzahl.
  */
 export function tableOrder(g: GameState, league: number): number[] {
   const L = LEAGUES[league];
-  const clubs = Array.from({ length: L.teams }, (_, i) => L.base + i);
+  const p = g.save.plain;
+  let list = Array.from({ length: L.teams }, (_, i) => p[28244 + 20 * league + i]);
+  const soll = Array.from({ length: L.teams }, (_, i) => L.base + i);
+  // Reihenfolgeliste unbrauchbar (fremder Stand): Ausgang ist die Platzierung aus Byte 46
+  if ([...list].sort((x, y) => x - y).join() !== soll.join()) list = soll.slice().sort((x, y) => g.standings.at(x).u8(46) - g.standings.at(y).u8(46) || x - y);
   const key = (c: number) => {
     const s = g.standings.at(c);
-    const pts = s.u8(0) + s.u8(1);
-    const gf = s.u8(22) + s.u8(23);
-    const ga = s.u8(26) + s.u8(27);
-    return [pts, gf - ga, gf];
+    return { pts: s.u8(0) + s.u8(1), sp: s.u8(30) + s.u8(31), gd: s.u8(22) - s.u8(26) + (s.u8(23) - s.u8(27)), gf: s.u8(22) + s.u8(23) };
   };
-  const better = (a: number[], b: number[]) => {
-    for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
-    return false;
+  // true, wenn b vor a gehört
+  const tauschen = (a: number, b: number): boolean => {
+    const x = key(a);
+    const y = key(b);
+    if (x.pts !== y.pts) return x.pts < y.pts;
+    if (x.sp !== y.sp) return x.sp > y.sp;
+    if (x.gd !== y.gd) return x.gd < y.gd;
+    return x.gf < y.gf;
   };
-  const previous = clubs.slice().sort((x, y) => g.standings.at(x).u8(46) - g.standings.at(y).u8(46) || x - y);
-  const order: number[] = [];
-  for (const c of previous) {
-    const k = key(c);
-    let pos = order.findIndex((o) => !better(key(o), k));
-    if (pos < 0) pos = order.length;
-    order.splice(pos, 0, c);
+  for (let i = 0; i < list.length - 1; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      if (tauschen(list[i], list[j])) [list[i], list[j]] = [list[j], list[i]];
+    }
   }
-  return order;
+  return list;
 }
 
 /**
