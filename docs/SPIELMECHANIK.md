@@ -787,10 +787,10 @@ Formel: Komfort eine Stufe 4 Wochen (Band 3,2-4,8), Zustand eine Stufe 8 (6,4-9,
 zwei Stufen 9 (8-12), Flutlicht eine Stufe 10 (8-12), 2000 überdachte Plätze 23 (16-24), 3000
 Stehplätze 15 (12-18). Die Menge geht nicht in die Bauzeit ein, nur die Art.
 
-Wer ein Angebot ablehnt, bekommt am selben Tag **keine Baufirma mehr für diese Ausbauart**
-(0x7E9 prüft einen Merker je Art, Meldung "Im Moment keine Baufirma aufzutreiben." in einem
-roten Kasten). Im Remake steht der Merker als Laufzeitdatum im Raum und verfällt mit dem
-Tageswechsel.
+Wer ein Angebot ablehnt, sperrt die Ausbauart **random(15,55) Tage für alle Manager** (0x553
+schreibt 4238:577F + Art, die Baurunde zählt je Manager und Tag herunter; 0x7E9 prüft die Sperre,
+Meldung "Im Moment keine Baufirma aufzutreiben." in einem roten Kasten). Die Sperre steht im
+Spielstand (34215, docs/abgleich/20E1.md).
 
 Stadionbildschirm (0x0602; packages/web drawStadium): drei Rahmen bei (6,15) 139x82 mit dem
 Stadionbild, (150,15) 139x82 für die Angaben und (6,104) 283x82 für die Übersicht; HAUPTMENÜ bei
