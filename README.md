@@ -78,6 +78,7 @@ Nur den Spielstand ansehen (Prototyp 0, ohne Server und Anmeldung):
   Spielmechanik unter `src/sim/`. Läuft ohne Build direkt unter Node 24.
 - `tools/` – Werkzeuge zum Entpacken, Deuten und Erzeugen (siehe unten).
 - `docs/SPIELMECHANIK.md` – was das Spiel wie rechnet, samt dem Regelwerk 2026.
+- `docs/ABWEICHUNGEN.md` – was im Regelwerk "Original" bewusst anders ist als im Original.
 - `docs/MEMORY-MAP.md` – Speicherkarte: Spielstand-Blöcke, Adressen, Datensatzgrößen,
   bekannte Felder.
 - `docs/BETRIEB.md` – Server starten, Benutzer anlegen, Schnittstelle, Reverse Proxy.
