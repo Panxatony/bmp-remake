@@ -13,7 +13,7 @@
 import type { GameState } from "../records.ts";
 import type { Rng } from "./match.ts";
 import { LiveMatch } from "./live.ts";
-import { composeZeitung, reportFromMatch } from "./zeitung.ts";
+import { composeZeitung, reportFromMatch, type Zeitung } from "./zeitung.ts";
 import { bookEvents } from "./matchday.ts";
 import { bookShootoutShot, bookDefence } from "./goals.ts";
 import { sommertagSperren } from "./training.ts";
@@ -64,7 +64,8 @@ export interface Originaltag {
  * Spielstand, und bis das Original den Stand lädt, sind sie schon etliche Tage gelaufen; für
  * einen Vergleich gibt man den im Original gemessenen Wert mit (kontrollpunkte.py --dump).
  */
-export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lagerBeimLaden: readonly number[] = CAMP_OPEN_START, beobachter?: (punkt: number, g: GameState) => void, kontosummen: { sum: number }[] = g.activeManagers().map(() => ({ sum: 0 }))): Originaltag {
+export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lagerBeimLaden: readonly number[] = CAMP_OPEN_START, beobachter?: (punkt: number, g: GameState) => void, kontosummen: { sum: number }[] = g.activeManagers().map(() => ({ sum: 0 })), zeitungsAusgabe?: Zeitung[]): Originaltag {
+  zeitungSammler = zeitungsAusgabe;
   const punkte: Kontrollpunkt[] = [];
   // `beobachter` sieht den Stand an jedem Punkt - für Vergleiche mit einem Speicherabzug des
   // Originals (kontrollpunkte.py --dump)
@@ -525,6 +526,9 @@ function ligaBuchung(g: GameState, rng: Rng, kp: (punkt: number) => void, paare:
   }
 }
 
+/** Sammelt die Zeitungen eines Laufs für Vergleiche mit dem Bildschirm des Originals. */
+let zeitungSammler: Zeitung[] | undefined;
+
 /** Sportzeitung (0x3074A): je Manager, der gespielt hat, erst die Noten, dann die Seite (0x2F243). */
 function zeitungen(g: GameState, rng: Rng, kp: (punkt: number) => void, spiele: Ligaspiel[], zuschauer: Map<number, number>): void {
   const managers = g.activeManagers();
@@ -546,7 +550,8 @@ function zeitungen(g: GameState, rng: Rng, kp: (punkt: number) => void, spiele: 
       cards: eigene.filter((x) => x.kind !== "injury").length,
       bewertungen,
     }, rng);
-    composeZeitung(report, rng);
+    const z = composeZeitung(report, rng);
+    zeitungSammler?.push(z);
   });
 }
 

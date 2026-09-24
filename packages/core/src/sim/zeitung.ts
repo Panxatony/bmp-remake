@@ -484,9 +484,11 @@ export function reportFromMatch(g: GameState, manager: number, m: ReportSource, 
   for (let place = 0; place < anzahlPlaetze; place++) {
     const l = g.lineups.at(manager * 25 + place);
     const p = g.players.at(l.playerIndex);
-    if (p.u8(31) === 0) continue;
     const rating = m.bewertungen?.get(l.playerIndex) ?? (l.u8(21) << 24) >> 24;
-    if (rating > 25) best = p.name;
+    // Der Torwart kann nicht der Beste sein (0x2F66E), wohl aber der Schwächste (0x2F6DB prüft
+    // die Position nicht; TEST4: "J.SIEVERS BEFÖRDERTE SEINE MANNSCHAFT ... AUF DIE
+    // VERLIERERSTRASSE", #100)
+    if (rating > 25 && p.u8(31) !== 0) best = p.name;
     if (rating < -15 && worst === "") worst = p.name;
   }
   const str = (club: number): number => {
