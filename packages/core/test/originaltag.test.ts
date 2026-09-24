@@ -429,6 +429,8 @@ const GANZSTAND: [string, string, number[], boolean][] = [
   ["KP-RUN0-NACHHOL.MAN", "RUN0.MAN", [2, 60, 60, 60, -60, -60, 60, 60], false],
   ["KP-RIED4-NACHHOL.MAN", "RIED-4TE.MAN", [6, 60, 60, 60, -60, -60, 60, 60], true],
   ["KP-RELEG1.MAN", "KP-RELEG1-START.MAN", [6, 60, 60, 60, -60, -60, 60, 60], true],
+  // UEFA-Pokal mit Managerverein (TEST2, Manager 0 statt Verein 13 bei FC Valletta, #101)
+  ["KP-EUMAN.MAN", "KP-EUMAN-START.MAN", [6, 7, 60, 60, -60, -60, 60, 60], false],
 ];
 for (const [messung, start, lager, vereine] of GANZSTAND) {
   const pfad = resolve(import.meta.dirname, `../../../tools/dosbox/${messung}`);
@@ -461,3 +463,19 @@ for (const [messung, start, lager, vereine] of GANZSTAND) {
     if (vereine) assert.deepEqual(anders(5557, 6800), [], "Vereine");
   });
 }
+
+// Europapokal mit Managerverein (#101): Hinspiel im UEFA-Pokal, Manager 0 auswärts bei einem
+// ausländischen Rechnerverein. Wurf für Wurf bis zum Ende des Protokolls (160 Einträge): keine
+// Kartenwürfe (Punkte 18/19), Verletzungswürfe schon (20); der Gast bekommt keinen
+// Zuschaueranteil (nur im DFB-Pokal, 0x1C655).
+const EUMAN = resolve(import.meta.dirname, "../../../tools/dosbox/KP-EUMAN.MAN");
+const EUMAN_START = resolve(import.meta.dirname, "../../../tools/dosbox/KP-EUMAN-START.MAN");
+test("Originaltag UEFA-Pokal mit Managerverein: Wurf für Wurf wie das Original", { skip: !existsSync(EUMAN) || !existsSync(EUMAN_START) }, () => {
+  const orig = protokoll(SaveFile.decode(new Uint8Array(readFileSync(EUMAN))).plain).filter((p) => p.wurf >= 0);
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(EUMAN_START))));
+  const ids = new Set(orig.map((p) => p.punkt));
+  const lauf = originaltag(g, originalRng(0x1234), [6, 7, 60, 60, -60, -60, 60, 60]).punkte.filter((p) => ids.has(p.punkt));
+  assert.ok(orig.length > 150);
+  assert.ok(!ids.has(18) && !ids.has(19) && ids.has(20));
+  assert.deepEqual(lauf.slice(0, orig.length), orig);
+});

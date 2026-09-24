@@ -434,13 +434,15 @@ zählen im DFB-Pokal als Pokal (Byte 4/7), im Europapokal und in der Relegation 
 (Karrieresummen Wort 38/32).
 
 Einnahmen im Pokal (Buchungsschleife 0x1C632 über alle Manager, Teiler 2 ab 0x1C655 nur für
-Pokalspiele). **DFB-Pokalfinale** (Rundenbyte 28233 > 4, 0x1CB65): Kulisse fest 76.000
+den **DFB-Pokal**: -0x24 = 2 nur mit Pokalschalter und Wettbewerb 0. Im Europapokal gilt Teiler 1,
+und der ganze Gastteil 0x1C9BB bis 0x1CA8C entfällt - ein Gastmanager bekommt dort nichts, auch
+beim ausländischen Rechnerverein; gemessen mit KP-EUMAN, #101). **DFB-Pokalfinale** (Rundenbyte 28233 > 4, 0x1CB65): Kulisse fest 76.000
 (4cb3:2256), statt Eintritt bekommt jeder beteiligte Manager 532.000 DM (0x1C8F5, 0x1CAA2).
 **Pokalzuschlag** im Heimspiel eines Managers gegen einen höherklassigen Gast (0x1C858):
 d = Liga des Managers (Byte 312) - Ligaband des Gastes > 0: Kulisse += random(Kulisse/(8-3d),
 Kulisse) mit 16-Bit-Grenzen, höchstens bis zur Stadiongröße (350 + 358). Sonst: der Heimverein bekommt Kulisse · eigener Preis (Byte 266) / 2 bei 0x1C93A, der
 Gast dieselbe Kulisse · den Preis **des Heimvereins** / 2 bei 0x1C9DC (Satzindex -0x1e). In
-der Liga entfällt der Gastanteil, weil der Teiler dort 1 ist (0x1C9AD). Gehört der
+der Liga und im Europapokal entfällt der Gastanteil, weil der Teiler dort 1 ist (0x1C9AD). Gehört der
 Heimverein dem Rechner, würfelt 0x1CA12 einen Ersatz aus: Preis = 16/14/10/8 je Ligaband
 (DGROUP 0x5390) + random(0,1), Kulisse aus 0x10BB0 mit dem Satz des Gastes, aber der
 ausgewürfelten Kapazität random(K - K/3, K + K/3)·10 mit K = 4500/2200/1200/600 (DGROUP
