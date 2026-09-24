@@ -4,7 +4,7 @@
  * Tabelle, Finanzen, Stadion und Meldungen und schreibt den geänderten
  * Spielstand als *.MAN zurück.
  */
-import { SaveFile, GameState, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
+import { SaveFile, GameState, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
 import { Assets, Sounds, COLORS, W, H, bevel, panel, button, hline, drawIcon, drawIconOver, toGame, upperGame, cp437ToGame, dm, type Font } from "./gfx.ts";
 import { Scenes, SCENE_FRAME_MS, VIEW, type SceneData } from "./scene.ts";
 
@@ -2721,7 +2721,7 @@ class App {
       return hilfe[2] + toGame(`${cp437ToGame(p.name)} (${p.age} JAHRE) (${fuss})`);
     }
     if (nr === 7) return `${hilfe[7]}(${l.overall})`;
-    if (nr === 22) return hilfe[22] + (l.u8(9) & 2 ? "VERL." : l.u8(9) & 1 ? "GESP." : l.number === 0 ? "" : l.number > 11 ? "RESERVE" : "IM TEAM");
+    if (nr === 22) return hilfe[22] + (this.einsatzFlag(l) & 2 ? "VERL." : this.einsatzFlag(l) & 1 ? "GESP." : l.number === 0 ? "" : l.number > 11 ? "RESERVE" : "IM TEAM");
     if (nr === 15) {
       const w = tendencyWords();
       const stufe = Math.max(0, Math.min(2, Math.trunc((l.u8(14) - 30) / 13)));
@@ -4529,7 +4529,8 @@ class App {
       // RESERVE steht nur bei den Ersatzleuten mit Nummer (12..15); wer keine Nummer hat, hat
       // im Original auch keinen Status. Eine Dopingsperre benutzt die Mechanik der Verletzung,
       // heißt aber anders (#3).
-      const st = isDopeBanned(l) ? "DOPING" : l.u8(9) & 2 ? "VERL." : l.u8(9) & 1 ? "GESP." : l.number === 0 ? "" : l.number > 11 ? "RESERVE" : "IM TEAM";
+      const ef = this.einsatzFlag(l);
+      const st = isDopeBanned(l) ? "DOPING" : ef & 2 ? "VERL." : ef & 1 ? "GESP." : l.number === 0 ? "" : l.number > 11 ? "RESERVE" : "IM TEAM";
       const [ko, te, fo] = l.strength;
       if (vertrag) {
         const td = this.tendenz(l);
@@ -4539,7 +4540,7 @@ class App {
         s.drawRight(ctx, String(l.leagueApps + l.cupApps), 85, y, c, sh);
         s.drawRight(ctx, String(Math.trunc((ko + te + fo) / 3)), 99, y, c, sh);
         s.drawRight(ctx, String(l.leagueGoals + l.cupGoals), 111, y, c, sh);
-        s.draw(ctx, st, 114, y, !sel && l.u8(9) & 3 ? ROT : c, sh);
+        s.draw(ctx, st, 114, y, !sel && ef ? ROT : c, sh);
         // Die Tendenz steht auch hier rot, wenn Kaderbyte 19 über 130 liegt (im Original gesehen)
         s.draw(ctx, td, 154, y, !sel && l.u8(19) > 130 ? ROT : c, sh);
         // Ein abgelaufener Vertrag (0 Jahre) steht rot: über ihn wird noch verhandelt
@@ -4557,7 +4558,7 @@ class App {
       s.drawRight(ctx, String(l.leagueGoals + l.cupGoals), cols.to, y, c, sh);
       s.drawRight(ctx, String(l.yellowCards), cols.gk, y, c, sh);
       s.drawRight(ctx, String(l.redCards), cols.rk, y, c, sh);
-      s.draw(ctx, st, cols.status, y, !sel && l.u8(9) & 3 ? ROT : c, sh);
+      s.draw(ctx, st, cols.status, y, !sel && ef ? ROT : c, sh);
       s.draw(ctx, this.tendenz(l), cols.td, y, !sel && l.u8(19) > 130 ? ROT : c, sh);
       }
       // Mit eingeblendetem Spielfeld endet die Liste vor dem Feld, sonst würden ihre
@@ -4710,6 +4711,16 @@ class App {
       this.infoPlace = -1;
       this.render();
     });
+  }
+
+  /**
+   * Byte 9 & 3 eines eigenen Kaderplatzes, wie ihn die Kaderliste zeigt: an einem DFB-Pokaltag,
+   * an dem der Verein in der Runde steht (4238:513E), steht ein gesperrter Spieler ohne Vermerk
+   * (0x1F1A8, 0x21ED5; #100).
+   */
+  einsatzFlag(l: Lineup): number {
+    const f = l.u8(9) & 3;
+    return f === 1 && this.game !== undefined && sperreAusgesetzt(this.game, this.manager) ? 0 : f;
   }
 
   pickRow(i: number): void {
