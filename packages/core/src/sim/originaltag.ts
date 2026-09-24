@@ -28,7 +28,7 @@ const beteiligt = (s: { seiten: unknown[] }) => s.seiten.length > 0;
 import { calendarFlag, dayIndex, FLAG_LEAGUE, dateOfSeasonDay, seasonDay, seasonStartYear, LETZTER_SAISONTAG } from "./calendar.ts";
 import { dailyFinance, DAYS_IN_MONTH, christmasPresents, scherztagWurf } from "./finance.ts";
 import { driftInterest, dailyConstruction } from "./stadium.ts";
-import { advanceCampOpen, CAMP_OPEN_START, trainingInput } from "./training.ts";
+import { advanceCampOpen, CAMP_OPEN_START, trainingInput, campCountdown } from "./training.ts";
 import { tagesroutine } from "./tagesroutine.ts";
 import { generateOffers } from "./werbung.ts";
 import { driftClubs, bookBaseBonus, creditAiGoals } from "./ai.ts";
@@ -64,7 +64,7 @@ export interface Originaltag {
  * Spielstand, und bis das Original den Stand lädt, sind sie schon etliche Tage gelaufen; für
  * einen Vergleich gibt man den im Original gemessenen Wert mit (kontrollpunkte.py --dump).
  */
-export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lagerBeimLaden: readonly number[] = CAMP_OPEN_START, beobachter?: (punkt: number, g: GameState) => void): Originaltag {
+export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lagerBeimLaden: readonly number[] = CAMP_OPEN_START, beobachter?: (punkt: number, g: GameState) => void, kontosummen: { sum: number }[] = g.activeManagers().map(() => ({ sum: 0 }))): Originaltag {
   const punkte: Kontrollpunkt[] = [];
   // `beobachter` sieht den Stand an jedem Punkt - für Vergleiche mit einem Speicherabzug des
   // Originals (kontrollpunkte.py --dump)
@@ -86,7 +86,8 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
     for (const _ of dailyConstruction(g, m)) rng(0, 3);
     advanceCampOpen(lager, rng);
     if (rng(0, 60) === 0) driftInterest(g, rng);
-    dailyFinance(g, m, dt, rng, undefined, false);
+    dailyFinance(g, m, dt, rng, kontosummen[m], false);
+    campCountdown(g, m); // Lagersperre Byte 313 je Saisontag (0x11DEA)
   }
   // 0x1D77C: Schwankung aller Vereine
   driftClubs(g, 1, rng);
@@ -130,17 +131,17 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   if ((flag & 7) === 0) {
     if (flag === 0x80) {
       const bis = nachholtag(g, rng, kp);
-      return { punkte, lager, bis: bis ?? folgetage(g, rng, kp, lager) };
+      return { punkte, lager, bis: bis ?? folgetage(g, rng, kp, lager, kontosummen) };
     }
     if (flag === 0x10) {
       const bis = relegationstag(g, rng, kp);
-      return { punkte, lager, bis: bis ?? folgetage(g, rng, kp, lager) };
+      return { punkte, lager, bis: bis ?? folgetage(g, rng, kp, lager, kontosummen) };
     }
     const cups = flag === 8 ? [0] : flag === 0x70 ? [1, 2, 3] : undefined;
     if (!cups) return { punkte, lager, bis: "weder Liga-, Pokal- noch Nachholtag - weitere Tagesarten fehlen noch" };
     const bis = pokaltag(g, rng, kp, cups);
     if (bis) return { punkte, bis };
-    return { punkte, lager, bis: folgetage(g, rng, kp, lager) };
+    return { punkte, lager, bis: folgetage(g, rng, kp, lager, kontosummen) };
   }
   // Verlegungen je Liga (0x1D87E -> 0x3563, nur im Winterfenster): die Bundesliga nur mit ihrem
   // Ligabit, die beiden anderen Ligen ruft das Original an jedem Ligatag auf
@@ -203,7 +204,7 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
   // Noten (ohne Würfel), dann die Seite (0x2F243)
   zeitungen(g, rng, kp, spiele, zuschauer);
   kp(25);
-  return { punkte, lager, bis: folgetage(g, rng, kp, lager) };
+  return { punkte, lager, bis: folgetage(g, rng, kp, lager, kontosummen) };
 }
 
 /**
@@ -226,7 +227,7 @@ export function tagesendeAufstellen(g: GameState, tagNeu: number): void {
  * Nach dem Spieltag bis zum Ankunftstag des nächsten Kalendereintrags: Finanzen je Tag,
  * Weihnachten, am Ankunftstag die Tagesroutine je Manager.
  */
-function folgetage(g: GameState, rng: Rng, kp: (punkt: number) => void, lager: number[]): string {
+function folgetage(g: GameState, rng: Rng, kp: (punkt: number) => void, lager: number[], kontosummen: { sum: number }[]): string {
   const n = g.activeManagers().length;
   // Tage bis zum nächsten Kalendereintrag (0x1DADC): je Tag das Datum, die Finanzen je Manager
   // (0x1DAFA -> 0x11D0D) und die Sondertage (0x1CF86, Weihnachten). Der Ankunftstag selbst
@@ -241,7 +242,8 @@ function folgetage(g: GameState, rng: Rng, kp: (punkt: number) => void, lager: n
       for (const _ of dailyConstruction(g, m)) rng(0, 3);
       advanceCampOpen(lager, rng);
       if (rng(0, 60) === 0) driftInterest(g, rng);
-      dailyFinance(g, m, dtd, rng, undefined, false);
+      dailyFinance(g, m, dtd, rng, kontosummen[m], false);
+    campCountdown(g, m); // Lagersperre Byte 313 je Saisontag (0x11DEA)
     }
     if (dtd.day === 24 && dtd.month0 === 11) christmasPresents(g, rng);
     scherztagWurf(dtd, rng);
@@ -503,7 +505,7 @@ function ligaMinute(g: GameState, rng: Rng, kp: (punkt: number) => void, spiele:
  * Nach der 90. Minute (0x05C48): Tabelle mit Grundzuschlag je Paarung (0x2D143 -> 0x2C3FC, Heim
  * dann Gast), dann die Torschützen der KI-Vereine (0x160A2 -> 0x15F14).
  */
-function ligaBuchung(g: GameState, rng: Rng, kp: (punkt: number) => void, paare: Ligaspiel[]): void {
+function ligaBuchung(g: GameState, rng: Rng, kp: (punkt: number) => void, paare: Ligaspiel[], nachhol = false): void {
   kp(22);
   for (const sp of paare) {
     const { hg, ag } = sp.match;
@@ -512,8 +514,10 @@ function ligaBuchung(g: GameState, rng: Rng, kp: (punkt: number) => void, paare:
     bookBaseBonus(g, sp.home, hg - ag, rng);
     bookBaseBonus(g, sp.away, ag - hg, rng);
   }
-  // 0x2D144 sortiert am Ende die Tabelle (Austauschsortieren, Byte 46, Managerbyte 267 + Spieltag)
-  for (const league of new Set(paare.map((sp) => (sp.home < 18 ? 0 : sp.home < 38 ? 1 : 2)))) updatePositions(g, league, g.nextMatchday(league));
+  // 0x2D144 sortiert am Ende die Tabelle (Austauschsortieren, Byte 46) und schreibt den Platz nach
+  // Managerbyte 267 + 4cb3:225A - 1: am Spieltag ist 225A schon weitergezählt (hier noch nicht),
+  // am Nachholtag nicht - dann trifft es den zuletzt gespielten Spieltag
+  for (const league of new Set(paare.map((sp) => (sp.home < 18 ? 0 : sp.home < 38 ? 1 : 2)))) updatePositions(g, league, g.nextMatchday(league) - (nachhol ? 1 : 0));
   kp(23);
   for (const sp of paare) {
     creditAiGoals(g, sp.home, sp.match.hg, rng);
@@ -571,7 +575,7 @@ function nachholtag(g: GameState, rng: Rng, kp: (punkt: number) => void): string
     kp(21);
     if (minute === 45) staerkeAllerManager(g, rng, spiele);
   }
-  ligaBuchung(g, rng, kp, spiele);
+  ligaBuchung(g, rng, kp, spiele, true);
   staerkeAllerManager(g, rng, spiele);
   zeitungen(g, rng, kp, spiele, zuschauer);
   removeReplays(g, faellig);
@@ -585,7 +589,7 @@ function nachholtag(g: GameState, rng: Rng, kp: (punkt: number) => void): string
  * Saisonwechsel des Tagesablaufs (0x1E319 bis 0x1EB02) mit den Finanzen jedes Tages bis zum
  * 28. Juli und der Auslosung aller vier Pokale.
  */
-export function saisonwechseltag(g: GameState, rng: Rng & { zaehler(): number }, lagerBeimLaden: readonly number[] = CAMP_OPEN_START, beobachter?: (punkt: number, g: GameState) => void): Originaltag {
+export function saisonwechseltag(g: GameState, rng: Rng & { zaehler(): number }, lagerBeimLaden: readonly number[] = CAMP_OPEN_START, beobachter?: (punkt: number, g: GameState) => void, kontosummen: { sum: number }[] = g.activeManagers().map(() => ({ sum: 0 }))): Originaltag {
   const punkte: Kontrollpunkt[] = [];
   const kp = (punkt: number) => {
     punkte.push({ punkt, wurf: rng.zaehler() });
@@ -599,7 +603,8 @@ export function saisonwechseltag(g: GameState, rng: Rng & { zaehler(): number },
       for (const _ of dailyConstruction(g, m)) rng(0, 3);
       advanceCampOpen(lager, rng);
       if (rng(0, 60) === 0) driftInterest(g, rng);
-      dailyFinance(g, m, dt, rng, undefined, false);
+      dailyFinance(g, m, dt, rng, kontosummen[m], false);
+    campCountdown(g, m); // Lagersperre Byte 313 je Saisontag (0x11DEA)
     }
   };
   const start = dateOfSeasonDay(seasonDay(dayIndex(g)) + 1, seasonStartYear(g));

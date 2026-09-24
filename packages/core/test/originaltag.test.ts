@@ -389,3 +389,72 @@ test("Originaltag TEST4: Tabelle, Bilanzen und Kader nach dem Spieltag wie das O
   const zeiger = 21400 + 60 * 52 + 48;
   assert.deepEqual(anders(21400, 75 * 52, (i) => i >= zeiger && i < zeiger + 4), [], "Kaderplätze");
 });
+
+// Derselbe Tag plus der Tagesbeginn des Folgetags bis zum Zug, mit dem KP-TEST4-TAG gespeichert
+// ist (#100): Managersätze (Kontostände mit dem Monatszins über die Tagessummen seit dem Laden,
+// Gehälter über die Plätze 0..Anzahl-1) und Vereinsmatrix wie im Original. Tageszähler und
+// Spieltage setzt der Vergleichslauf nicht weiter; sie kommen aus dem Original.
+test("Originaltag TEST4: Folgetag bis zum Zug - Manager und Vereine wie das Original", { skip: !existsSync(TAG) || !existsSync(join(BMP_DIR, "TEST4.MAN")) }, () => {
+  const orig = SaveFile.decode(new Uint8Array(readFileSync(TAG))).plain;
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+  const summen = g.activeManagers().map(() => ({ sum: 0 }));
+  const tag1 = originaltag(g, originalRng(0x1234), [-40, 7, 56, -53, 11, 31, 60, 13], undefined, summen);
+  for (const off of [27972, 27973, 28432, 28433, 28434, 34226]) g.save.plain[off] = orig[off];
+  try {
+    originaltag(g, originalRng(0x1234), tag1.lager, (k) => {
+      if (k === 12) throw new Error("Zug");
+    }, summen);
+  } catch (e) {
+    if ((e as Error).message !== "Zug") throw e;
+  }
+  const p = g.save.plain;
+  const anders = (von: number, n: number) => {
+    const d: string[] = [];
+    for (let i = von; i < von + n; i++) if (p[i] !== orig[i]) d.push(`${i}:${orig[i]}/${p[i]}`);
+    return d;
+  };
+  assert.deepEqual(anders(2345, 3 * 778), [], "Manager");
+  assert.deepEqual(anders(5557, 6800), [], "Vereine");
+  assert.deepEqual(anders(15813, 5587), [], "Spieler");
+});
+
+// Weitere Messstände wie oben (#100): Tag plus Tagesbeginn des Folgetags bis zum Zug. Kaderplätze
+// ohne die Bytes 48..51 (Zeiger aus der Laufzeit des Originals) und ohne das Protokoll ab Platz
+// 75. Die Vereine nur, wo zwischen Messung und Folgetag kein weiterer Tag liegt (sonst läuft die
+// Schwankung mit einem Würfelversatz an, den der Vergleichslauf nicht abbildet).
+const GANZSTAND: [string, string, number[], boolean][] = [
+  ["KP-TEST1-POKAL.MAN", "TEST1.MAN", [4, 44, 21, 35, -22, -30, 26, -38], true],
+  ["KP-TEST3-WINTER.MAN", "TEST3.MAN", [3, 8, 11, 60, -60, -60, 60, 60], true],
+  ["KP-RUNA0-RUECKSPIEL.MAN", "RUNA0.MAN", [60, 60, 60, 60, -60, -60, 60, 60], true],
+  ["KP-RUN0-NACHHOL.MAN", "RUN0.MAN", [2, 60, 60, 60, -60, -60, 60, 60], false],
+  ["KP-RIED4-NACHHOL.MAN", "RIED-4TE.MAN", [6, 60, 60, 60, -60, -60, 60, 60], true],
+];
+for (const [messung, start, lager, vereine] of GANZSTAND) {
+  const pfad = resolve(import.meta.dirname, `../../../tools/dosbox/${messung}`);
+  test(`Ganzstand nach Tag und Folgetag wie das Original: ${messung}`, { skip: !existsSync(pfad) || !existsSync(join(BMP_DIR, start)) }, () => {
+    const orig = SaveFile.decode(new Uint8Array(readFileSync(pfad))).plain;
+    const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, start)))));
+    const summen = g.activeManagers().map(() => ({ sum: 0 }));
+    const tag1 = originaltag(g, originalRng(0x1234), lager, undefined, summen);
+    for (const off of [27972, 27973, 28432, 28433, 28434, 34226]) g.save.plain[off] = orig[off];
+    try {
+      originaltag(g, originalRng(0x1234), tag1.lager, (k) => {
+        if (k === 12) throw new Error("Zug");
+      }, summen);
+    } catch (e) {
+      if ((e as Error).message !== "Zug") throw e;
+    }
+    const p = g.save.plain;
+    const anders = (von: number, n: number, aus = (_i: number) => false) => {
+      const d: string[] = [];
+      for (let i = von; i < von + n; i++) if (!aus(i) && p[i] !== orig[i]) d.push(`${i}:${orig[i]}/${p[i]}`);
+      return d;
+    };
+    assert.deepEqual(anders(2345, 3 * 778), [], "Manager");
+    assert.deepEqual(anders(15813, 5587), [], "Spieler");
+    assert.deepEqual(anders(12357, 3456), [], "Tabellen");
+    assert.deepEqual(anders(28435, 5012), [], "Historieblock");
+    assert.deepEqual(anders(21400, 75 * 52, (i) => (i - 21400) % 52 >= 48), [], "Kaderplätze");
+    if (vereine) assert.deepEqual(anders(5557, 6800), [], "Vereine");
+  });
+}
