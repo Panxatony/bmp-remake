@@ -315,7 +315,12 @@ export function kaderVorbereitung(g: GameState, manager: number, matchType: numb
       if ((l.u8(9) & 1) === 1 && l.u8(13) > 0) l.setU8(13, l.u8(13) - 1);
     }
   }
-  for (const l of g.squadOf(manager)) {
+  // Wie das Original (0x1CC4A mit der Kaderzahl aus 0x31A19) die Plätze 0..Anzahl-1: hat der
+  // Kader eine Lücke, läuft die leere Stelle mit (Byte 21 = 0, Frische auf 50..150) und der
+  // letzte Spieler nicht - er behält seine Note und bekommt nichts (KP-TEST4-TAG, #100)
+  const anzahl = g.squadOf(manager).length;
+  for (let place = 0; place < anzahl; place++) {
+    const l = g.lineups.at(manager * 25 + place);
     if ((l.u8(9) & 1) === 1 && l.u8(13) > 0 && matchType === 0) l.setU8(13, l.u8(13) - 1);
     l.setU8(21, 0);
     if (l.number >= 1 && l.number <= 11) {
