@@ -415,11 +415,13 @@ export function playCupMatch(g: GameState, cup: number, idx: number, secondLeg: 
     const att = zuschauer?.(home, away) ?? pokalZuschlag(g, mh, away, attendance(g, { manager: mh, home, away, importance, level: p[LEVEL_OFFSET], staerkeHeim: hs, staerkeGast: as }, rng), rng);
     match.attendance = att;
     match.gate = bookGate(g, mh, att, 2);
-    // Der Gast bekommt die andere Hälfte, gerechnet mit dem Eintrittspreis des Heimvereins
-    if (ok(ma)) bookGate(g, ma!, att, 2, g.managers.at(mh).u8(266));
+    // Der Gast bekommt die andere Hälfte, gerechnet mit dem Eintrittspreis des Heimvereins -
+    // nur im DFB-Pokal: den ganzen Gastteil (0x1C9BB bis 0x1CA8C) erreicht das Original nur mit
+    // Wettbewerb 0 (0x1C655, -0x24 = 2). Im Europapokal geht der Gast leer aus (#101).
+    if (cup === 0 && ok(ma)) bookGate(g, ma!, att, 2, g.managers.at(mh).u8(266));
     riotCheck(g, mh, rng);
-  } else if (ok(ma)) {
-    // Heimverein des Rechners: das Original würfelt Kulisse und Eintrittspreis aus (0x1CA12 bis
+  } else if (cup === 0 && ok(ma)) {
+    // Heimverein des Rechners (nur DFB-Pokal, s. o.): das Original würfelt Kulisse und Eintrittspreis aus (0x1CA12 bis
     // 0x1CA87) und bucht dem Gast trotzdem seine Hälfte. Gerechnet wird mit dem Satz des Gastes -
     // sein Stadion steht im Managerbyte, das des Rechnervereins nirgends -, aber mit der
     // Kapazität aus dem Ligaband des Heimvereins. Zuschauerhistorie und Randale bleiben aus:

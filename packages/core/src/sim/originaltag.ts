@@ -299,8 +299,9 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
         const att = pokalZuschlag(g, mi, away, attendance(g, { manager: mi, home, away, importance, level: p[34062] }, rng), rng);
         bookGate(g, mi, att, 2);
         const ma = managerOf.get(away);
-        if (ma !== undefined) bookGate(g, ma, att, 2, managers[mi].u8(266));
-      } else if (managerOf.get(home) === undefined) {
+        // Gastanteil nur im DFB-Pokal (0x1C655: -0x24 = 2 nur mit Wettbewerb 0; #101)
+        if (cup === 0 && ma !== undefined) bookGate(g, ma, att, 2, managers[mi].u8(266));
+      } else if (cup === 0 && managerOf.get(home) === undefined) {
         const preis = ERSATZ_PREIS[ligaBand(home)] + rng(0, 1);
         const att = attendance(g, { manager: mi, home, away, importance: 1, fremdesStadion: true, preis, level: p[34062] }, rng);
         bookGate(g, mi, att, 2, preis);
@@ -346,6 +347,7 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
           if (!beteiligt(s)) return;
           kp(16);
           s.schuetzen.push(...bookEvents(g, s.home, s.away, { home: s.match.hg, away: s.match.ag, events: [c] }, s.cup === 0 ? 1 : 2, rng, [szenen ? pickScene(rng, c.goal) : false]));
+          kp(17);
         }, (seite) => kp(seite === "home" ? 14 : 15));
       }
     }
