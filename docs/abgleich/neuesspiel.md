@@ -44,7 +44,7 @@ Ausgenommen sind nur:
 | 0x161D8 rechnet den Wert der versetzten Spieler als Kaderplatz 25 · 4238:304A + Nummer; beim neuen Spiel ist 304A = 0, nicht die Managerzahl | 0x16307, 0x16368 | Managerzahl |
 | Transfermarkt: dieselbe Erneuerung 0x245A8 wie im Tagesablauf | 0x9482 | eigene Füllung mit anderen Spielern und Stärken |
 | Vereinsnamen und Spielernamen Byte für Byte aus MANA.DAT (0xDC in "STANDARD LÜTTICH") | 0x299DC | über den Zeichensatz des Remakes: 93 |
-| Tagesende (0x1DC52, Tageszähler unter 322): das vor den Spielen gesicherte System zurück, aufstellen, Stärke mit Flag 0 (`tagesendeAufstellen`) | 0x1DC85 bis 0x1DCCC | erst am Beginn des nächsten Spieltags; dazwischen System manuell |
+| Nach dem letzten Spieltag (0x1DC52, Tageszähler über 322): das vor den Spielen gesicherte System zurück, aufstellen, Stärke mit Flag 0 (`tagesendeAufstellen`); an allen anderen Tagen bleibt das System bis zum nächsten Spieltag manuell (TEST4 gemessen: 079E = 1 am Tagesende) | 0x1DC79 bis 0x1DCD5 | fehlte |
 | Tagesbeginn: nach der Aufstellung die Stärke mit Flag 0 (ohne Würfel, ohne Moral) in die Vereinsmatrix der Managervereine, Byte 317 = 100 bei weniger als acht Spielern, sonst 0 | 0x1D7BA -> 0x0F9D2 (0xFD33 springt nach 0xFFAD) | Matrix erst mit Flag 1 vor den Spielen |
 
 ## Offen

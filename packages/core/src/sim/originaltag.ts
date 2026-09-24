@@ -207,14 +207,14 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
 }
 
 /**
- * Tagesende nach der Tagesroutine (0x1DC52 bis 0x1DCCC): steht der Tageszähler 4cb3:07DC noch vor
- * Saisontag 322, holt das Original je Manager das vor den Spielen gesicherte System zurück
- * (079E = 079F), stellt auf (0x22030) und schreibt die Stärke mit Flag 0 in die Vereinsmatrix.
- * Bis #100 geschah das erst am Beginn des nächsten Spieltags - dazwischen stand das System auf
- * manuell, und die spielfreien Tage liefen mit der alten Aufstellung.
+ * Nach der Tagesroutine am Ankunftstag (0x1DC52 bis 0x1DCD5): hat der Tageszähler 4cb3:07DC
+ * Saisontag 322 überschritten, holt das Original je Manager das vor den Spielen gesicherte System
+ * zurück (079E = 079F), stellt auf (0x22030) und schreibt die Stärke mit Flag 0 in die
+ * Vereinsmatrix; dann folgt der Saisonwechsel. An allen anderen Tagen bleibt das System bis zum
+ * nächsten Spieltag auf manuell (am Original gemessen: TEST4, 079E = 1 am Tagesende).
  */
 export function tagesendeAufstellen(g: GameState, tagNeu: number): void {
-  if (tagNeu >= LETZTER_SAISONTAG) return;
+  if (tagNeu <= LETZTER_SAISONTAG) return;
   g.activeManagers().forEach((_, m) => {
     restoreSystem(g, m);
     autoLineupIfEnabled(g, m);
