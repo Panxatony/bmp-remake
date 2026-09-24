@@ -75,7 +75,11 @@ export function monthlyIncome(g: GameState, manager: number, dayOfMonth: number)
 export function monthlyExpenses(g: GameState, manager: number): number {
   const m = g.managers.at(manager);
   let e = 150000;
-  for (const l of g.squadOf(manager)) e += l.i32(40);
+  // Gehälter wie 0x17262 über die Plätze 0..Anzahl-1 (Anzahl aus 0x31A19): bei einer Lücke im
+  // Kader zählt das Gehalt, das noch im leeren Platz steht, und der letzte Spieler fehlt
+  // (TEST4, Manager 2: 18.700 statt 7.000 DM; Emulator und KP-TEST4-TAG, #100)
+  const anzahl = g.squadOf(manager).length;
+  for (let place = 0; place < anzahl; place++) e += g.lineups.at(manager * 25 + place).i32(40);
   for (const l of marketEntries(g)) if (g.players.at(l.playerIndex).u8(33) === manager) e += l.i32(40);
   const league = m.u8(312);
   const t = 3000 * m.i32(398);

@@ -43,8 +43,10 @@ export interface StrengthInput {
 
 export function strengthInput(g: GameState, manager: number, wechsel = 0): StrengthInput {
   const m = g.managers.at(manager);
-  const starters = g
-    .squadOf(manager)
+  // Wie 0x0F9D2 (Kaderzahl aus 0x31A19 bei 0xFA40) die Plätze 0..Anzahl-1: ein Starter hinter
+  // einer Lücke im Kader zählt nicht mit (RUNA0, Manager 2, Nummer 11 auf Platz 15; #100)
+  const anzahl = g.squadOf(manager).length;
+  const starters = Array.from({ length: anzahl }, (_, place) => g.lineups.at(manager * 25 + place))
     .filter((l) => l.number >= 1 && l.number <= 11)
     .map((squad) => ({ squad, player: g.players.at(squad.playerIndex) }));
   return {

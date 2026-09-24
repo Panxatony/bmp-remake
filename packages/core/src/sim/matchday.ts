@@ -248,7 +248,9 @@ export function playReplays(
     creditAiGoals(g, home, played.result.home, rng);
     creditAiGoals(g, away, played.result.away, rng);
   }
-  for (const league of new Set(out.length ? eintraege.map((e) => e.league) : [])) updatePositions(g, league, g.nextMatchday(league));
+  // 0x2D144 schreibt den Platz nach Managerbyte 267 + 4cb3:225A - 1; am Nachholtag ist das der
+  // zuletzt gespielte Spieltag (KP-RUN0-NACHHOL, KP-RIED4-NACHHOL; bis #100 einer zu weit)
+  for (const league of new Set(out.length ? eintraege.map((e) => e.league) : [])) updatePositions(g, league, g.nextMatchday(league) - 1);
   return out;
 }
 
