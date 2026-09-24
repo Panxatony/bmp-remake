@@ -29,7 +29,7 @@ test("Automatische Aufstellung (0x22030): Nummern 1..11 nach System, nur einsatz
   }
 });
 
-test("Automatische Aufstellung: verletzte Spieler bleiben draußen, Torwart nie im Feld, Bank zu Spielbeginn 12..15", () => {
+test("Automatische Aufstellung: verletzte Spieler bleiben draußen, ein Torwart im Tor, Bank zu Spielbeginn 12..15", () => {
   const g = load("TEST4.MAN");
   // die stärksten zwei Abwehrspieler verletzen
   const defenders = g.squadOf(0).filter((l) => groupOf(g, l.playerIndex) === 1);
@@ -68,4 +68,23 @@ test("Automatik-Aufstellung wie das Original (Emulator, #103)", () => {
     geprueft++;
   }
   assert.ok(geprueft === 0 || geprueft === Object.keys(erwartet).length);
+});
+
+// Drei Torhüter, nur sechs gesunde Feldspieler (TEST4, Manager 0, 1-4-4-2): Die Suche für eine
+// Feldgruppe lässt den ersten Torhüter stehen und nimmt den nächsten mit Stärke 1 (0x22450).
+// Erwartung aus dem Emulator (tools/emu-aufstellung.py, #100).
+test("Automatik-Aufstellung: ab dem zweiten Torhüter darf einer ins Feld (Original 0x22305)", { skip: !existsSync(join(BMP_DIR, "TEST4.MAN")) }, () => {
+  const g = load("TEST4.MAN");
+  const feld = g.squadOf(0).filter((l) => groupOf(g, l.playerIndex) !== 0);
+  g.players.at(feld[0].playerIndex).setU8(31, 5);
+  g.players.at(feld[1].playerIndex).setU8(31, 6);
+  feld.slice(2).forEach((l, i) => {
+    if (i >= 6) l.setU8(9, l.u8(9) | 2);
+  });
+  autoLineup(g, 0, 2, true);
+  const got = Array.from({ length: 15 }, (_, p) => {
+    const l = g.lineups.at(p);
+    return [l.u8(10), l.u8(25), l.u8(26)];
+  });
+  assert.deepEqual(got, [[1, 3, 7], [12, 1, 6], [2, 0, 3], [3, 2, 6], [4, 4, 6], [5, 5, 5], [6, 1, 5], [7, 2, 3], [0, 6, 3], [0, 6, 3], [0, 0, 3], [0, 5, 0], [0, 2, 0], [0, 3, 2], [0, 4, 0]]);
 });
