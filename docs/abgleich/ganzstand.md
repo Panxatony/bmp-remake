@@ -23,10 +23,16 @@ Nicht verglichen werden:
 | G5 | Stärke über die Plätze 0..Anzahl-1: ein Starter hinter der Lücke zählt nicht | 0x0F9D2 | behoben (0F9D2 K5) |
 | G6 | Tabellenplatz am Nachholtag nach Managerbyte 267 + 225A - 1, also zum zuletzt gespielten Spieltag | 0x2D144 | behoben (`playReplays`) |
 
-Die Eigenheit "Plätze 0..Anzahl-1" (G3 bis G5) wirkt nur, wenn ein Kader eine Lücke hat. Das
-Remake rückt beim Entfernen nach; Lücken kommen mit Spielständen aus dem Original (TEST4 und
-RUNA0, Manager 2). Weitere Schleifen über den Kader im Modell (`squadOf`: Torschützen,
-Vorfälle, Zeitung, Doping, Medizin …) sind darauf nicht einzeln geprüft.
+| G7 | Schütze/Vorlage (0x5D9A) und Vorfall-Spieler (0x4E45): random(0, Anzahl - 1) direkt als Kaderplatz | 0x5DE1, 0x4E70 | behoben; Emulatorvergleich je Zufallszustand (test/luecke.test.ts) |
+| G8 | Trainingslager (0x119CD) würfelt auch für den leeren Platz, der letzte Spieler fehlt | 0x11CA2 | behoben |
+| G9 | Zeitung: Notenaufschlag, bester und schwächster Spieler über die Plätze 0..Anzahl-1 (0x2F63C) | 0x2F626 | behoben |
+
+Die Eigenheit "Plätze 0..Anzahl-1" (G3 bis G5, G7 bis G9) wirkt nur, wenn ein Kader eine Lücke
+hat. Das Remake rückt beim Entfernen nach; Lücken kommen mit Spielständen aus dem Original
+(TEST4 und RUNA0, Manager 2). Alle 40 Aufrufe der Kaderzählung 0x31A19 sind zugeordnet: die
+übrigen gehören zu Bildschirmen (Kader, Transfermarkt, Vertragsdialog, Bestenliste,
+Stärketabelle, Laden) oder zählen nur (Pool, Einnahmen, Sommertage, Saisonende, Tagesroutine -
+dort schon nach Plätzen). Doping und Medizin gibt es nur in der Version 2026.
 
 ## Befunde im Vergleichslauf
 

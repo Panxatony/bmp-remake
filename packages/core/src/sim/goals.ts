@@ -21,14 +21,17 @@ export function lineDist(l: Lineup, p: Player): number {
 /**
  * Wählt einen Starter (Nummer 1..11): Kandidaten werden zufällig gezogen und mit
  * random(0,3500) < Gewicht angenommen. mode 0 = Schütze/Chance, 1 = Vorlage;
- * flag = Ereignistyp (1 = Tor). Liefert den Index im Kader oder -1.
+ * flag = Ereignistyp (1 = Tor). Liefert den Kaderplatz oder -1.
  */
 export function pickPlayer(g: GameState, manager: number, mode: number, flag: number, rng: Rng): number {
+  // Wie 0x5D9A: ohne Starter (0x31A19 Modus 1) nichts, sonst random(0, Anzahl - 1) mit der
+  // Kaderzahl aus 0x31A19 Modus 0 **direkt als Kaderplatz** - bei einer Lücke im Kader kann der
+  // leere Platz gezogen werden, der letzte Spieler nie (#100). Liefert den Kaderplatz.
   const squad = g.squadOf(manager);
-  if (squad.length === 0) return -1;
+  if (!squad.some((l) => l.number >= 1 && l.number <= 11)) return -1;
   for (let tries = 0; tries < 2000; tries++) {
     const si = rng(0, squad.length - 1);
-    const l = squad[si];
+    const l = g.lineups.at(manager * 25 + si);
     if (l.number < 1 || l.number > 11) continue;
     const p = g.players.at(l.playerIndex);
     let w: number;
@@ -89,7 +92,7 @@ export function bookChance(g: GameState, manager: number, goal: boolean, matchTy
     do assist = pickPlayer(g, manager, 1, 1, rng);
     while (assist === scorer && assist >= 0);
   }
-  const l = squad[scorer];
+  const l = g.lineups.at(manager * 25 + scorer);
   const p = g.players.at(l.playerIndex);
   if (goal) {
     if (matchType === 0) p.setU8(34, p.u8(34) + 1);
@@ -100,7 +103,7 @@ export function bookChance(g: GameState, manager: number, goal: boolean, matchTy
     l.setU8(o + 1, (v >> 8) & 0xff);
     addRating(l, 15);
   } else addRating(l, -10);
-  if (assist >= 0 && !elfmeter) addRating(squad[assist], 10);
+  if (assist >= 0 && !elfmeter) addRating(g.lineups.at(manager * 25 + assist), 10);
   return { scorer, assist, scorerName: p.displayName };
 }
 
@@ -119,7 +122,7 @@ export function bookShootoutShot(g: GameState, manager: number, goal: boolean, r
     do assist = pickPlayer(g, manager, 1, 1, rng);
     while (assist === scorer && assist >= 0);
   }
-  const l = squad[scorer];
+  const l = g.lineups.at(manager * 25 + scorer);
   if (!goal) addRating(l, -10);
   return { scorer, assist, scorerName: g.players.at(l.playerIndex).displayName };
 }

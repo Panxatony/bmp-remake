@@ -267,10 +267,9 @@ export function bookEvents(g: GameState, home: number, away: number, result: Mat
       if (rec && e.goal) {
         // Das Original nennt unter der Szene auch die Torzahl des Schützen und den
         // Vorlagengeber ("Torsch}tze: GUTBERIET (2) / nach Vorlage von BREITZKE")
-        const squad = g.squadOf(attacker);
-        const l = squad[rec.scorer];
-        const tore = l ? l.leagueGoals + l.cupGoals + l.u8(5) : 0;
-        const vorlage = rec.assist >= 0 && !(elfmeter?.[k] ?? false) && squad[rec.assist] ? g.players.at(squad[rec.assist].playerIndex).displayName : undefined;
+        const l = g.lineups.at(attacker * 25 + rec.scorer);
+        const tore = l.leagueGoals + l.cupGoals + l.u8(5);
+        const vorlage = rec.assist >= 0 && !(elfmeter?.[k] ?? false) ? g.players.at(g.lineups.at(attacker * 25 + rec.assist).playerIndex).displayName : undefined;
         scorers.push({ minute: e.minute, side: e.side, name: rec.scorerName, goals: tore, assist: vorlage });
       }
     } else if (defender !== undefined) bookDefence(g, defender, e.goal);

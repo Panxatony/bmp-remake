@@ -130,8 +130,11 @@ function spielnoten(g: GameState, manager: number, rng: Rng, bewertungen?: Map<n
   // Hüllen um dieselben Bytes, ein Map über diese Objekte fände später nichts wieder (#70).
   const aus = new Map<number, number>();
   let schlechtester = false;
-  for (const l of g.squadOf(manager)) {
-    if (l.isEmpty) continue;
+  // Wie 0x2F63C (Kaderzahl aus 0x31A19 bei 0x2F626) die Plätze 0..Anzahl-1 ohne Prüfung auf einen
+  // leeren Platz: bei einer Lücke kommt der leere Platz dran (Spieler 0), der letzte nicht (#100)
+  const anzahl = g.squadOf(manager).length;
+  for (let place = 0; place < anzahl; place++) {
+    const l = g.lineups.at(manager * 25 + place);
     const nr = l.u8(10);
     const starter = nr >= 1 && nr <= 11;
     const p = g.players.at(l.playerIndex);
@@ -476,8 +479,10 @@ export function reportFromMatch(g: GameState, manager: number, m: ReportSource, 
   // Bester/schwächster Feldspieler nach der Bewertung (Byte 21) der Kaderplätze
   let best = "";
   let worst = "";
-  for (const l of g.squadOf(manager)) {
-    if (l.isEmpty) continue;
+  // Wie die Notenschleife 0x2F63C (Byte 0xC/0xD des Spielberichts) über die Plätze 0..Anzahl-1
+  const anzahlPlaetze = g.squadOf(manager).length;
+  for (let place = 0; place < anzahlPlaetze; place++) {
+    const l = g.lineups.at(manager * 25 + place);
     const p = g.players.at(l.playerIndex);
     if (p.u8(31) === 0) continue;
     const rating = m.bewertungen?.get(l.playerIndex) ?? (l.u8(21) << 24) >> 24;
