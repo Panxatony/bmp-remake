@@ -44,12 +44,13 @@ Ausgenommen sind nur:
 | 0x161D8 rechnet den Wert der versetzten Spieler als Kaderplatz 25 · 4238:304A + Nummer; beim neuen Spiel ist 304A = 0, nicht die Managerzahl | 0x16307, 0x16368 | Managerzahl |
 | Transfermarkt: dieselbe Erneuerung 0x245A8 wie im Tagesablauf | 0x9482 | eigene Füllung mit anderen Spielern und Stärken |
 | Vereinsnamen und Spielernamen Byte für Byte aus MANA.DAT (0xDC in "STANDARD LÜTTICH") | 0x299DC | über den Zeichensatz des Remakes: 93 |
+| Tagesende (0x1DC52, Tageszähler unter 322): das vor den Spielen gesicherte System zurück, aufstellen, Stärke mit Flag 0 (`tagesendeAufstellen`) | 0x1DC85 bis 0x1DCCC | erst am Beginn des nächsten Spieltags; dazwischen System manuell |
 | Tagesbeginn: nach der Aufstellung die Stärke mit Flag 0 (ohne Würfel, ohne Moral) in die Vereinsmatrix der Managervereine, Byte 317 = 100 bei weniger als acht Spielern, sonst 0 | 0x1D7BA -> 0x0F9D2 (0xFD33 springt nach 0xFFAD) | Matrix erst mit Flag 1 vor den Spielen |
 
 ## Offen
 
 | Was | Warum |
 |---|---|
-| Die übrigen Aufrufe der Stärke mit Flag 0 (Verlassen von Transfermarkt 0x242C2, Trainingslager 0x119C0 und Spielplan 0x2B63F, Saisonwechsel 0x1DCA8) | Bildschirmwechsel hat der Server nicht; Wirkung nur bis zum nächsten Spiel, das die Matrix mit Flag 1 neu schreibt |
+| Die übrigen Aufrufe der Stärke mit Flag 0 (Verlassen von Transfermarkt 0x242C2, Trainingslager 0x119C0 und Spielplan 0x2B63F) | Bildschirmwechsel hat der Server nicht; Wirkung nur bis zum nächsten Spiel, das die Matrix mit Flag 1 neu schreibt |
 | 0x245A8 nimmt für einen versetzten Spieler den Verein aus Byte 36 ohne Grenze; das Remake würfelt bei einem Verein über 199 neu | für Verein 255 läse das Original hinter der Vereinstabelle |
 | Wappenleiste | Das Remake hat keine; Vorgabe 0 schreibt in den unbenutzten Spieler 0 |

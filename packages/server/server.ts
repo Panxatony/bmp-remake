@@ -152,6 +152,7 @@ import {
   driftInterest,
   autoLineupIfEnabled,
   anzeigeStaerke,
+  tagesendeAufstellen,
   tagesroutine,
   standingsMessages,
   relegationMessage,
@@ -2007,6 +2008,8 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
         }
       }
     });
+    // Tagesende (0x1DC52): System zurück, aufstellen, Stärke mit Flag 0 - vor Saisontag 322
+    tagesendeAufstellen(g, seasonDay(kNeu));
   }
   // Derby-Einsatz (Version 2026): steht am neuen Tag ein Spiel gegen einen Managerverein an,
   // bekommen beide eine Meldung mit ihrem eigenen Einsatz - sonst denkt niemand daran, ihn vor
