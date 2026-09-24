@@ -364,3 +364,26 @@ test("Saisonwechsel: Verletzungen heilen über den Sommer wie im Original", { sk
   const stand = (x: GameState) => [0, 1, 2].map((m) => x.squadOf(m).map((l) => [l.playerIndex, l.u8(9) & 3, l.u8(13)]));
   assert.deepEqual(stand(g), stand(orig));
 });
+
+// Stand nach dem TEST4-Spieltag gegen das Original (KP-TEST4-TAG, #100): Tabellen, Reihenfolge
+// und Kaderplätze. Manager 2 hat eine Lücke im Kader (Platz 14 leer, 15 belegt); die
+// Spielvorbereitung geht die Plätze 0..Anzahl-1 durch, der Spieler auf Platz 15 behält seine Note.
+// Ausgenommen: Bytes 48..51 von Platz 60 (ein Zeiger aus der Laufzeit des Originals) und das
+// Protokoll ab Platz 75.
+test("Originaltag TEST4: Tabelle und Kader nach dem Spieltag wie das Original", { skip: !existsSync(TAG) || !existsSync(join(BMP_DIR, "TEST4.MAN")) }, () => {
+  const orig = SaveFile.decode(new Uint8Array(readFileSync(TAG))).plain;
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+  let st: Uint8Array | undefined;
+  originaltag(g, originalRng(0x1234), [-40, 7, 56, -53, 11, 31, 60, 13], (k, gg) => {
+    if (k === 26) st = gg.save.plain.slice();
+  });
+  const anders = (von: number, n: number, aus = (_i: number) => false) => {
+    const d: number[] = [];
+    for (let i = von; i < von + n; i++) if (!aus(i) && st![i] !== orig[i]) d.push(i);
+    return d;
+  };
+  assert.deepEqual(anders(12357, 3456), [], "Tabellen");
+  assert.deepEqual(anders(28244, 60), [], "Reihenfolge");
+  const zeiger = 21400 + 60 * 52 + 48;
+  assert.deepEqual(anders(21400, 75 * 52, (i) => i >= zeiger && i < zeiger + 4), [], "Kaderplätze");
+});
