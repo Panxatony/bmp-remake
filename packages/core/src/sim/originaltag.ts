@@ -25,7 +25,7 @@ import { riotCheck } from "./finance.ts";
 import { isForfeit } from "./incidents.ts";
 const szenen = true;
 const beteiligt = (s: { seiten: unknown[] }) => s.seiten.length > 0;
-import { calendarFlag, dayIndex, FLAG_LEAGUE, dateOfSeasonDay, seasonDay, seasonStartYear } from "./calendar.ts";
+import { calendarFlag, dayIndex, FLAG_LEAGUE, dateOfSeasonDay, seasonDay, seasonStartYear, LETZTER_SAISONTAG } from "./calendar.ts";
 import { dailyFinance, DAYS_IN_MONTH, christmasPresents, scherztagWurf } from "./finance.ts";
 import { driftInterest, dailyConstruction } from "./stadium.ts";
 import { advanceCampOpen, CAMP_OPEN_START, trainingInput } from "./training.ts";
@@ -34,7 +34,7 @@ import { generateOffers } from "./werbung.ts";
 import { driftClubs, bookBaseBonus, creditAiGoals } from "./ai.ts";
 import { applyResult } from "./standings.ts";
 import { bookHistory } from "./history.ts";
-import { autoLineupIfEnabled, backupSystem, SYSTEM_OFFSET } from "./lineup.ts";
+import { autoLineupIfEnabled, backupSystem, restoreSystem, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
 import { newSeason, saisonbilanz } from "./season.ts";
 import { bookChampion } from "./messages.ts";
@@ -207,6 +207,22 @@ export function originaltag(g: GameState, rng: Rng & { zaehler(): number }, lage
 }
 
 /**
+ * Tagesende nach der Tagesroutine (0x1DC52 bis 0x1DCCC): steht der Tageszähler 4cb3:07DC noch vor
+ * Saisontag 322, holt das Original je Manager das vor den Spielen gesicherte System zurück
+ * (079E = 079F), stellt auf (0x22030) und schreibt die Stärke mit Flag 0 in die Vereinsmatrix.
+ * Bis #100 geschah das erst am Beginn des nächsten Spieltags - dazwischen stand das System auf
+ * manuell, und die spielfreien Tage liefen mit der alten Aufstellung.
+ */
+export function tagesendeAufstellen(g: GameState, tagNeu: number): void {
+  if (tagNeu >= LETZTER_SAISONTAG) return;
+  g.activeManagers().forEach((_, m) => {
+    restoreSystem(g, m);
+    autoLineupIfEnabled(g, m);
+    anzeigeStaerke(g, m);
+  });
+}
+
+/**
  * Nach dem Spieltag bis zum Ankunftstag des nächsten Kalendereintrags: Finanzen je Tag,
  * Weihnachten, am Ankunftstag die Tagesroutine je Manager.
  */
@@ -244,6 +260,7 @@ function folgetage(g: GameState, rng: Rng, kp: (punkt: number) => void, lager: n
     tagesroutine(g, m, tagNeu, tr, rng, spielfrei);
     if (tagNeu % 14 === 0) generateOffers(g, m, rng);
   }
+  tagesendeAufstellen(g, tagNeu);
   kp(26);
   return "nächster Tag";
 }

@@ -34,13 +34,14 @@ ersten Tages an (Finanzen, Schwankung, Aufstellung, Zug): KP-SAISON ist im erste
 | Verletzungen heilen über den Sommer | 0x0F6D8 in 0x1E955 | blieben stehen |
 | Saisonbilanz (ewige Bilanz) | 0x1DD03 | fehlte |
 | Nachholtabelle und Relegationsausgang bleiben stehen | - | geleert |
+| Stärke der Managervereine mit Flag 0 in der Vereinsmatrix (Tagesbeginn) | 0x1D7BA -> 0x0F9D2 | Matrix erst mit Flag 1 vor den Spielen (#100, docs/abgleich/neuesspiel.md) |
 
 ## Was übrig bleibt
 
 | Bereich | Warum |
 |---|---|
 | Spieler (Wert, Stärke 28/29, Verein 36) | Spielerpool 0x0F2A6: die Wertrechnung liest für Spieler 50..127 Speicher hinter dem Spielstand (#99) |
-| Stärke der drei Managervereine, zwei Aufstellungsbytes | folgen aus den Spielerwerten |
+| Zwei Aufstellungsbytes | folgen aus den Spielerwerten |
 | Einnahmengrundwert (Managerbyte 480), Kontostand | folgen aus der Vereinsmatrix |
 | 4238:56DC | Zähler im Spielerpool |
 | 4cb3:0620 | Öffnungszeiten der Trainingslager, stehen nicht im Spielstand |
