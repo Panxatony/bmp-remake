@@ -74,4 +74,4 @@ export { placementPoints, highscoreEntry, decodeHighscore, encodeHighscore, inse
 export { composeZeitung, reportFromMatch, expandTemplate, gameToCp437, schlagzeilen, artikel, HEADLINE_GROUPS, ARTICLE_GROUPS, type MatchReport, type Zeitung, type ReportSource } from "./sim/zeitung.ts";
 export { playerInfo, sideLabel, ageLabels, dataLabels, type PlayerInfo } from "./sim/playerinfo.ts";
 export { standingsMessages, relegationMessage, relegationLines, isWinterBreakDay, winterBreakLines, bookChampion, bookCupTitle, POINTS_PER_WIN } from "./sim/messages.ts";
-export { autoLineup, autoLineupIfEnabled, sortIntoSquad, sortSquad, selectPlace, systemOf, setSystem, backupSystem, restoreSystem, groupOf, SYSTEM_OFFSET, SYSTEM_MANUAL, SYSTEM_NAMES, FORMATIONS } from "./sim/lineup.ts";
+export { autoLineup, autoLineupIfEnabled, sperreAusgesetzt, sortIntoSquad, sortSquad, selectPlace, systemOf, setSystem, backupSystem, restoreSystem, groupOf, SYSTEM_OFFSET, SYSTEM_MANUAL, SYSTEM_NAMES, FORMATIONS } from "./sim/lineup.ts";

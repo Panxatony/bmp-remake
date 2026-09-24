@@ -7,6 +7,7 @@
  */
 import type { GameState } from "../records.ts";
 import { TABLES } from "../records.ts";
+import { calendarFlag, dayIndex, FLAG_CUP } from "./calendar.ts";
 
 export const SYSTEM_OFFSET = 51;
 export const SYSTEM_MANUAL = 1;
@@ -111,10 +112,10 @@ export function selectPlace(g: GameState, manager: number, group: number, system
  * (meist der zweite Torwart) und 13 an den stärksten übrigen Feldspieler.
  * `system` 2..4; bei 1 (manuell) passiert nichts.
  */
-export function autoLineup(g: GameState, manager: number, system: number, benchFour = false): void {
+export function autoLineup(g: GameState, manager: number, system: number, benchFour = false, sperreFrei = false): void {
   const sys = system - 2;
   if (sys < 0 || sys > 2) return;
-  aufstellungKern(g, manager, system, benchFour);
+  aufstellungKern(g, manager, system, benchFour, sperreFrei);
   // Danach tauscht 0x0F125 Feldpositionen nach der Seitenvorliebe, und 0x2119D nummeriert die
   // Starter in Kaderreihenfolge neu (0x222F2/0x222FB) - bis #103 fehlte beides
   seitenTausch(g, manager);
@@ -161,7 +162,7 @@ export function starterNummern(g: GameState, manager: number): void {
   }
 }
 
-function aufstellungKern(g: GameState, manager: number, system: number, benchFour: boolean): void {
+function aufstellungKern(g: GameState, manager: number, system: number, benchFour: boolean, sperreFrei: boolean): void {
   const sys = system - 2;
   for (let place = 0; place < 24; place++) g.lineups.at(manager * 25 + place).setU8(10, 0);
   const need = FORMATIONS[sys].slice();
@@ -170,7 +171,7 @@ function aufstellungKern(g: GameState, manager: number, system: number, benchFou
   const best = { v: -1 };
   for (let grp = 0; grp < 4; grp++) {
     while (need[grp] !== 0) {
-      const place = selectPlace(g, manager, grp, system, best);
+      const place = selectPlace(g, manager, grp, system, best, sperreFrei);
       if (place < 0) break;
       const l = g.lineups.at(manager * 25 + place);
       const nr = number++;
@@ -199,7 +200,7 @@ function aufstellungKern(g: GameState, manager: number, system: number, benchFou
     const b = { v: -1 };
     number = 12;
     for (let grp = 0; grp < 4; grp++) {
-      const place = selectPlace(g, manager, grp, system, b);
+      const place = selectPlace(g, manager, grp, system, b, sperreFrei);
       if (place < 0) break;
       g.lineups.at(manager * 25 + place).setU8(10, number++);
     }
@@ -210,7 +211,7 @@ function aufstellungKern(g: GameState, manager: number, system: number, benchFou
   let bestPlace = -1;
   for (let grp = 0; grp < 4; grp++) {
     const prev = b.v;
-    const place = selectPlace(g, manager, grp, system, b);
+    const place = selectPlace(g, manager, grp, system, b, sperreFrei);
     if (number > 12 && b.v !== prev) bestPlace = place;
     if (place < 0) break;
     if (number === 12) {
@@ -222,13 +223,26 @@ function aufstellungKern(g: GameState, manager: number, system: number, benchFou
   if (bestPlace >= 0) g.lineups.at(manager * 25 + bestPlace).setU8(10, number);
 }
 
+/**
+ * 4238:513E, gesetzt im Hauptmenü des Managers am Zug (0x99FC auf 0, 0x9B31 auf 1): an einem
+ * reinen DFB-Pokaltag (Kalenderbyte 8), wenn der Verein in der laufenden Runde steht (Managerbyte
+ * 306 = 4238:0008), zählen gesperrte Spieler als verfügbar - die Sperre gilt nur in der Liga
+ * (sie zählt auch nur dort herunter). Das lesen die Automatik 0x22305 und der Kaderbildschirm.
+ * Den Wert hat nur, wer im Zug aufstellt; am Tagesbeginn steht noch der Wert des letzten
+ * Hauptmenüs vom Vortag (meist 0), das Remake nimmt dort 0.
+ */
+export function sperreAusgesetzt(g: GameState, manager: number): boolean {
+  if (calendarFlag(g, dayIndex(g)) !== FLAG_CUP) return false;
+  return g.managers.at(manager).u8(306) === g.save.plain[28233];
+}
+
 /** Aufstellung nachziehen, wenn ein System gewählt ist (Tagesroutine, Verletzungsende, Kauf, nach dem Spieltag). */
-export function autoLineupIfEnabled(g: GameState, manager: number): boolean {
+export function autoLineupIfEnabled(g: GameState, manager: number, sperreFrei = false): boolean {
   const system = systemOf(g, manager);
   if (system === SYSTEM_MANUAL) return false;
   // Die Bank ist auch im laufenden Spiel vier Mann stark (CLAUDE.MAN nach dem 1. Spieltag:
   // Nummern 12 bis 15)
-  autoLineup(g, manager, system, true);
+  autoLineup(g, manager, system, true, sperreFrei);
   return true;
 }
 
