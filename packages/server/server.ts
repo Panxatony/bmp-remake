@@ -151,6 +151,7 @@ import {
   driftClubs,
   driftInterest,
   autoLineupIfEnabled,
+  sperreAusgesetzt,
   anzeigeStaerke,
   tagesendeAufstellen,
   tagesroutine,
@@ -3159,7 +3160,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const salary = pu.demands[years - 1];
     const place = completePurchase(room.game, manager, pu.slot, pu.amount, years, salary, room.rng);
     if (place < 0) return json(res, 400, { error: texte("ui.keintransfer").join(" ") });
-    autoLineupIfEnabled(room.game, manager); // 0x22FBA
+    autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager)); // 0x22FBA
     room.log.push(`${room.game.managers.at(manager).displayName}: ${pu.name} für ${pu.amount} DM gekauft (${years} Jahre, ${salary} DM)`);
     // Sponsor-Zuschuss (0x0272D): mit 1/7 ein Angebot über random(20,65) % des Preises
     const subsidy = sponsorSubsidy(pu.amount, room.rng);
@@ -3176,7 +3177,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     // Systemwahl im Kaderbildschirm (0x21776) mit sofortiger Aufstellung (0x217B8)
     const vorher = room.game.save.plain.slice(SQUAD_OFFSET + manager * SQUAD_BYTES, SQUAD_OFFSET + (manager + 1) * SQUAD_BYTES);
     setSystem(room.game, manager, system);
-    autoLineupIfEnabled(room.game, manager);
+    autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager));
     // Im laufenden Spiel zählt das als Auswechslung: die automatische Aufstellung füllte sonst
     // auch den Platz eines vom Feld gestellten Spielers wieder auf (GitLab #53)
     if (room.live) {

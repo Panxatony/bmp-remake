@@ -88,3 +88,21 @@ test("Automatik-Aufstellung: ab dem zweiten Torhüter darf einer ins Feld (Origi
   });
   assert.deepEqual(got, [[1, 3, 7], [12, 1, 6], [2, 0, 3], [3, 2, 6], [4, 4, 6], [5, 5, 5], [6, 1, 5], [7, 2, 3], [0, 6, 3], [0, 6, 3], [0, 0, 3], [0, 5, 0], [0, 2, 0], [0, 3, 2], [0, 4, 0]]);
 });
+
+// 4238:513E = 1 (DFB-Pokaltag, Verein in der Runde): der gesperrte stärkste Abwehrspieler kommt
+// ins Team, sonst nicht. Erwartung aus dem Emulator mit 513E = 0 bzw. 1 (#100).
+test("Automatik-Aufstellung: gesperrte Spieler nur mit 4238:513E (Pokaltag)", { skip: !existsSync(join(BMP_DIR, "TEST4.MAN")) }, () => {
+  const lauf = (frei: boolean) => {
+    const g = load("TEST4.MAN");
+    const abw = g.squadOf(0).filter((l) => groupOf(g, l.playerIndex) === 1).sort((a, b) => b.u8(16) + b.u8(17) + b.u8(18) - a.u8(16) - a.u8(17) - a.u8(18));
+    abw[0].setU8(9, (abw[0].u8(9) & 0xfc) | 1);
+    abw[0].setU8(13, 2);
+    autoLineup(g, 0, 2, true, frei);
+    return Array.from({ length: 15 }, (_, p) => {
+      const l = g.lineups.at(p);
+      return [l.u8(10), l.u8(25), l.u8(26)];
+    });
+  };
+  assert.deepEqual(lauf(false), [[1, 3, 7], [2, 4, 6], [3, 1, 5], [4, 2, 6], [0, 5, 6], [5, 5, 5], [6, 2, 3], [7, 0, 3], [0, 6, 3], [8, 4, 3], [9, 6, 3], [13, 5, 0], [10, 2, 0], [11, 4, 0], [12, 4, 0]]);
+  assert.deepEqual(lauf(true), [[1, 3, 7], [2, 2, 6], [12, 3, 6], [3, 1, 5], [4, 4, 6], [5, 5, 5], [6, 2, 3], [7, 0, 3], [0, 6, 3], [8, 4, 3], [9, 6, 3], [14, 5, 0], [10, 2, 0], [11, 4, 0], [13, 4, 0]]);
+});
