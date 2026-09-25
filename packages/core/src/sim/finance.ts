@@ -306,8 +306,14 @@ export interface ChristmasResult {
  * Scherzbildschirme sind nicht portiert, aber gewürfelt wird auch dort - random(0,3) gleich zu
  * Beginn (0x1CFA1), erst danach entscheidet sich, ob etwas erscheint (GitLab #99).
  */
-export function scherztagWurf(dt: { day: number; month0: number }, rng: Rng): void {
-  if ((dt.day === 12 && dt.month0 === 10) || (dt.day === 19 && dt.month0 === 3)) rng(0, 3);
+/**
+ * Scherztage (0x1CF86 mit Index 1 am 12.11., 2 am 19.4., Tabellen 4cb3:53D0/53D4): der Bildschirm
+ * erscheint nur mit random(0,3) = 0. Liefert den Index oder 0 (#120).
+ */
+export function scherztagWurf(dt: { day: number; month0: number }, rng: Rng): number {
+  const index = dt.day === 12 && dt.month0 === 10 ? 1 : dt.day === 19 && dt.month0 === 3 ? 2 : 0;
+  if (!index) return 0;
+  return rng(0, 3) === 0 ? index : 0;
 }
 
 /**

@@ -664,6 +664,10 @@ interface Room {
   loanRequests: { borrower: number; lender: number; amount: number }[];
   /** Zusagen der Geldgeber mit Laufzeit und Zins, die der Borger noch annehmen muss (#107) */
   loanOffers: { borrower: number; lender: number; amount: number; months: number; rate: number }[];
+  /** Sonderseiten des Tagesablaufs je Spieler-Manager: Winterpause, Scherztage (#120) */
+  sonderseiten: { manager: number; art: "winter" | "scherz1" | "scherz2"; tag: number; monat: number; saisontag?: number }[];
+  /** Saison, deren Winterpause schon angezeigt wurde */
+  winterJahr?: number;
   /**
    * Abgelaufene Verträge, über die noch verhandelt wird (0x0DB40 mit Dialog 0x251FF). Das
    * Original hält den Saisonwechsel dafür an und fragt Spieler für Spieler; im
@@ -1236,7 +1240,7 @@ function saisonwechselAbschliessen(r: Room, logStart = r.log.length): void {
         tag++;
         // Je Tag zuerst Sperren und Verletzungen der Kader (0x0F6D8), dann die Finanzen
         sommertagSperren(g, tag);
-        finanzTag(r, dateOfSeasonDay(tag, altesJahr));
+        finanzTag(r, dateOfSeasonDay(tag, altesJahr), tag);
       }
     },
   });
@@ -1399,7 +1403,7 @@ function repariereKader(game: GameState): void {
 function roomFromSave(meta: RoomMeta, save: SaveFile): Room {
   const game = new GameState(save);
   repariereKader(game);
-  const r: Room = { ...meta, save, game, version: 1, seats: new Map(), done: new Set(), log: [], rng: mulberryRng(Date.now() >>> 0), balanceSums: game.activeManagers().map(() => ({ sum: 0 })), pending: [], offers: [], campOpen: CAMP_OPEN_START.slice(), msgFlags: [], sales: new Map(), purchases: new Map(), subsidies: new Map(), marketOffers: [], options: { tempo: tempoOf(TEMPO_MS), scenes: true, zeitung: true, flags: OPTION_DEFAULTS.slice() }, zeitung: new Map(), highscore: loadHighscore(game), lastDay: [], poachTried: new Set(), bauAbgelehnt: new Set(), bauTage: new Map(), auctions: new Map(), jugendFrisch: [], hinweise: [], abschluss: [], poachRequests: [], loanRequests: [], loanOffers: [], freeAgents: [], freeAgentsDay: -1, vertragsende: [] };
+  const r: Room = { ...meta, save, game, version: 1, seats: new Map(), done: new Set(), log: [], rng: mulberryRng(Date.now() >>> 0), balanceSums: game.activeManagers().map(() => ({ sum: 0 })), pending: [], offers: [], campOpen: CAMP_OPEN_START.slice(), msgFlags: [], sales: new Map(), purchases: new Map(), subsidies: new Map(), marketOffers: [], options: { tempo: tempoOf(TEMPO_MS), scenes: true, zeitung: true, flags: OPTION_DEFAULTS.slice() }, zeitung: new Map(), highscore: loadHighscore(game), lastDay: [], poachTried: new Set(), bauAbgelehnt: new Set(), bauTage: new Map(), auctions: new Map(), jugendFrisch: [], hinweise: [], abschluss: [], poachRequests: [], loanRequests: [], loanOffers: [], sonderseiten: [], freeAgents: [], freeAgentsDay: -1, vertragsende: [] };
   return r;
 }
 
@@ -1670,6 +1674,7 @@ function stateJson(r: Room, user: string) {
       poachRequests: r.poachRequests,
       loanRequests: r.loanRequests,
       loanOffers: r.loanOffers,
+      sonderseiten: r.sonderseiten,
       freeAgents: r.freeAgents,
       // Der Client kennt die Aufrücker über ihren heutigen Kaderplatz
       jugendFrisch: r.jugendFrisch.map((x) => ({ ...x, place: platzVon(r.game, x.manager, x.playerIndex) })).filter((x) => x.place >= 0),
@@ -1725,7 +1730,7 @@ function logCupMatches(r: Room, title: string, matches: CupMatch[], finals: CupF
  * Bau, Finanzen, Kalendermeldungen, Weihnachten, Scherztage, Monatsende. Auch der Saisonwechsel
  * bucht so seinen Übergangstag und die Tage bis zum 28. Juli (#99).
  */
-function finanzTag(r: Room, dt: { day: number; month0: number; year: number }): void {
+function finanzTag(r: Room, dt: { day: number; month0: number; year: number }, saisontag = 0): void {
   const g = r.game;
   g.activeManagers().forEach((m, i) => {
     // Meldungen, die im Original im Hinweiskasten stehen (0x3174A), kommen in die Hinweisliste
@@ -1795,8 +1800,15 @@ function finanzTag(r: Room, dt: { day: number; month0: number; year: number }): 
       });
     }
   }
-  // 12.11. und 19.4.: dieselbe Routine würfelt für ihre (nicht portierten) Scherzbildschirme
-  scherztagWurf(dt, r.rng);
+  // 12.11. und 19.4.: dieselbe Routine zeigt mit 1/4 einen Scherzbildschirm (#120), jedem
+  // Spieler-Manager einmal
+  const scherz = scherztagWurf(dt, r.rng);
+  if (scherz) {
+    r.log.push(`${dt.day}.${dt.month0 + 1}. Oh happy day`);
+    g.activeManagers().forEach((_, i) => {
+      if (!isAi(g, i)) r.sonderseiten.push({ manager: i, art: scherz === 1 ? "scherz1" : "scherz2", tag: dt.day, monat: dt.month0, saisontag });
+    });
+  }
   if (dt.day === DAYS_IN_MONTH[dt.month0]) {
     // Überschuldung (Version 2026): Punktabzug und Kaufsperre
     for (const d of checkDebt(g)) {
@@ -1982,7 +1994,17 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   // Tägliche Finanzroutine für jeden übersprungenen Kalendertag (Original läuft Tag für Tag)
   const toDay = saisonEnde ? fromDay + 1 : seasonDay(dayIndex(g));
   const startYear = seasonStartYear(g);
-  for (let d = fromDay + 1; d <= toDay; d++) finanzTag(r, dateOfSeasonDay(d, startYear));
+  for (let d = fromDay + 1; d <= toDay; d++) {
+    finanzTag(r, dateOfSeasonDay(d, startYear), d);
+    // Winterpause (0x1D99D): an den Saisontagen 131 bis 206 zeigt das Original die Titelseite
+    // "WINTERPAUSE" - einmal, danach steht sie schon da (#120)
+    if (d >= 131 && d <= 206 && r.winterJahr !== startYear) {
+      r.winterJahr = startYear;
+      r.game.activeManagers().forEach((_, i) => {
+        if (!isAi(r.game, i)) r.sonderseiten.push({ manager: i, art: "winter", tag: 0, monat: 0 });
+      });
+    }
+  }
   if (saisonEnde) {
     driftClubs(g, 1, r.rng);
     if (r.rng(0, g.activeManagers().length + 3) === 0) refreshMarket(g, r.rng);
@@ -3408,6 +3430,14 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     room.version++;
     broadcast(room);
     return json(res, 200, { ok: true, automatikAus: abgeschaltet });
+  }
+  if (p === "/api/sonderseite") {
+    // Sonderseite gesehen (Winterpause, Scherztag, #120)
+    if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    room.sonderseiten = room.sonderseiten.filter((x) => !(x.manager === manager && x.art === String(body.art)));
+    room.version++;
+    broadcast(room);
+    return json(res, 200, { ok: true });
   }
   if (p === "/api/anzeigen") {
     // Knopf ANZEIGEN der Vereinsinfo (0x2B282): Bit 7 von Vereinsbyte 33 kippen. Die Konferenz

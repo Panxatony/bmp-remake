@@ -152,6 +152,9 @@ export interface LiveState {
   /** Ankündigung vor dem ersten Anpfiff (0x31FA/0x32F2): "Ligaspiel", "DFB-Pokal" oder "Europapokal" */
   announce?: string;
   announceUntil?: number;
+  /** Zweite Titelseite (Nachholspiele am Liga- oder Pokaltag, #119) */
+  announce2?: string;
+  announce2Until?: number;
   /** Torszenen abspielen (Option des Originals) */
   scenesOn: boolean;
   /**
@@ -336,8 +339,12 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
   const titel = texte("ui.ankuendigung");
   const nachhol = entries.some((e) => e.nachhol);
   const announce = flag & 7 ? titel[0] : flag & FLAG_CUP ? titel[1] : (flag & 0x70) === 0x10 ? titel[3] : flag & FLAG_EUROPE ? titel[2] : nachhol ? titel[4] : undefined;
-  const halt = announce ? ANNOUNCE_MS : 1500;
-  return { dayIndex: k, flag, entries, postponed, minute: 0, paused: false, sceneQueue: [], holdUntil: now + halt, nextMinuteAt: now + halt, finished: false, tempoMs, scenesOn: true, halbzeitStaende: [true, true, true], news: [], subs: {}, einsaetzeVorher, elfmeterQueue: [], announce, announceUntil: announce ? now + halt : undefined };
+  // Laufen am selben Tag auch Nachholspiele, folgt im Original deren eigene Titelseite (0x38AF,
+  // nach dem Block der Liga bzw. des Pokals). Das Remake spielt alles in einer Konferenz und zeigt
+  // die zweite Seite direkt nach der ersten (#119).
+  const announce2 = announce !== undefined && nachhol && announce !== titel[4] ? titel[4] : undefined;
+  const halt = announce ? ANNOUNCE_MS * (announce2 ? 2 : 1) : 1500;
+  return { dayIndex: k, flag, entries, postponed, minute: 0, paused: false, sceneQueue: [], holdUntil: now + halt, nextMinuteAt: now + halt, finished: false, tempoMs, scenesOn: true, halbzeitStaende: [true, true, true], news: [], subs: {}, einsaetzeVorher, elfmeterQueue: [], announce, announceUntil: announce ? now + ANNOUNCE_MS : undefined, announce2, announce2Until: announce2 ? now + halt : undefined };
 }
 
 /**
@@ -593,6 +600,8 @@ export function liveJson(state: LiveState, g: GameState) {
     paused: state.paused,
     announce: state.announce ?? null,
     announceLeft: state.announceUntil ? Math.max(0, state.announceUntil - Date.now()) : 0,
+    announce2: state.announce2 ?? null,
+    announce2Left: state.announce2Until ? Math.max(0, state.announce2Until - Date.now()) : 0,
     pausedBy: state.pausedBy ?? null,
     halfSeen: state.halfSeen ?? null,
     finished: state.finished,

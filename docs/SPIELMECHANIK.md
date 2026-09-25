@@ -963,8 +963,9 @@ Spiel.
 | 0x84D7 | Bildschirm beim Managerwechsel | vor jedem Zug und vor den Spielen | Meldungen im Hauptmenü |
 | 0x16515, 0x34616, 0x0CB62, 0x18600, 0x3AC5, ... | Bestenliste, Highscore, Saisonende, Auslosung | einmal je Saison | `sim/season.ts` |
 
-Der Block 0x1D9B0..0x1DA17 zeigt während der Winterpause einen eigenen Bildschirm
-("WINTERPAUSE", Text im Programm); das Remake hat ihn nicht (GitLab #36).
+Der Block 0x1D99D..0x1DA17 zeigt an den Saisontagen 131 bis 206 die Titelseite "WINTERPAUSE"
+(0x32F2, dieselbe Seite wie "Ligaspiel"); steht sie schon da, zeichnet er sie nicht neu. Das
+Remake zeigt sie jedem Spieler-Manager einmal je Winter nach dem Tageswechsel (#120).
 
 **Im Remake bis #32/#33:** jeder Kalendertag war ein Zug (die Winterpause 22 leere Züge),
 `dailyTransfers` lief in der Schleife über jeden Saisontag (drei- bis viermal je Zug) und die
@@ -1282,10 +1283,12 @@ Sondertage (Tagesroutine 0x1D6F6, Tabellen 4cb3:53D0 Tag / 53D4 Monat): 24.12., 
 Grundbetrag b = random(15,85)·10000 DM, angezeigt als "BUNDESLIGA: b DM, 2.LIGA: b/2 DM,
 AMATEUR-OBERLIGA: b/3 DM (INCL. MWST.)" mit fünf Zeilen Text ("Ihre Spieler sind überwältigt
 und zu Tränen gerührt …"); jeder Manager zahlt b/(Liga+1). Die beiden anderen Tage sind
-Scherzbildschirme (Geburtstag eines Programmierers mit Schweigeminute, "Das war keine
-Minute ! Schämen Sie Sich !") und werden nicht portiert. Den Wurf random(0,3) am Anfang der
-Routine (0x1CFA1) macht das Original aber an allen drei Tagen; das Remake würfelt ihn deshalb
-auch am 12.11. und 19.4. (`scherztagWurf`, im Würfelvergleich des Pokaltags TEST1 gefunden).
+Scherzbildschirme (Geburtstag eines Programmierers: Index 1 am 12.11. Jens Onnen, Index 2 am
+19.4. Werner Krahe). Aufbau: Grund Farbe 16, Rand Farbe 19, Bild 41 bei (136,52) mit Rahmen in
+Farbe 29, Datum und acht Briefzeilen in Farbe 11, "Oh happy day !!!" in Farbe 19. Danach eine
+Schweigeminute (1080 Timerticks); wer vorher klickt, bekommt "Das war keine Minute ! Schämen Sie
+Sich !" und nach 150 Ticks ist es vorbei. Seit #120 zeigt das Remake sie jedem Spieler-Manager
+nach dem Tageswechsel (`scherztagWurf` liefert den Index; der Wurf random(0,3) wie bisher).
 
 ## Automatische Aufstellung (0x22030, Spielerwahl 0x22305, Feldpositionen 0x0F125; sim/lineup.ts)
 

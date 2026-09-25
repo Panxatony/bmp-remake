@@ -150,3 +150,13 @@ test("#107: Kredit über drei Monate zahlt in der Version 2026 genau drei Zinsra
   assert.equal(raten, 3);
   void vorher;
 });
+
+test("#120: Scherztage würfeln random(0,3) und zeigen den Bildschirm nur bei 0", async () => {
+  const { scherztagWurf } = await import("../src/index.ts");
+  assert.equal(scherztagWurf({ day: 12, month0: 10 }, (lo: number) => lo), 1);
+  assert.equal(scherztagWurf({ day: 19, month0: 3 }, (lo: number) => lo), 2);
+  assert.equal(scherztagWurf({ day: 12, month0: 10 }, (_: number, hi: number) => hi), 0);
+  let wuerfe = 0;
+  assert.equal(scherztagWurf({ day: 13, month0: 10 }, () => (wuerfe++, 0)), 0);
+  assert.equal(wuerfe, 0, "an anderen Tagen kein Wurf");
+});

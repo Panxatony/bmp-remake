@@ -104,9 +104,17 @@ export function buildDays(g: GameState, manager: number, kind: number, rng: Rng)
 }
 
 /**
- * Tage als Wochen, wie das Original sie zeigt: aufgerundet. In DOSBox nachgemessen, indem die
- * Restzeit im Spielstand gesetzt wurde: 72 Tage -> 11 Wochen, 83 -> 12, 84 -> 12.
+ * Restzeit eines laufenden Ausbaus in der Stadionübersicht wie 0x1FBB: Resttage / 7 + 1. Am
+ * 25.9.2026 in DOSBox nachgemessen (#117): das Original zählt beim Laden eines Stands jeden Bau
+ * um einen Tag herunter (Tagesbeginn), 84 gesetzte Tage stehen danach als 83 da und zeigen 12
+ * Wochen; die frühere Messung (84 -> 12) war um diesen Tag verschoben. Mit den gespeicherten
+ * Tagen: 83 -> 12, 84 -> 13, 90 -> 13, 76 -> 11, 77 -> 12.
  */
+export function restWochen(days: number): number {
+  return Math.trunc(days / 7) + 1;
+}
+
+/** Bauzeit in der Rückfrage vor dem Bau, aufgerundet (gemessen: Grundwert 10 ergab 9 und 10 Wochen). */
 export function buildWeeks(days: number): number {
   return Math.ceil(days / 7);
 }
