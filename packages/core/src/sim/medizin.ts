@@ -161,8 +161,11 @@ export function medWeek(g: GameState, manager: number, rng: Rng): MedEvent[] {
 /** Alle verletzten Spieler eines Managers für den Bildschirm "Medizin". */
 export function medRows(g: GameState, manager: number): { place: number; playerIndex: number; name: string; kind: number; weeks: number; level: number; cost: number; floor: number }[] {
   const out: ReturnType<typeof medRows> = [];
-  g.squadOf(manager).forEach((l, place) => {
-    if (!behandelbar(l)) return;
+  // `place` ist der Kaderplatz, wie ihn `medSet` erwartet - bei einer Lücke im Kader nicht der
+  // Index in der verdichteten Liste (AUDIT-2026 A12)
+  for (let place = 0; place < 25; place++) {
+    const l = g.lineups.at(manager * 25 + place);
+    if (l.isEmpty || !behandelbar(l)) continue;
     const kind = injuryKind(l);
     out.push({
       place,
@@ -174,7 +177,7 @@ export function medRows(g: GameState, manager: number): { place: number; playerI
       cost: MED_LEVELS[medLevel(l)].cost,
       floor: injuryFloor(kind),
     });
-  });
+  }
   return out;
 }
 

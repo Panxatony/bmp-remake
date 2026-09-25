@@ -23,7 +23,8 @@
  *   je Manager 3 Mannschaften zu 12 Plätzen zu 24 Bytes:
  *     0..11  Name in der Kodierung des Spiels, mit Null gefüllt (leerer Platz: Name leer)
  *     12     Alter
- *     13     Positionsart 0..6 (wie im Original: Positionswert = Art · 14 + Zufall(0,10))
+ *     13     Positionsart 0..6: 0 Tor, 1-2 Abwehr, 3-4 Mittelfeld, 5-6 Angriff (Positionswert wie
+ *            im Spielerpool 0x3260C: Tor 0, sonst 25 · Gruppe + Zufall(0,16))
  *     14     Kondition   15 Technik   16 Form
  *     17     Potenzial (Zielstärke, verdeckt)
  *     18     Bit 0 Geldförderung, Bits 4..5 Trainingsstufe 0..3,
@@ -35,10 +36,10 @@ import type { GameState } from "../records.ts";
 import type { Rng } from "./match.ts";
 import { is2026 } from "./regeln.ts";
 import { texte } from "../data/texte.ts";
-import { addBalance, slotBytes, setSlotBytes, assignNumber, removePlace } from "./transfer.ts";
+import { addBalance, slotBytes, setSlotBytes, assignNumber, removePlace, kaderVoll, kaderZahl } from "./transfer.ts";
 import { addToSquad } from "./seasonEvents.ts";
 import { sortIntoSquad } from "./lineup.ts";
-import { poachPrice, poachAmount, poachChance } from "./abwerben.ts";
+import { poachPrice, poachAmount, poachChance, POACH_MIN_SQUAD } from "./abwerben.ts";
 
 const div = (a: number, b: number): number => Math.trunc(a / b);
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
@@ -494,7 +495,9 @@ export function jugendAufruecken(g: GameState, manager: number, platz: number, r
   if (!s || s.name === "") return { ok: false, error: "Kein Spieler" };
   if (!istReif(s, team)) return { ok: false, error: "Erst wenn er aus der A-Jugend herausgewachsen ist" };
   if (aufruecker(g, manager) >= JUGEND_MAX_AUFRUECKER) return { ok: false, error: `H|chstens ${JUGEND_MAX_AUFRUECKER} Jugendspieler je Saison` };
-  if (g.squadOf(manager).length >= 24) return { ok: false, error: "Ihr Kader ist voll" };
+  // Kaderzahl 0x11354 wie bei jeder Aufnahme: eigene Spieler auf dem Markt und in Leihe zählen
+  // mit (AUDIT-2026 A3)
+  if (g.squadOf(manager).length >= 24 || kaderZahl(g, manager) > 23) return { ok: false, error: texte("ui.kadervoll").join(" ") };
   const idx = freierSpieler(g, rng);
   if (idx < 0) return { ok: false, error: "Kein Platz in der Spielertabelle" };
   // Spielerdatensatz aus dem Jugendspieler füllen
@@ -505,9 +508,12 @@ export function jugendAufruecken(g: GameState, manager: number, platz: number, r
   p.setU8(29, s.te);
   p.setU8(30, s.fo);
   p.setU8(32, s.art);
-  p.setU8(31, clamp(s.art * 14 + rng(0, 10), 0, 99));
+  // Positionswert nach Mannschaftsteil wie im Spielerpool (0x3260C): mit Art · 14 wurde ein
+  // Abwehrspieler zum Torwart (Wert unter 25) und ein Torwart zum Feldspieler (AUDIT-2026 A7)
+  const gruppe = s.art === 0 ? 0 : s.art <= 2 ? 1 : s.art <= 4 ? 2 : 3;
+  p.setU8(31, gruppe === 0 ? 0 : 25 * gruppe + rng(0, 16));
   const place = addToSquad(g, manager, idx, rng);
-  if (place < 0) return { ok: false, error: "Ihr Kader ist voll" };
+  if (place < 0) return { ok: false, error: texte("ui.kadervoll").join(" ") };
   daten[manager][team][platz] = leer();
   jugendSchreiben(g, daten);
   g.save.plain[JUGEND_AUFRUECKER_OFFSET + manager] = aufruecker(g, manager) + 1;
@@ -530,9 +536,14 @@ export function jugendAbwerben(g: GameState, poacher: number, owner: number, pla
   if (jugendAbwerbungen(g, poacher) >= JUGEND_MAX_ABWERBEN) return { ok: false, error: "Diese Saison haben Sie schon einen Jugendspieler geholt" };
   const l = g.lineups.at(owner * 25 + place);
   if (l.isEmpty) return { ok: false, error: "Kein Spieler" };
+  // Dieselben Prüfungen wie beim Abwerben aus dem Kader (AUDIT-2026 A6): kein Leihspieler, kein
+  // Spieler vor dem Karriereende, der Besitzer behält seinen Mindestkader
+  if (g.players.at(l.playerIndex).u8(33) !== owner || l.u8(12) !== 0) return { ok: false, error: texte("ui.leihspieler").join(" ") };
+  if (l.u8(24) & 0x80) return { ok: false, error: texte("ui.hoertauf").join(" ") };
+  if (g.squadOf(owner).length <= POACH_MIN_SQUAD) return { ok: false, error: `Der Kader mu~ ${POACH_MIN_SQUAD} Spieler behalten` };
   let frei = 0;
   while (frei < 24 && !g.lineups.at(poacher * 25 + frei).isEmpty) frei++;
-  if (frei >= 24) return { ok: false, error: "Ihr Kader ist voll" };
+  if (frei >= 24 || kaderVoll(g, poacher, l.playerIndex)) return { ok: false, error: texte("ui.kadervoll").join(" ") };
   const amount = poachAmount(g, owner, place, bonus);
   if (g.managers.at(poacher).balance < amount) return { ok: false, error: texte("ui.zuwenig").join(" ") };
   const chance = poachChance(g, poacher, owner, place, bonus);

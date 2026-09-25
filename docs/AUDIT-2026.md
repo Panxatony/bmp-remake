@@ -13,6 +13,12 @@ ziehen sie keine Zufallszahl und ändern kein Byte. Ausnahme ohne Wirkung: `rese
 
 ## A. Fehler - zu beheben, ohne Regelentscheidung
 
+**Stand 25.9.2026: alle behoben** (Tests in core/test/audit2026.test.ts und wechsel.test.ts).
+Wartende ablösefreie Spieler tragen bis zur Entscheidung den Besitzer 6, damit keine Freisuche sie
+zieht; nach einem Neustart des Servers werden sie wieder frei (5). Die Jugend nimmt Aufrücker über
+die Aufnahme des Originals (0x224A8 wie `jugendInKader`) auf. `tools/eigenetexte.py` löst jetzt
+auch `\u`-Schreibweisen auf.
+
 | Nr | Funktion | Befund | Beleg |
 |---|---|---|---|
 | A1 | Ablösefreie Spieler | Der neue Verein bekommt den Spieler ohne Besitzer (Byte 33 bleibt 5): Markterneuerung, Jugend und Jahrgangswechsel behandeln ihn als frei - er kann doppelt vorkommen oder verschwinden | server.ts `resolveFreeAgents`, newgame.ts `addToSquad` |
@@ -36,6 +42,11 @@ ziehen sie keine Zufallszahl und ändern kein Byte. Ausnahme ohne Wirkung: `rese
 | A19 | Doping | Rot und Auffliegen im selben Spiel: Spiel- und Wochensperre zählen dasselbe Byte 13 herunter, die Dopingsperre läuft doppelt so schnell ab | doping.ts `dopeMatchday` |
 
 ## B. Anpassungen mit Regelentscheidung (Vorschläge)
+
+Entscheidungen von lhuno (25.9.2026): B1 Mindestgebot = bisheriges Gehalt; B2 nein; B3 Gebote
+offen anzeigen; B5 Bonus endet nach drei Wechseln; B6 ein Zusatzwechsel in der Verlängerung; B9
+kein Zins im Aufnahmemonat; B10 der Borger darf ablehnen; B11 Punktabzug bleibt wie er ist; B12
+Ewige Bilanz in 2026 nur Punkte. Offen: B4, B7, B8, B13, B14.
 
 | Nr | Funktion | Frage | Vorschlag |
 |---|---|---|---|

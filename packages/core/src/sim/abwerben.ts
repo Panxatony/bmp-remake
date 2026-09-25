@@ -30,7 +30,7 @@ import type { GameState } from "../records.ts";
 import { TABLES } from "../records.ts";
 import type { Rng } from "./match.ts";
 import { playerValue } from "./value.ts";
-import { addBalance, slotBytes, setSlotBytes, assignNumber, removePlace } from "./transfer.ts";
+import { addBalance, slotBytes, setSlotBytes, assignNumber, removePlace, kaderVoll } from "./transfer.ts";
 import { is2026 } from "./regeln.ts";
 import { texte } from "../data/texte.ts";
 import { sortIntoSquad } from "./lineup.ts";
@@ -154,7 +154,9 @@ export function poachCheck(g: GameState, poacher: number, owner: number, place: 
   if (!poachAllowedFrom(g, poacher, owner)) return { ok: false, error: "Abgeworben wird nur nach oben: dieser Verein steht hinter Ihnen" };
   let frei = 0;
   while (frei < 24 && !g.lineups.at(poacher * 25 + frei).isEmpty) frei++;
-  if (frei >= 24) return { ok: false, error: "Ihr Kader ist voll" };
+  // Kaderzahl 0x11354 wie bei Kauf und Leihe: eigene Spieler auf dem Markt und in Leihe zählen
+  // mit (AUDIT-2026 A3)
+  if (frei >= 24 || kaderVoll(g, poacher, l.playerIndex)) return { ok: false, error: texte("ui.kadervoll").join(" ") };
   const amount = poachAmount(g, owner, place, bonus);
   if (g.managers.at(poacher).balance < amount) return { ok: false, error: texte("ui.zuwenig").join(" ") };
   return { ok: true, amount };

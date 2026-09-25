@@ -6,6 +6,7 @@ import type { GameState } from "../records.ts";
 import { texte, text as T } from "../data/texte.ts";
 import { LEAGUES } from "./fixtures.ts";
 import { tableOrder } from "./standings.ts";
+import { winPoints } from "./regeln.ts";
 
 /** Punkte je Sieg (4cb3:2271). */
 export const POINTS_PER_WIN = 2;
@@ -49,14 +50,16 @@ export function standingsMessages(g: GameState, manager: number, flags: { v: num
   const order = tableOrder(g, league);
   const my = m.clubIndex;
   const myPts = seasonPoints(g, my);
-  const remaining = (LEAGUES[league].matchdays - gamesPlayed(g, my)) * POINTS_PER_WIN;
+  // Punkte je Sieg nach Regelwerk: im Original 2, in der Version 2026 3 (AUDIT-2026 A14)
+  const jeSieg = winPoints(g);
+  const remaining = (LEAGUES[league].matchdays - gamesPlayed(g, my)) * jeSieg;
   const name = g.clubs.at(my).name;
   for (let kind = 0; kind < 3; kind++) {
     const place = places[kind];
     let maxBelow = 0;
     for (let p = place + 1; p < teams; p++) {
       const c = order[p];
-      const reach = (LEAGUES[league].matchdays - gamesPlayed(g, c)) * POINTS_PER_WIN + seasonPoints(g, c);
+      const reach = (LEAGUES[league].matchdays - gamesPlayed(g, c)) * jeSieg + seasonPoints(g, c);
       if (reach > maxBelow) maxBelow = reach;
     }
     if (maxBelow < myPts && !(flags.v & (1 << (kind + 3)))) {

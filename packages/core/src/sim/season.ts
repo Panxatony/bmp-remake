@@ -15,6 +15,7 @@ import { initialDraw, clearCupResults, europeanParticipants, titelTraegerTausche
 import { seasonEndAdvertising, generateOffers } from "./werbung.ts";
 import { texte } from "../data/texte.ts";
 import { seasonEvents, type SeasonEvent } from "./seasonEvents.ts";
+import { winPoints } from "./regeln.ts";
 
 /** Kalendervorlage (Bitfeld 34227 aus dem Spielstand ohne Nachholmarken 0x80). */
 export const CALENDAR_TEMPLATE = [7, 112, 7, 0, 7, 112, 7, 6, 8, 0, 7, 0, 7, 6, 7, 112, 7, 7, 7, 112, 7, 0, 8, 1, 7, 6, 7, 0, 7, 6, 8, 112, 7, 0, 7, 112, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 0, 7, 112, 8, 7, 7, 112, 7, 6, 7, 0, 7, 0, 7, 0, 7, 112, 7, 0, 7, 112, 7, 0, 7, 0, 8, 0, 7, 0, 7, 16, 16, 0, 0];
@@ -297,7 +298,9 @@ export function saisonbilanz(g: GameState): void {
       const siege = st.u8(38 + j);
       const niederlagen = st.u8(42 + j);
       plus(420 + 2 * j, st.u8(j));
-      plus(432 + 2 * j, 2 * punkte - st.u8(j));
+      // Minuspunkte: im Original 2 · Spiele - Punkte; mit drei Punkten je Sieg würde das negativ
+      // und liefe in 16 Bit über (AUDIT-2026 A15) - dort zählen die verpassten Punkte
+      plus(432 + 2 * j, winPoints(g) * punkte - st.u8(j));
       plus(424 + 2 * j, st.u8(22 + j));
       plus(428 + 2 * j, st.u8(26 + j));
       plus(436 + 2 * j, punkte);

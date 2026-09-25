@@ -69,6 +69,8 @@ for dp, _, fs in os.walk(os.path.join(ROOT, "packages")):
                 continue
             for m in LITERAL.finditer(zeile):
                 roh = (m.group(1) if m.group(1) is not None else m.group(2) or "").replace('\\"', '"')
+                # Umlaute in \u-Schreibweise auflösen ("k\u00f6nnen"), sonst rutschen sie durch
+                roh = re.sub(r"\\u([0-9a-fA-F]{4})", lambda u: chr(int(u.group(1), 16)), roh)
                 for text in bausteine(roh):
                     if not re.search(r"[A-Za-zÄÖÜäöü]{3}\s+\S", text):
                         continue  # nur Formulierungen, keine Einzelwörter (siehe README)
