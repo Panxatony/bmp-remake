@@ -86,3 +86,12 @@ test("Trainingsverletzung nur ohne jeden Merker in Kaderbyte 9 (0x0E6D1, #83 F5)
   for (const l of k2) { l.setU8(13, 0); l.setU8(9, 0x40); } // Angebot eines fremden Vereins
   assert.equal(trainingInjuries(h, 0, 2, false, (lo: number) => lo).length, 0, "mit Angebotsbit keiner");
 });
+
+test("Trainingsbalken wie 0x10AF2 über die Plätze 0..Anzahl-1: Starter hinter einer Lücke zählen nicht", () => {
+  // Manager 2 hat in beiden Ständen eine Lücke im Kader; nach 0x10AF2 gerechnet ergibt das
+  // Technik 17 und Frische 7 bzw. 12 (vorher zählte der Starter hinter der Lücke mit: 18/6, 18/11)
+  for (const [f, soll] of [["RIED-6TE.MAN", [19, 17, 7]], ["RUNA5.MAN", [19, 17, 12]]] as const) {
+    const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, f)))));
+    assert.deepEqual(trainingBars(g, 2), soll, f);
+  }
+});

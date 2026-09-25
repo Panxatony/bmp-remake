@@ -220,3 +220,12 @@ docs/abgleich/restroutinen.md eingeordnet. Dabei kamen 16 Befunde heraus (R1 bis
 beim Kauf und beim Jugendspieler, Feldzelle neuer Starter, Aufstellungsautomatik im Kader,
 Saisonverlauf, Heim- und Auswärtstabelle, Reihenfolge der Meldungen und einige kleinere. Alle sind
 behoben; von R16 bleiben nur Randfälle beim Laden, die in ABWEICHUNGEN stehen.
+
+## Nachtrag: die letzten Bildschirme (25.9.2026)
+
+Die 23 Routinen, die bis dahin nur als Bildschirm geprüft waren, sind jetzt Zweig für Zweig
+gelesen: Kaderbildschirm (abgleich/20230.md, drei spielrelevante Befunde K1 bis K3, behoben),
+Vereinsinfo (abgleich/2A41E.md) und die übrigen Anzeigen (abgleich/anzeigen.md, keine
+spielrelevanten Befunde, zwölf Anzeigebefunde behoben). Es fehlt noch der Bildschirm "Info über
+<Verein>" mit dem Restprogramm; die Credits sind bewusst weggelassen.
+
