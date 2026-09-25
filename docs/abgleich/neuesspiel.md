@@ -51,6 +51,6 @@ Ausgenommen sind nur:
 
 | Was | Warum |
 |---|---|
-| Die übrigen Aufrufe der Stärke mit Flag 0 (Verlassen von Transfermarkt 0x242C2, Trainingslager 0x119C0 und Spielplan 0x2B63F) | Bildschirmwechsel hat der Server nicht; Wirkung nur bis zum nächsten Spiel, das die Matrix mit Flag 1 neu schreibt |
+| Die übrigen Aufrufe der Stärke mit Flag 0: Verlassen von Transfermarkt 0x242C2 und Trainingslager 0x119C0 für den Manager am Zug (4238:304A); die Übersicht 0x2B61A (0x2B63F, nur im Modus 2 der Halbzeit- und Schlussseiten) für alle Manager, die sie an ihrem Ende mit Flag 1 überschreibt (0x2C10C) | behoben (#113): der Client meldet das Verlassen (`/api/verlassen`), der Server rechnet `anzeigeStaerke`; die Übersicht braucht nichts, `halbzeitStaerke` schreibt Flag 1 |
 | 0x245A8 nimmt für einen versetzten Spieler den Verein aus Byte 36 ohne Grenze. Für Verein 255 liest es 4238:5244 + 25/28, einen Bereich, der im Abbild null ist und nirgends beschrieben wird | behoben (#115): das Remake behält Verein 255 und rechnet mit Stärke 0, Kondition also 10 |
 | Wappenleiste | Das Remake hat keine; Vorgabe 0 schreibt in den unbenutzten Spieler 0 |
