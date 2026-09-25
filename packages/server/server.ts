@@ -172,6 +172,7 @@ import {
   type HighscoreEntry,
   setSystem,
   systemOf,
+  markiereVerein,
   freieZelle,
   backupSystem,
   restoreSystem,
@@ -3344,6 +3345,17 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     room.version++;
     broadcast(room);
     return json(res, 200, { ok: true, automatikAus: abgeschaltet });
+  }
+  if (p === "/api/anzeigen") {
+    // Knopf ANZEIGEN der Vereinsinfo (0x2B282): Bit 7 von Vereinsbyte 33 kippen. Die Konferenz
+    // blendet die Tore markierter Vereine unten ein (0x1060B); die Marke gilt für alle Manager
+    if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    const club = Number(body.club) | 0;
+    if (!(club >= 0 && club < 64)) return json(res, 400, { error: "Verein ungültig" });
+    markiereVerein(room.game, club);
+    room.version++;
+    broadcast(room);
+    return json(res, 200, { ok: true });
   }
   if (p === "/api/einsatz") {
     // Einsatzregler des Kaderbildschirms: Managerbyte 305, 0..34 (Vorgabe 16, Maximum 34;

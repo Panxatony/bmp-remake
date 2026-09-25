@@ -4,7 +4,7 @@
  * Tabelle, Finanzen, Stadion und Meldungen und schreibt den geänderten
  * Spielstand als *.MAN zurück.
  */
-import { SaveFile, GameState, replays, fixtures, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
+import { SaveFile, GameState, replays, fixtures, vereinsInfo, restprogramm, restStartRueck, infoX, INFO_Y, INFO_BREITE, INFO_HOEHE, type InfoBefehl, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
 import { Assets, Sounds, COLORS, W, H, bevel, panel, button, hline, drawIcon, drawIconOver, toGame, upperGame, cp437ToGame, dm, type Font } from "./gfx.ts";
 import { Scenes, SCENE_FRAME_MS, VIEW, type SceneData } from "./scene.ts";
 
@@ -368,6 +368,11 @@ class App {
   /** Kader: Spielfeld eingeblendet, dazu der angeklickte Kaderplatz */
   pitchOpen = false;
   pitchSel = -1;
+  /**
+   * Offene Tafel "Info über <Verein>" (0x2A41E) über Tabelle, Spielplan oder Stärkeliste; `rest`
+   * zeigt statt dessen das Restprogramm (0x028C4), `rueck` dessen Rückrunde.
+   */
+  vereinsInfo: { club: number; modus: number; versatz: number; platz?: number; rest: boolean; rueck: boolean } | null = null;
   /** Seite im Managerverlauf (16 Saisons je Seite wie 0x29BFE). */
   verlaufSeite = 0;
   /** Kaderbildschirm: Liste der Stärken oder der Verträge */
@@ -500,6 +505,11 @@ class App {
         if (q.get("manager")) this.manager = Number(q.get("manager"));
         const s = q.get("screen") as Screen | null;
         if (s) this.go(s);
+        // Entwicklung: &info=Verein[&modus=0..2&platz=n&rest=1] öffnet die Vereinsinfo
+        if (q.get("info")) {
+          this.oeffneVereinsInfo(Number(q.get("info")), Number(q.get("modus") ?? 2), Number(q.get("versatz") ?? 0), q.get("platz") ? Number(q.get("platz")) : undefined);
+          if (this.vereinsInfo && q.get("rest")) this.vereinsInfo.rest = true;
+        }
         // Entwicklung: ?live=10.T[&mirror=1] spielt eine Torszene in einer nachgestellten Konferenz
         const sceneId = q.get("live");
         if (sceneId && this.game) this.demoLive(sceneId, q.get("mirror") === "1", Number(q.get("frame") ?? -1));
@@ -1397,11 +1407,49 @@ class App {
     void this.post(me.done ? "api/undone" : "api/done", { manager: this.manager });
   }
 
+  /** Laufende Toreinblendungen markierter Vereine (0x1093F), je mit ihrem Ende. */
+  ticker: { text: string; bis: number }[] = [];
+
+  /**
+   * Tor in einem Spiel ohne Manager, an dem ein markierter Verein (ANZEIGEN, Vereinsbyte 33 Bit 7)
+   * beteiligt ist: das Original blendet unten "HEIM - GAST   h:a" ein (Tore je auf die letzte
+   * Ziffer gekürzt) und wartet 70/3 Timerticks (0x10A5C bis 0x10AD7). Mehrere nacheinander.
+   */
+  tickerNachTor(before: LiveState | null, live: LiveState | null): void {
+    if (!before || !live || !this.game) return;
+    const g = this.game;
+    const markiert = (c: number) => c < 64 && (g.clubs.at(c).u8(33) & 0x80) !== 0;
+    const DAUER = Math.round((70 / 3 / 18.2) * 1000);
+    for (const e of live.entries) {
+      if (e.managerHome !== null || e.managerAway !== null) continue;
+      if (!markiert(e.home) && !markiert(e.away)) continue;
+      const alt = before.entries.find((x) => x.key === e.key);
+      if (!alt || (e.hg <= alt.hg && e.ag <= alt.ag)) continue;
+      const start = Math.max(Date.now(), this.ticker.length ? this.ticker[this.ticker.length - 1].bis : 0);
+      this.ticker.push({ text: `${cp437ToGame(e.homeName)} - ${cp437ToGame(e.awayName)}   ${e.hg % 10}:${e.ag % 10}`, bis: start + DAUER });
+    }
+  }
+
+  /** Toreinblendung: Streifen y 231..239 schwarz, Text mittig über 0..320 in Farbe 29 (0x10A71, 0x10AA2). */
+  drawTicker(): void {
+    const jetzt = Date.now();
+    this.ticker = this.ticker.filter((t) => t.bis > jetzt);
+    const t = this.ticker[0];
+    if (!t) return;
+    const ctx = this.ctx;
+    const s = this.assets.micro;
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(0, 231, W, 9);
+    s.draw(ctx, t.text, Math.trunc(320 / 2) - Math.trunc(s.width(t.text) / 2), 233, "#f3f3f3", false);
+    setTimeout(() => this.render(), Math.max(50, t.bis - jetzt));
+  }
+
   /** Neuer Live-Zustand vom Server: Bildschirm wechseln, Szenenbilder nachladen, Animation starten. */
   onLive(live: LiveState | null): void {
     const before = this.live;
     this.live = live;
     this.liveReceived = Date.now();
+    this.tickerNachTor(before, live);
     if (live) {
       this.wasLive = true;
       if (!this.scenes.ready) void this.scenes.load("").then(() => this.render());
@@ -3006,6 +3054,9 @@ class App {
         this.drawNewGame();
         break;
     }
+    if (this.screen === "live") this.drawTicker();
+    if (this.vereinsInfo && (this.screen === "table" || this.screen === "spiele" || this.screen === "staerken")) this.drawVereinsInfo();
+    else this.vereinsInfo = null;
     // Zahleneingaben und kurze Rückmeldungen liegen über dem Bildschirm, zu dem sie gehören
     this.drawEingabe();
     this.drawAbschluss();
@@ -4690,6 +4741,53 @@ class App {
     if (vertrag && this.vertragPlace >= 0 && rows[this.vertragPlace]) this.drawVertragsKasten(rows[this.vertragPlace], this.vertragPlace);
   }
 
+  /** Vereinsinfo aus einer Liste öffnen (Tabelle 0x2D0BA, Spielplan 0x2C089, Stärkeliste 0x2E38A). */
+  oeffneVereinsInfo(club: number, modus: number, versatz: number, platz?: number): void {
+    if (!this.game) return;
+    this.vereinsInfo = { club, modus, versatz, platz, rest: false, rueck: restStartRueck(this.game, club) };
+  }
+
+  /**
+   * Tafel "Info über <Verein>" bzw. Restprogramm: Tafel wie 0x06C7:00A7 bei (0x59 + 2 · Versatz,
+   * 0x37), 225 x 175; die Zeichenbefehle mit den Koordinaten des Originals liefert der Kern
+   * (sim/vereinsinfo.ts). Die Tafel schirmt den Bildschirm darunter ab.
+   */
+  drawVereinsInfo(): void {
+    const v = this.vereinsInfo!;
+    const g = this.game!;
+    const ctx = this.ctx;
+    const f = this.assets.font;
+    const s = this.assets.micro;
+    this.hits = [];
+    panel(ctx, infoX(v.versatz), INFO_Y, INFO_BREITE, INFO_HOEHE);
+    const FARBE: Record<number, string> = { 1: "#a2a2c3", 2: "#8282a2", 10: "#b2a282", 11: "#d3c3b2", 17: "#920010" };
+    const befehle: InfoBefehl[] = v.rest ? restprogramm(g, v.club, v.versatz, v.rueck) : vereinsInfo(g, v.club, v.modus, v.versatz, this.manager, v.platz);
+    // Mittig wie 0x06C7:087C: x1 + (x2 - x1) / 2 - Breite / 2
+    const mitte = (w: number, x1: number, x2: number) => x1 + Math.trunc((x2 - x1) / 2) - Math.trunc(w / 2);
+    for (const b of befehle) {
+      if (b.art === "titel") {
+        const t = cp437ToGame(b.text);
+        f.draw(ctx, t, mitte(f.width(t), b.x, b.bis), b.y, FARBE[11], COLORS.black);
+      } else if (b.art === "linie") hline(ctx, b.x, b.y, b.bis - b.x + 1, FARBE[b.farbe]);
+      else if (b.art === "text") {
+        const t = cp437ToGame(b.text);
+        const x = b.bis !== undefined ? mitte(s.width(t), b.x, b.bis) : b.x;
+        s.draw(ctx, t, x, b.y, FARBE[b.farbe], b.schatten ? COLORS.black : false);
+      } else {
+        this.knopf(cp437ToGame(b.text), b.x, b.y, FARBE[b.farbe]);
+        this.hit(b.x, b.y, 57, 12, () => {
+          if (b.aktion === "zu") this.vereinsInfo = null;
+          else if (b.aktion === "rest") v.rest = true;
+          else if (b.aktion === "info") v.rest = false;
+          else if (b.aktion === "haelfte") v.rueck = !v.rueck;
+          else void this.post("api/anzeigen", { manager: this.manager, player: this.player, club: v.club }, true);
+        });
+      }
+    }
+    // Ein Klick neben die Knöpfe bleibt ohne Wirkung
+    this.hit(0, 0, W, H, () => {});
+  }
+
   /** Spielerinfo-Tafel (0x15346): AHA!-Zeile, Status, Tore/Spiele, DATEN, Tendenz und Erschöpfung. */
   drawPlayerInfo(lineupIndex: number): void {
     const ctx = this.ctx;
@@ -4875,6 +4973,12 @@ class App {
       // Das Plusminus liegt in der Schrift des Spiels auf '#'
       s.draw(ctx, diff > 0 ? "+" : diff < 0 ? "-" : "#", 287, y, c, false);
       s.drawRight(ctx, String(Math.abs(diff)), 301, y, c, false);
+      // Ein Klick auf die Zeile öffnet "Info über <Verein>" (0x2D0BA): Modus nach der Ansicht
+      // (4cb3:5538), der Platz ist der gezeigte
+      if (!weiter) {
+        const modus = this.tableMode === "heim" ? 0 : this.tableMode === "auswaerts" ? 1 : 2;
+        this.hit(7, y - 1, 306, 7, () => this.oeffneVereinsInfo(r.club, modus, 0, i + 1));
+      }
       y += 7;
     });
     hline(ctx, 7, 169, 305, INK);
@@ -6662,6 +6766,10 @@ class App {
       };
       s.draw(ctx, info(r.home, r.homePlace), 10, y + 9, COLORS.textDim);
       s.draw(ctx, info(r.away, r.awayPlace), 152, y + 9, COLORS.textDim);
+      // Klick auf eine Paarung (0x2C089): links der Heimverein mit der Heimansicht, rechts
+      // (x > 0x8C) der Gast mit der Auswärtsansicht; die Tafel steht zwei Punkte weiter rechts
+      this.hit(2, y - 1, 139, 16, () => this.oeffneVereinsInfo(r.home, 0, 1));
+      this.hit(141, y - 1, 176, 16, () => this.oeffneVereinsInfo(r.away, 1, 1));
       y += 16;
     }
     bevel(ctx, 6, 196, 46, 38);
@@ -6709,6 +6817,8 @@ class App {
       const c = managerClubs.has(r.club) ? "#d3c3b2" : hell;
       s.draw(ctx, `${pad(r.place)}. ${cp437ToGame(g.clubs.at(r.club).name)}`, 65, y, c, false);
       s.draw(ctx, `${pad(r.ko)}            ${pad(r.te)}            ${pad(r.fo)}`, 162, y, c, false);
+      // Klick auf einen Verein (0x2E38A): Vereinsinfo in der Gesamtansicht
+      this.hit(63, y - 1, 184, 7, () => this.oeffneVereinsInfo(r.club, 2, 0));
     });
     this.knopf(strengthModes()[this.staerkenMode], 133, 181, true);
     this.hit(133, 178, 57, 16, () => (this.staerkenMode = (this.staerkenMode + 1) % 4));

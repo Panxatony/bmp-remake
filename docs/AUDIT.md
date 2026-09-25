@@ -226,6 +226,6 @@ behoben; von R16 bleiben nur Randfälle beim Laden, die in ABWEICHUNGEN stehen.
 Die 23 Routinen, die bis dahin nur als Bildschirm geprüft waren, sind jetzt Zweig für Zweig
 gelesen: Kaderbildschirm (abgleich/20230.md, drei spielrelevante Befunde K1 bis K3, behoben),
 Vereinsinfo (abgleich/2A41E.md) und die übrigen Anzeigen (abgleich/anzeigen.md, keine
-spielrelevanten Befunde, zwölf Anzeigebefunde behoben). Es fehlt noch der Bildschirm "Info über
-<Verein>" mit dem Restprogramm; die Credits sind bewusst weggelassen.
+spielrelevanten Befunde, zwölf Anzeigebefunde behoben). Der Bildschirm "Info über <Verein>" mit dem
+Restprogramm ist nachgebaut (abgleich/2A41E.md); die Credits sind bewusst weggelassen.
 
