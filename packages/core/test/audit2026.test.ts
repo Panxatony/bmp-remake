@@ -128,3 +128,25 @@ test("#110: Doping lässt die Form in der Spanne des Originals, die Kur endet be
   assert.equal(isDoped(neu), false);
   assert.deepEqual([16, 17].map((b) => neu.u8(b)), vorher);
 });
+
+test("#108: Ewige Bilanz zeigt in der Version 2026 nur Punkte", async () => {
+  const { allTimeBalance } = await import("../src/index.ts");
+  const g = laden();
+  assert.ok(allTimeBalance(g, 0).rows[0].columns.every(([, b]) => b === null));
+});
+
+test("#107: Kredit über drei Monate zahlt in der Version 2026 genau drei Zinsraten", async () => {
+  const { takeLoan, dailyFinance, BANK } = await import("../src/index.ts");
+  const g = laden();
+  const m = g.managers.at(0);
+  const vorher = m.balance;
+  assert.equal(takeLoan(g, 0, 100000, 3, 5, { day: 15, month0: 0, year: 1998 }, BANK), null);
+  let raten = 0;
+  const monate = [[31, 0], [28, 1], [31, 2], [30, 3]] as const;
+  for (const [tag, monat] of monate) {
+    const ev = dailyFinance(g, 0, { day: tag, month0: monat, year: 1998 }, mulberryRng(1), { sum: 0 }, false);
+    raten += ev.filter((e: { kind: string }) => e.kind === "interest").length;
+  }
+  assert.equal(raten, 3);
+  void vorher;
+});

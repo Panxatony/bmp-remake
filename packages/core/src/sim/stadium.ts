@@ -263,6 +263,31 @@ export function loanRequestCheck(g: GameState, manager: number, amount: number, 
   return null;
 }
 
+/**
+ * Prüfungen eines Kredits ohne ihn aufzunehmen (Version 2026: der Geldgeber nennt Laufzeit und
+ * Zins, der Borger nimmt danach an oder lehnt ab, #107). Liefert die Absage oder null.
+ */
+export function loanCheck(g: GameState, manager: number, amount: number, months: number, rate: number, lender = BANK): string | null {
+  if (!Number.isInteger(amount) || amount <= 0) return "Betrag ung\u00fcltig";
+  if (!Number.isInteger(months) || months <= 0) return "Laufzeit ung\u00fcltig";
+  if (!Number.isInteger(rate) || rate <= 0) return "Zinssatz ung\u00fcltig";
+  if (lender !== BANK) {
+    if (lender < 0 || lender >= g.save.managerCount || lender === manager) return "Geldgeber ung\u00fcltig";
+    if (months > LOAN_MONTHS_MAX) return `Maximal ${LOAN_MONTHS_MAX} Monate.`;
+    if (rate > LOAN_RATE_MAX) return texte("ui.wucher").join(" ");
+    if (rate < LOAN_RATE_MIN) return texte("ui.mindestzins").slice(1).join(" ");
+    if (g.managers.at(lender).i32(496) < amount) return `${texte("ui.kreditabsage")[0]} ${texte("ui.kreditabsage")[1]} ${g.managers.at(lender).displayName} ${texte("ui.kreditabsage")[2]}`;
+  }
+  const max = lender === BANK ? LOAN_MAX_BANK : LOAN_MAX_MANAGER;
+  if (lenderDebt(g, manager, lender) + amount > max) {
+    const grenze = texte("ui.kreditgrenze");
+    return lender === BANK ? [grenze[0], ...grenze.slice(4)].join(" ") : grenze.slice(0, 4).join(" ");
+  }
+  const m = g.managers.at(manager);
+  for (let s = 0; s < 3; s++) if (m.i32(508 + (lender * 3 + s) * 18) === 0) return null;
+  return texte("ui.dreikredite").join(" ");
+}
+
 export function takeLoan(
   g: GameState,
   manager: number,

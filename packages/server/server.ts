@@ -119,6 +119,7 @@ import {
   bauGesperrt,
   setTicketPrice,
   takeLoan,
+  loanCheck,
   poachCheck,
   poach,
   loanRequestCheck,
@@ -661,6 +662,8 @@ interface Room {
   freeAgentsDay: number;
   /** Kreditanfragen an Mitspieler, über die der Geldgeber noch entscheidet (Version 2026) */
   loanRequests: { borrower: number; lender: number; amount: number }[];
+  /** Zusagen der Geldgeber mit Laufzeit und Zins, die der Borger noch annehmen muss (#107) */
+  loanOffers: { borrower: number; lender: number; amount: number; months: number; rate: number }[];
   /**
    * Abgelaufene Verträge, über die noch verhandelt wird (0x0DB40 mit Dialog 0x251FF). Das
    * Original hält den Saisonwechsel dafür an und fragt Spieler für Spieler; im
@@ -1396,7 +1399,7 @@ function repariereKader(game: GameState): void {
 function roomFromSave(meta: RoomMeta, save: SaveFile): Room {
   const game = new GameState(save);
   repariereKader(game);
-  const r: Room = { ...meta, save, game, version: 1, seats: new Map(), done: new Set(), log: [], rng: mulberryRng(Date.now() >>> 0), balanceSums: game.activeManagers().map(() => ({ sum: 0 })), pending: [], offers: [], campOpen: CAMP_OPEN_START.slice(), msgFlags: [], sales: new Map(), purchases: new Map(), subsidies: new Map(), marketOffers: [], options: { tempo: tempoOf(TEMPO_MS), scenes: true, zeitung: true, flags: OPTION_DEFAULTS.slice() }, zeitung: new Map(), highscore: loadHighscore(game), lastDay: [], poachTried: new Set(), bauAbgelehnt: new Set(), bauTage: new Map(), auctions: new Map(), jugendFrisch: [], hinweise: [], abschluss: [], poachRequests: [], loanRequests: [], freeAgents: [], freeAgentsDay: -1, vertragsende: [] };
+  const r: Room = { ...meta, save, game, version: 1, seats: new Map(), done: new Set(), log: [], rng: mulberryRng(Date.now() >>> 0), balanceSums: game.activeManagers().map(() => ({ sum: 0 })), pending: [], offers: [], campOpen: CAMP_OPEN_START.slice(), msgFlags: [], sales: new Map(), purchases: new Map(), subsidies: new Map(), marketOffers: [], options: { tempo: tempoOf(TEMPO_MS), scenes: true, zeitung: true, flags: OPTION_DEFAULTS.slice() }, zeitung: new Map(), highscore: loadHighscore(game), lastDay: [], poachTried: new Set(), bauAbgelehnt: new Set(), bauTage: new Map(), auctions: new Map(), jugendFrisch: [], hinweise: [], abschluss: [], poachRequests: [], loanRequests: [], loanOffers: [], freeAgents: [], freeAgentsDay: -1, vertragsende: [] };
   return r;
 }
 
@@ -1648,14 +1651,14 @@ function stateJson(r: Room, user: string) {
       purchases: [...r.purchases.entries()].map(([manager, pu]) => ({ manager, ...pu })),
       subsidies: [...r.subsidies.entries()].map(([manager, amount]) => ({ manager, amount })),
       offers: r.marketOffers,
-      // Bietgefecht (Version 2026): verdeckt - jeder sieht nur sein eigenes Gebot und wie viele
-      // Gebote insgesamt vorliegen
+      // Bietgefecht (Version 2026): die Gebote sind offen, alle sehen Bieter und Betrag (#105)
       auctions: [...r.auctions.entries()].flatMap(([playerIndex, a]) => {
         const platz = marketEntries(r.game).find((e) => e.playerIndex === playerIndex);
         if (!platz) return [];
         const ich = r.game.activeManagers().findIndex((_, i) => r.seats.get(i) === user);
         const mein = a.bids.find((b2) => b2.manager === ich);
-        return [{ slot: platz.slot, anzahl: a.bids.length, mein: mein ? mein.amount : null, loan: mein ? mein.loan : false }];
+        const gebote = a.bids.map((b2) => ({ manager: b2.manager, amount: b2.amount, loan: b2.loan })).sort((x, y) => y.amount - x.amount);
+        return [{ slot: platz.slot, anzahl: a.bids.length, mein: mein ? mein.amount : null, loan: mein ? mein.loan : false, gebote }];
       }),
     },
     // Zusätze der Version 2026
@@ -1666,6 +1669,7 @@ function stateJson(r: Room, user: string) {
       derby: r.game.activeManagers().map((_, i) => stakeLevel(r.game, i)),
       poachRequests: r.poachRequests,
       loanRequests: r.loanRequests,
+      loanOffers: r.loanOffers,
       freeAgents: r.freeAgents,
       // Der Client kennt die Aufrücker über ihren heutigen Kaderplatz
       jugendFrisch: r.jugendFrisch.map((x) => ({ ...x, place: platzVon(r.game, x.manager, x.playerIndex) })).filter((x) => x.place >= 0),
@@ -2135,6 +2139,11 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     pushMessage(r, q.borrower, [`${r.game.managers.at(q.lender).displayName}`, "hat nicht geantwortet."]);
   }
   r.loanRequests = [];
+  for (const o of r.loanOffers) {
+    r.log.push(`Kreditangebot von ${r.game.managers.at(o.lender).displayName} an ${r.game.managers.at(o.borrower).displayName} verfällt`);
+    pushMessage(r, o.lender, [`${r.game.managers.at(o.borrower).displayName}`, "hat Ihr Kreditangebot", "nicht angenommen."]);
+  }
+  r.loanOffers = [];
   r.version++;
   void persist(r);
 }
@@ -3548,6 +3557,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (agent.from === manager) return json(res, 400, { error: "Das war Ihr Spieler - bieten k|nnen nur die anderen" });
     if (isBlocked(room.game, manager)) return json(res, 400, { error: "Kaufsperre: Ihr Konto stand am Monatsende zu tief im Minus" });
     const salary = Math.max(0, Math.trunc(Number(body.salary)));
+    // Mindestens das bisherige Gehalt (#104); 0 zieht ein Angebot zurück
+    if (salary > 0 && salary < agent.salary) return json(res, 400, { error: `Mindestens das bisherige Gehalt: ${dmText(agent.salary)}` });
     agent.bids = agent.bids.filter((b) => b.manager !== manager);
     if (salary > 0) agent.bids.push({ manager, salary });
     room.log.push(`${room.game.managers.at(manager).displayName} bietet ${agent.name} ${dmText(salary)} Monatsgehalt`);
@@ -3573,19 +3584,50 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       broadcast(room);
       return json(res, 200, { ok: true, message: `Anfrage von ${bittsteller} abgelehnt` });
     }
-    const d2 = room.game.date;
-    const err = takeLoan(room.game, borrower, q.amount, Number(body.months), Number(body.rate), { day: d2.day, month0: d2.month - 1, year: d2.year }, manager);
+    // Die Bedingungen des Geldgebers gehen erst als Angebot an den Borger; der darf ablehnen (#107)
+    const months = Number(body.months);
+    const rate = Number(body.rate);
+    const err = loanCheck(room.game, borrower, q.amount, months, rate, manager);
     if (err) {
       room.loanRequests.push(q);
       return json(res, 400, { error: err });
     }
-    room.log.push(`${wer} gibt ${bittsteller} ${dmText(q.amount)} zu ${Number(body.rate)} % für ${Number(body.months)} Monate`);
-    pushMessage(room, borrower, [`${wer} gibt Ihnen`, `${dmText(q.amount)} zu`, `${Number(body.rate)} % f}r ${Number(body.months)} Mon.`]);
+    room.loanOffers = room.loanOffers.filter((o) => !(o.borrower === borrower && o.lender === manager));
+    room.loanOffers.push({ borrower, lender: manager, amount: q.amount, months, rate });
+    room.log.push(`${wer} bietet ${bittsteller} ${dmText(q.amount)} zu ${rate} % für ${months} Monate an`);
+    pushMessage(room, borrower, [`${wer} bietet Ihnen`, `${dmText(q.amount)} zu`, `${rate} % f}r ${months} Mon.`]);
+    flushMessages(room);
+    room.version++;
+    broadcast(room);
+    return json(res, 200, { ok: true, message: `Angebot an ${bittsteller}` });
+  }
+  if (p === "/api/loan/confirm") {
+    // Der Borger nimmt die Bedingungen des Geldgebers an oder lehnt ab (Version 2026, #107)
+    if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    const lender = Number(body.lender) | 0;
+    const idx = room.loanOffers.findIndex((o) => o.borrower === manager && o.lender === lender);
+    if (idx < 0) return json(res, 404, { error: "Kein Angebot offen" });
+    const o = room.loanOffers.splice(idx, 1)[0];
+    const wer = room.game.managers.at(manager).displayName;
+    const geber = room.game.managers.at(lender).displayName;
+    if (!body.accept) {
+      room.log.push(`${wer} lehnt den Kredit von ${geber} ab`);
+      pushMessage(room, lender, [`${wer} lehnt Ihre`, "Bedingungen ab."]);
+      flushMessages(room);
+      room.version++;
+      broadcast(room);
+      return json(res, 200, { ok: true, message: "Kredit abgelehnt" });
+    }
+    const d2 = room.game.date;
+    const err = takeLoan(room.game, manager, o.amount, o.months, o.rate, { day: d2.day, month0: d2.month - 1, year: d2.year }, lender);
+    if (err) return json(res, 400, { error: err });
+    room.log.push(`${geber} gibt ${wer} ${dmText(o.amount)} zu ${o.rate} % für ${o.months} Monate`);
+    pushMessage(room, lender, [`${wer} nimmt Ihren`, `Kredit an: ${dmText(o.amount)}`, `zu ${o.rate} % f}r ${o.months} Mon.`]);
     flushMessages(room);
     await persist(room);
     room.version++;
     broadcast(room);
-    return json(res, 200, { ok: true, message: `${bittsteller} bekommt ${dmText(q.amount)}` });
+    return json(res, 200, { ok: true, message: `Kredit über ${dmText(o.amount)} aufgenommen` });
   }
   if (p === "/api/training") {
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });

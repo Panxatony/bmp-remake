@@ -175,8 +175,11 @@ export function dailyFinance(g: GameState, manager: number, date: { day: number;
       // Rückzahlung (Byte 11) - 0x12151 vergleicht die Monatslängen, nicht den Termin. Wer im
       // Juli zurückzahlt, zahlt also im Februar und in den 30-Tage-Monaten doppelt. Die Version
       // 2026 bucht die Zinsen für alle einmal zum Termin der Monatsabrechnung.
+      // Im Aufnahmemonat bucht die Version 2026 keinen Zins: ein Kredit über n Monate zahlt
+      // genau n Raten (#107)
+      const aufnahmemonat = m.u8(o + 10) === date.month0 && (m.u8(o + 14) | (m.u8(o + 15) << 8)) === date.year;
       const termin = fester
-        ? date.day === daysInMonth
+        ? date.day === daysInMonth && !aufnahmemonat
         : date.day === m.u8(o + 9) || (DAYS_IN_MONTH[m.u8(o + 11)] > daysInMonth && date.day === daysInMonth);
       if (!termin) continue;
       const interest = m.i32(o + 4);

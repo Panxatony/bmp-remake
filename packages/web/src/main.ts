@@ -65,6 +65,7 @@ interface ServerExtra {
   derby: number[];
   poachRequests: { poacher: number; owner: number; place: number; bonus: number; playerIndex: number; name: string }[];
   loanRequests: { borrower: number; lender: number; amount: number }[];
+  loanOffers?: { borrower: number; lender: number; amount: number; months: number; rate: number }[];
   freeAgents: { playerIndex: number; name: string; position: string; age: number; strength: number[]; from: number; salary: number; value: number; bids: { manager: number; salary: number }[] }[];
   /** Frisch aus der Jugend aufgerückte Spieler; sie stehen bis zum Tageswechsel zur Abwerbung (#4) */
   jugendFrisch?: { manager: number; place: number; name: string; preis: number }[];
@@ -87,7 +88,7 @@ interface MarketState {
   subsidies?: { manager: number; amount: number }[];
   offers: { buyer: number; owner: number; slot: number; playerIndex: number; name: string; amount: number; loan: boolean }[];
   /** Bietgefecht der Version 2026: verdeckt - nur das eigene Gebot und die Zahl der Gebote */
-  auctions?: { slot: number; anzahl: number; mein: number | null; loan: boolean }[];
+  auctions?: { slot: number; anzahl: number; mein: number | null; loan: boolean; gebote?: { manager: number; amount: number; loan: boolean }[] }[];
 }
 
 interface LiveEntry {
@@ -3396,7 +3397,7 @@ class App {
       }
     }
     if (this.endeDialog) this.drawEndeDialog();
-    else if (!this.drawKreditAnfrage()) this.drawAbwerbeAnfrage();
+    else if (!this.drawKreditAnfrage() && !this.drawKreditAngebot()) this.drawAbwerbeAnfrage();
   }
 
   /**
@@ -3432,6 +3433,32 @@ class App {
       ),
     );
     this.hit(190, 156, 57, 13, () => void this.post("api/loan/answer", { manager: this.manager, player: this.player, borrower: q.borrower, accept: false }));
+    this.hit(0, 0, W, H, () => undefined);
+    return true;
+  }
+
+  /**
+   * Kreditangebot eines Mitspielers (Version 2026, #107): der Geldgeber hat Laufzeit und Zins
+   * genannt, der Borger nimmt an oder lehnt ab. Liefert true, wenn ein Angebot offen ist.
+   */
+  drawKreditAngebot(): boolean {
+    const g = this.game;
+    const o = this.server.extra?.loanOffers?.find((r) => r.borrower === this.manager);
+    if (!g || !o) return false;
+    const ctx = this.ctx;
+    const f = this.assets.font;
+    const s = this.assets.micro;
+    panel(ctx, 45, 104, 230, 72, "#610010");
+    f.drawCenter(ctx, "KREDITANGEBOT", 159, 108, "#d3c3b2", false);
+    hline(ctx, 47, 117, 226, "#d3c3b2");
+    s.drawCenter(ctx, `${toGame(g.managers.at(o.lender).displayName)} GIBT IHNEN ${dm(o.amount).toUpperCase()}`, 159, 124, "#b2a282", false);
+    s.drawCenter(ctx, toGame(`ZU ${o.rate}% ZINSEN IM MONAT F]R ${o.months} MONATE`), 159, 134, "#b2a282", false);
+    s.drawCenter(ctx, toGame(`ZINSEN JE MONAT: ${dm(Math.trunc((o.amount * o.rate) / 100))}`), 159, 146, "#b2a282", false);
+    this.knopf("ANNEHMEN", 70, 156, "#920010");
+    this.knopf("ABLEHNEN", 190, 156, false);
+    this.hits = [];
+    this.hit(70, 156, 57, 13, () => void this.post("api/loan/confirm", { manager: this.manager, player: this.player, lender: o.lender, accept: true }));
+    this.hit(190, 156, 57, 13, () => void this.post("api/loan/confirm", { manager: this.manager, player: this.player, lender: o.lender, accept: false }));
     this.hit(0, 0, W, H, () => undefined);
     return true;
   }
@@ -6163,10 +6190,12 @@ class App {
     });
     const andere = g.activeManagers().map((_, i) => i).filter((i) => i !== me);
     // Wie hoch die anderen setzen, bleibt verdeckt - es gilt ohnehin der kleinere Betrag
-    s.draw(ctx, toGame(`MINDESTEINSATZ ${dm(DERBY_STAKES[0])} - WIE HOCH DIE ANDEREN SETZEN, SEHEN SIE ERST BEIM SPIEL`), 8, 72, COLORS.textDim);
+    // Die Einsätze sind offen (#105); es gilt der kleinere der beiden
+    const einsaetze = g.activeManagers().map((mg, i) => (i === me ? null : `${toGame(mg.displayName)} ${dm(DERBY_STAKES[x?.derby?.[i] ?? 0]).replace(" DM", "")}`)).filter((t): t is string => t !== null);
+    s.draw(ctx, toGame(`MINDESTEINSATZ ${dm(DERBY_STAKES[0])} - ES GILT DER KLEINERE EINSATZ. ANDERE: ${einsaetze.join(", ") || "-"}`), 8, 72, COLORS.textDim);
     hline(ctx, 8, 82, 252);
     // Ablösefreie Spieler
-    s.draw(ctx, "ABL\\SEFREIE SPIELER - IHR ANGEBOT IST DAS MONATSGEHALT", 8, 88, COLORS.white);
+    s.draw(ctx, "ABL\\SEFREIE SPIELER - ANGEBOT: MONATSGEHALT, MINDESTENS DAS BISHERIGE", 8, 88, COLORS.white);
     const frei = x?.freeAgents ?? [];
     if (frei.length === 0) s.draw(ctx, "ZURZEIT IST NIEMAND ABL\\SEFREI. AM SAISONENDE WERDEN ES MEHR.", 8, 100, COLORS.textDim);
     const hy = 100;
@@ -6209,6 +6238,12 @@ class App {
       y += 7;
     });
     if (frei.length) s.draw(ctx, "DER ZUSCHLAG F[LLT BEIM N[CHSTEN TAGESWECHSEL. H\\HERE LIGA Z[HLT WIE +10%.", 8, y + 6, COLORS.textDim);
+    // Die Gebote sind offen (#105): alle Angebote für den gewählten Spieler
+    const gewaehlt = frei.find((a) => a.playerIndex === this.freiSel);
+    if (gewaehlt) {
+      const gebote = gewaehlt.bids.slice().sort((a, b) => b.salary - a.salary).map((b) => `${toGame(g.managers.at(b.manager).displayName)} ${dm(b.salary).replace(" DM", "")}`);
+      s.draw(ctx, `GEBOTE F]R ${cp437ToGame(gewaehlt.name)}: ${gebote.join(", ") || "NOCH KEINE"}`, 8, y + 14, COLORS.text);
+    }
     this.sideButtons();
   }
 
@@ -6289,9 +6324,10 @@ class App {
       s.drawRight(ctx, String(e.strength[2]), 266, y, c, sch);
       const auk = this.server.market?.auctions?.find((a) => a.slot === e.slot);
       if (auk && auk.anzahl > 0) {
-        // Verdecktes Bietgefecht: das eigene Gebot steht da, von den anderen nur die Zahl
-        const text = auk.mein !== null ? `${auk.mein} DM` : `${auk.anzahl} GEBOT${auk.anzahl > 1 ? "E" : ""}`;
-        s.drawRight(ctx, text, 317, y, sel ? COLORS.black : auk.mein !== null ? "#71a241" : COLORS.highlight, sch);
+        // Offenes Bietgefecht (#105): in der Liste steht das Höchstgebot, grün wenn es das eigene ist
+        const hoch = auk.gebote?.[0];
+        const text = hoch ? `${hoch.amount} DM` : `${auk.anzahl} GEBOT${auk.anzahl > 1 ? "E" : ""}`;
+        s.drawRight(ctx, text, 317, y, sel ? COLORS.black : hoch?.manager === me ? "#71a241" : COLORS.highlight, sch);
       } else s.drawRight(ctx, `${wert(e)} DM`, 317, y, c, sch);
       this.hit(163, y - 1, 151, 7, () => this.marketClick(i, e));
       y += 6;
@@ -6317,7 +6353,12 @@ class App {
       else {
         // Version 2026: läuft auf den Spieler ein Bietgefecht, steht das hier ausdrücklich (#19)
         s.draw(ctx, bietet ? "MITBIETEN - ANKLICKEN" : `${this.marketMode === "leihen" ? "LEIHGEB]HR" : "IHR ANGEBOT"} - ANKLICKEN`, 163, 143, COLORS.text);
-        if (bietet) s.draw(ctx, "BIETGEFECHT BIS ZUM TAGESWECHSEL", 163, 151, COLORS.highlight);
+        if (bietet) {
+          // Wer vorn liegt und wie viele mitbieten (#105)
+          const hoch = auk!.gebote?.[0];
+          const vorn = hoch ? `${toGame(g.managers.at(hoch.manager).displayName)} ${dm(hoch.amount).replace(" DM", "")}` : "";
+          s.draw(ctx, hoch ? `VORN: ${vorn}${auk!.anzahl > 1 ? ` (${auk!.anzahl} GEBOTE)` : ""}` : "BIETGEFECHT BIS ZUM TAGESWECHSEL", 163, 151, COLORS.highlight);
+        }
         else if (sel.owner !== MARKET_MANAGER) s.draw(ctx, `VON ${toGame(g.managers.at(sel.owner).displayName)}`, 163, 151, COLORS.textDim);
       }
     }

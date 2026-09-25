@@ -49,7 +49,8 @@ kein Zins im Aufnahmemonat; B10 der Borger darf ablehnen; B11 Punktabzug bleibt 
 Ewige Bilanz in 2026 nur Punkte; B7 Grenzen des Originals, B8 Kur endet beim Wechsel; B14
 Förderung nur für Spieler-Manager, Altersangaben angleichen; B4 und B13 nach Empfehlung
 (Neuaufstellung für beide Seiten; Medizin nur mit der Verletzungswoche, nicht für Rechner-Manager).
-Work Items #104-#112. Umgesetzt: B4 (#109), B7/B8 (#110), B13 (#111), B14 (#112).
+Work Items #104-#112. Umgesetzt: B1 (#104), B3 (#105, dazu offene Derby-Einsätze), B5/B6 (#106), B9/B10 (#107), B12
+(#108), B4 (#109), B7/B8 (#110), B13 (#111), B14 (#112).
 
 | Nr | Funktion | Frage | Vorschlag |
 |---|---|---|---|
