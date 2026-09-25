@@ -26,7 +26,6 @@ soll sich wie das Original verhalten; wo es das nicht tut, ist das ein Fehler.
 | Bauzeit in der Rückfrage | vor der Rückfrage gewürfelt, der Kasten nennt sie | der Server würfelt beim Bau, der Kasten nennt den Mittelwert |
 | Anzeigeoptionen, Zinsleitwert, Öffnungszeiten der Lager | nur im Speicher, nach dem Laden auf der Vorgabe | im Raumzustand des Servers; Zinsleitwert aus Byte 35 |
 | Heim- und Auswärtstabelle ansehen | schreibt die Reihenfolgeliste und die Plätze um; beim Verlassen wird ab der Heimreihenfolge neu sortiert, bei völligem Gleichstand bleibt die Gesamtreihenfolge dauerhaft anders | nur Anzeige, der Spielstand bleibt unberührt (restroutinen.md, R13) |
-| Systemwahl im laufenden Spiel | die Systemknöpfe wirken nur außerhalb des Spiels (0x216DD) | in der Unterbrechung erlaubt und als Auswechslung gebucht (GitLab #53); **noch zu entscheiden** (R7) |
 | Meldungen | höchstens 20 je Manager in der Tabelle, darüber schreibt das Original in die Nachbartabelle | beliebig viele, im Spielstand höchstens 255 je Manager (Zählerbyte) |
 | Laden | nur Stände, die im selben Programmlauf weder geladen noch gespeichert wurden; V1-Stände mit Levelabfrage; fehlt der Anhang, wird trotzdem geladen | jeder V2-Stand mit Anhang; ein Remake-Stand im Original trägt keine Meldungszeiger (R16) |
 

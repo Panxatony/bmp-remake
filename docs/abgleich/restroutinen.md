@@ -37,7 +37,7 @@ Grafikpuffer. Der Text steht in 4cb3:4D38 und gehört zu 0x224A8.
 | 0x1FF36 | Freie Feldzelle für einen neuen Starter | Spiellogik (Kader) | `freieZelle` (lineup.ts) | **R5**, behoben |
 | 0x1FFFA, 0x20105, 0x21328, 0x213B6 | Trikots, Einsatzregler, Spielfeld, Systemknöpfe zeichnen | Anzeige | `drawPitch` | - |
 | 0x20197 | Automatik aus, mit Hinweis | Spiellogik (Zustand) | Web-Client und `/api/position` | **R6**, behoben |
-| 0x21696 | Taktikbrett: Systemwahl, Spieler verschieben und tauschen | Spiellogik (Kader) | `/api/system`, `/api/position` | **R6, R7** |
+| 0x21696 | Taktikbrett: Systemwahl, Spieler verschieben und tauschen | Spiellogik (Kader) | `/api/system`, `/api/position` | **R6, R7**, behoben |
 
 ## 0x21E40 bis 0x30E42
 
@@ -80,7 +80,7 @@ Grafikpuffer. Der Text steht in 4cb3:4D38 und gehört zu 0x224A8.
 | R4 | Neues Spiel: 0xAB84 tauscht die Tabellensätze nach 0x3C24 zurück; wirkt nur bei Wunschverein 58..63 | behoben; Test |
 | R5 | Wer über die Kaderliste in die Elf kommt, übernimmt die Feldzelle des Herausgenommenen (0x20AED, 0x20E8B), sonst sucht 0x1FF36 eine freie. Das Remake ließ die alte Zelle stehen, zwei Starter konnten auf einer Zelle stehen (Torwahl, Stärke) | behoben (`uebernimmNummern`, `freieZelle`); Test |
 | R6 | Bei eingeschalteter Automatik nimmt die Kaderliste keine Änderung an ("Auto-Aufstellung ist aktiviert !", 0x2084F); jeder Klick aufs Spielfeld schaltet sie ab (0x20197). Das Remake nahm die Änderung an und schaltete dabei ab; ein Verschieben auf dem Feld ließ die Automatik an | behoben (Server und Web-Client) |
-| R7 | Die Systemknöpfe wertet das Original nur außerhalb des Spiels aus (0x216DD); das Remake erlaubt die Systemwahl in der Unterbrechung als Auswechslung (GitLab #53) | offen, Entscheidung nötig (ABWEICHUNGEN) |
+| R7 | Die Systemknöpfe wertet das Original nur außerhalb des Spiels aus (0x216DD); das Remake erlaubt die Systemwahl in der Unterbrechung als Auswechslung (GitLab #53) | behoben wie im Original (Entscheidung lhuno, 25.9.2026): im Spiel keine Systemwahl, Knöpfe ohne Wirkung |
 | R8 | Kaderstatus: "GESP.(n)" mit der Sperrdauer, Flag 3 als leerer Text | behoben |
 | R9 | Verlauf: Byte 63 ist die Liga, Byte 64 der DFB-Pokal - das Remake las beide vertauscht; Europapokal als Runde und Wettbewerb, Sieger gelb, Saisonzahl wie 0x29F11, 16 Saisons je Seite, Zeilen über den Saisonzähler, "EXISTIERTEN SIE NOCH GAR NICHT ALS MANAGER..." für 0xFF | behoben; Test angepasst |
 | R10 | Ergebnisseite: Stärke = Summe der neun Matrixbytes / 9 | behoben |

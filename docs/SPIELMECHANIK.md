@@ -1705,6 +1705,8 @@ Spielfeld (Taktik): Kasten (181,86) 133x133, darin das Feldbild 120x120 aus PIC/
 99 + 14·Reihe), die Rückennummer mittig einen Punkt rechts der Markenmitte in Farbe 11 ohne
 Schatten. Darunter die drei Systeme als Symbolknöpfe: Rahmen bei (4 + 60i, 192), Symbol 32x23
 aus 6.VGA (Spalte 121, Zeile 24i) bei (13 + 60i, 201); das eingestellte System steht gedrückt.
+Im laufenden Spiel sind sie gezeichnet, nehmen aber keinen Klick an (0x216DD): ein
+Systemwechsel geht nur außerhalb des Spiels.
 Einen Knopf für die Systemwahl gibt es hier nicht - die Systeme stehen als Symbole unter dem
 Spielfeld. Der Einsatz steht im Managerbyte 305 und reicht von 0 bis 34 (Vorgabe 16); bestimmt
 durch den Vergleich von CLAUDE.MAN und EINSATY.MAN, in dem nur dieses Byte von 16 auf 34
