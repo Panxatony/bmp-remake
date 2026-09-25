@@ -75,3 +75,4 @@ export { composeZeitung, reportFromMatch, expandTemplate, gameToCp437, schlagzei
 export { playerInfo, sideLabel, ageLabels, dataLabels, type PlayerInfo } from "./sim/playerinfo.ts";
 export { standingsMessages, relegationMessage, relegationLines, isWinterBreakDay, winterBreakLines, bookChampion, bookCupTitle, POINTS_PER_WIN } from "./sim/messages.ts";
 export { autoLineup, autoLineupIfEnabled, sperreAusgesetzt, freieZelle, sortIntoSquad, sortSquad, selectPlace, systemOf, setSystem, backupSystem, restoreSystem, groupOf, SYSTEM_OFFSET, SYSTEM_MANUAL, SYSTEM_NAMES, FORMATIONS } from "./sim/lineup.ts";
+export { vereinsInfo, restprogramm, restStartRueck, markiereVerein, vereinMarkiert, toreJeSpiel, infoX, INFO_Y, INFO_BREITE, INFO_HOEHE, type InfoBefehl, type Farbe as InfoFarbe } from "./sim/vereinsinfo.ts";
