@@ -134,13 +134,28 @@ test("Transfermarkt: eigene Spieler anbieten, zurückholen, verkaufen; Markterne
     assert.ok(e.price > 0 && e.price % 1000 === 0, `${e.name} ${e.price}`);
     // Ein gültiger Verein; freie Spieler tragen im Original auch 58..63 (TEST4: 15, 21, 90 ...)
     // und behalten ihn auf dem Markt, solange kein Manager den Verein führt
-    assert.ok(g.players.at(e.playerIndex).u8(36) < 64);
+    const verein = g.players.at(e.playerIndex).u8(36);
+    assert.ok(verein < 64 || verein === 255);
     assert.ok(!g.activeManagers().some((mm) => mm.clubIndex === g.players.at(e.playerIndex).u8(36)));
   }
   // Tagesroutine liefert irgendwann Angebote für eigene Marktspieler
   let events = 0;
   for (let d = 1; d < 400 && events === 0; d++) events += dailyTransfers(g, 0, d, rng).length;
   assert.ok(events > 0, "keine Angebote");
+});
+
+test("Markterneuerung: Verein 255 bleibt, die Stärke kommt aus dem Nullbereich hinter der Tabelle (GitLab #115)", () => {
+  const g = load("TEST4.MAN");
+  const rng = mulberryRng(115);
+  for (let i = 1; i <= 150; i++) if (g.players.at(i).u8(33) === 5) g.players.at(i).setU8(36, 255);
+  refreshMarket(g, rng);
+  const neu = marketEntries(g).filter((e) => e.owner === MARKET_MANAGER && g.players.at(e.playerIndex).u8(36) === 255);
+  assert.ok(neu.length > 0);
+  for (const e of neu) {
+    const p = g.players.at(e.playerIndex);
+    assert.equal(p.u8(28), 10, "Kondition: rng(0,14) + 0 - 10, unten auf 10 begrenzt");
+    assert.ok(p.u8(29) === 10 || (p.u8(29) >= 12 && p.u8(29) <= 24), `Technik ${p.u8(29)}`);
+  }
 });
 
 test("Leihe: das Gehalt trägt den Abschlag des Originals, ein Drittel (GitLab #79)", () => {

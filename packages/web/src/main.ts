@@ -2263,6 +2263,11 @@ class App {
         f.drawRight(ctx, row.postponed ? toGame("verlegt") : row.result ? `${row.result.home}:${row.result.away}` : "-:-", 313, y, INK, false);
         s.drawRight(ctx, info(row.home), 123, y + 9, INK_DIM);
         s.drawRight(ctx, info(row.away), 266, y + 9, INK_DIM);
+        // Wie im Spielplan (0x2C089): links der Heimverein in der Heimansicht, rechts der Gast.
+        // Das Original übergibt hier P = 1 (Modus 2, Minute 90), weil sein Spieltagszähler noch
+        // auf dem gespielten Tag steht; im Remake ist er schon weitergezählt (#118)
+        this.hit(2, y - 1, 139, 16, () => this.oeffneVereinsInfo(row.home, 0, 1));
+        this.hit(141, y - 1, 176, 16, () => this.oeffneVereinsInfo(row.away, 1, 1));
       });
     } else {
       const bl = seiten[idx].block!;
@@ -3073,7 +3078,7 @@ class App {
     }
     if (this.screen === "live") this.drawTicker();
     if (this.screen === "menu" && this.drawSonderseite()) return;
-    if (this.vereinsInfo && (this.screen === "table" || this.screen === "spiele" || this.screen === "staerken")) this.drawVereinsInfo();
+    if (this.vereinsInfo && (this.screen === "table" || this.screen === "spiele" || this.screen === "staerken" || this.screen === "results")) this.drawVereinsInfo();
     else this.vereinsInfo = null;
     // Zahleneingaben und kurze Rückmeldungen liegen über dem Bildschirm, zu dem sie gehören
     this.drawEingabe();
