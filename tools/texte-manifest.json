@@ -3249,6 +3249,74 @@
     "len": 45,
     "sum": "15d9c6e1"
    }
+  ],
+  "ui.spielerist": [
+   {
+    "off": 327538,
+    "len": 11,
+    "sum": "fd99363a"
+   },
+   {
+    "off": 327550,
+    "len": 17,
+    "sum": "6ff2ee4a"
+   }
+  ],
+  "ui.spielerstatus": [
+   {
+    "off": 318249,
+    "len": 9,
+    "sum": "c1f1e6a3"
+   },
+   {
+    "off": 318259,
+    "len": 9,
+    "sum": "c1b08a7e"
+   }
+  ],
+  "ui.nochkeine": [
+   {
+    "off": 333174,
+    "len": 15,
+    "sum": "2308221d"
+   },
+   {
+    "off": 333190,
+    "len": 16,
+    "sum": "05ced7d4"
+   }
+  ],
+  "ui.ankuendigung": [
+   {
+    "off": 326586,
+    "len": 9,
+    "sum": "ee8430cd"
+   },
+   {
+    "off": 318996,
+    "len": 9,
+    "sum": "4d7965b4"
+   },
+   {
+    "off": 319017,
+    "len": 11,
+    "sum": "0a2d793a"
+   },
+   {
+    "off": 319870,
+    "len": 16,
+    "sum": "d0706bca"
+   },
+   {
+    "off": 322864,
+    "len": 13,
+    "sum": "72a40927"
+   },
+   {
+    "off": 319029,
+    "len": 12,
+    "sum": "039f8b45"
+   }
   ]
  }
 }

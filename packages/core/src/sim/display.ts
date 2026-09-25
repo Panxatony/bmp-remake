@@ -309,7 +309,7 @@ export function statistics(g: GameState, manager: number, konto?: { sum: number;
 }
 
 /** Ewige Tabelle: Punkte aller Vereine über alle Saisons (Tabellendatensatz u16 bei 50). */
-export function allTimeTable(g: GameState): { club: number; points: number }[] {
+export function allTimeTable(g: GameState, alle = false): { club: number; points: number }[] {
   // Das Original sortiert mit einer Auswahlsortierung, die **sofort tauscht** (0x27BED): für
   // jedes i läuft j von i+1 bis 63, und sobald ein Eintrag mehr Punkte hat, werden die beiden
   // getauscht. Weil dabei auch die noch nicht besuchten Plätze durcheinandergeraten, ist die
@@ -317,7 +317,8 @@ export function allTimeTable(g: GameState): { club: number; points: number }[] {
   // einfach so, wie die Tauschkette sie legt. Ein einfaches Sortieren traf sie nicht (GitLab
   // #62). Die Schleife geht über **64** Tabellendatensätze, nicht über die 58 Vereine.
   const idx = Array.from({ length: 64 }, (_, i) => i);
-  const wert = (c: number) => g.standings.at(c).i32(50);
+  // vorzeichenlos verglichen (0x27C2A)
+  const wert = (c: number) => g.standings.at(c).i32(50) >>> 0;
   for (let i = 0; i < 63; i++) {
     for (let j = i + 1; j < 64; j++) {
       if (wert(idx[j]) > wert(idx[i])) {
@@ -327,7 +328,9 @@ export function allTimeTable(g: GameState): { club: number; points: number }[] {
       }
     }
   }
-  return idx.filter((c) => c < 58).map((c) => ({ club: c, points: wert(c) % 100000 }));
+  // Der Bildschirm zeigt und nummeriert alle 64 Sätze, auch die Vereine außerhalb der Ligen
+  // (0x28256: Platz = si + 1); `alle` = false lässt sie für andere Leser weg
+  return idx.filter((c) => alle || c < 58).map((c) => ({ club: c, points: (wert(c) >>> 0) % 100000 }));
 }
 
 export interface AllTimeBalance {

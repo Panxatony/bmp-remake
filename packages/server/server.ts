@@ -1030,6 +1030,14 @@ function uebernimmNummern(g: GameState, manager: number, block: Buffer): string 
   const vorher = belegt.map((i) => zeilen[i].number).sort((a, b) => a - b);
   const nachher = belegt.map((i) => neu[i]).sort((a, b) => a - b);
   if (vorher.join(",") !== nachher.join(",")) return "Rückennummern lassen sich nur untereinander tauschen - hat sich der Kader geändert?";
+  // Verletzte und gesperrte Spieler nimmt der Kaderbildschirm gar nicht an (0x2087A bis 0x208DE:
+  // "Spieler ist VERLETZT" bzw. "GESPERRT."); die Sperre nicht an einem Pokaltag, an dem sie
+  // ausgesetzt ist (4238:513E)
+  for (const i of belegt) {
+    if (zeilen[i].number === neu[i]) continue;
+    const f = zeilen[i].u8(9) & 3;
+    if (f === 2 || (f === 1 && !sperreAusgesetzt(g, manager))) return `${texte("ui.spielerist")[0]} ${texte("ui.spielerstatus")[f === 2 ? 0 : 1].trim()}`;
+  }
   // Wer neu in die erste Elf kommt, übernimmt die Feldzelle (Bytes 25/26) dessen, der sie
   // verlässt (0x20AED, 0x20E8B); ohne so einen sucht 0x1FF36 eine freie Zelle
   const starter = (n: number) => n >= 1 && n <= 11;
@@ -1601,6 +1609,9 @@ function stateJson(r: Room, user: string) {
     // Tagessummen der Kontostände (4cb3:0644): der Statistikbildschirm braucht sie für den
     // Guthabenzins in der Monatsvorschau
     kontosummen: r.balanceSums.map((b) => b.sum),
+    // Merkbits der Tabellenmeldungen (4238:4BEC), Bit 0 = Meisterschaft verspielt: die Ewige
+    // Bilanz färbt damit den Ring um den ersten Kranz (0x283F0)
+    merkbits: r.msgFlags.slice(),
     ceremony: r.ceremony ?? null,
     market: {
       entries: marketEntries(r.game),

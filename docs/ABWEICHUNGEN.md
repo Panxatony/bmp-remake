@@ -37,6 +37,7 @@ soll sich wie das Original verhalten; wo es das nicht tut, ist das ein Fehler.
 | Wappenleiste im Startbildschirm | die Kaderwerte, die das Original über ihre Stellung in einen fremden Spieler schreibt, landen im unbenutzten Spieler 0 (docs/abgleich/neuesspiel.md) |
 | Winterpausenbildschirm, Scherzbildschirme am 12.11. und 19.4. | nicht portiert; den Würfelwurf am Anfang der Routine macht das Remake trotzdem |
 | Relegationsmeldung am 13. Juni | im Original über 4cb3:226A abgeschaltet |
+| Credits (Klick im Startbildschirm, 0x0F749) | nicht nachgebaut |
 | Stärkeliste der Zielvereine 0x0F58B | rechnet das Original aus, benutzt sie aber nicht |
 
 ## Bekannte Näherungen (keine Entscheidung, sondern noch nicht nachgebaut)
@@ -47,3 +48,6 @@ soll sich wie das Original verhalten; wo es das nicht tut, ist das ein Fehler.
 | 4238:513E am Tagesbeginn | im Original ein Rest vom letzten Hauptmenü; das Remake nimmt 0 | 22030 |
 | Marktspieler mit Verein 255 | das Original läse hinter der Vereinstabelle; das Remake würfelt einen Verein | neuesspiel |
 | Kleine Bank: die 13 auf einen nicht gesetzten Platz | im Standardspiel nie erreicht | 22030 |
+| Bildschirm "Info über <Verein>" mit Restprogramm (0x2A41E, 0x028C4) und der Knopf ANZEIGEN, der Tore eines markierten Vereins in der Konferenz einblendet | fehlt noch; das Original würfelt dort nicht | 2A41E, anzeigen |
+| Titelseiten, wenn Ligaspiele und Nachholspiele auf einen Tag fallen | das Original zeigt beide nacheinander, das Remake nur "Ligaspiel" | anzeigen (A2) |
+| Stadion-Restzeit bei Resttagen, die durch 7 teilbar sind | Code und Messung widersprechen sich (84 Tage: 13 nach dem Code, 12 gemessen); das Remake folgt der Messung | anzeigen (A5) |

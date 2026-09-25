@@ -51,7 +51,7 @@ Grafikpuffer. Der Text steht in 4cb3:4D38 und gehört zu 0x224A8.
 | 0x2C3C0 | Formzeichenkette schieben | Hilfsroutine von 0x2D143 | standings.ts | stimmt |
 | 0x2C483 | Bilanz Manager gegen Verein | Spiellogik | `bookHistory` (history.ts) | **R12**, behoben |
 | 0x2C55C | Tabellenbildschirm HEIM/GESAMT/AUSWÄRTS | Anzeige mit Rechnung | `drawTable`, `tableOrder` | **R13**, behoben |
-| 0x2E9AA, 0x2ECB9 | Blocksatz der Hilfetexte | Anzeige | Browsersatz | - |
+| 0x2E9AA, 0x2ECB9 | Blocksatz der Zeitung (nicht der Hilfetexte, siehe anzeigen.md) | Anzeige | `umbruch`/`blocksatz`, `artikelspalte` | stimmt |
 | 0x30910 | Freien Ablaufplatz einer Meldung suchen | Spiellogik (Meldungen) | fehlt | bekannt (0DF0D.md, C) |
 | 0x30E42 | Alle Meldungstexte freigeben | Datei/System | - | - |
 

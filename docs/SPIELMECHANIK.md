@@ -1294,7 +1294,10 @@ System je Manager in Save-Offset 51 + 2·Manager (4cb3:079E): 1 = manuell, 2..4 
 Aufstellung 0x217B8). Solange es gesetzt ist, nimmt die Kaderliste keine Änderung an ("Auto-
 Aufstellung ist aktiviert !", 0x2084F); jeder Klick aufs Spielfeld setzt es auf manuell, mit
 Hinweis (0x20197, Schreibbefehl bei 0x20226). Wer über die Kaderliste in die Elf kommt, übernimmt
-die Feldzelle (Bytes 25/26) des Herausgenommenen, sonst sucht 0x1FF36 eine freie. Vor dem
+die Feldzelle (Bytes 25/26) des Herausgenommenen, sonst sucht 0x1FF36 eine freie. Verletzte
+und (ohne Pokalausnahme) gesperrte Spieler nimmt der Kaderbildschirm gar nicht an; im Spiel
+kommt nur ein Spieler von der Bank aufs Feld, und schon der Auszuwechselnde braucht ein freies
+Kontingent seiner Gruppe (Zweigbuch 20230). Vor dem
 Spieltag sichert das Original den Wert nach 079F und setzt 1, nach den Spielen stellt es ihn
 wieder her und stellt neu auf (0x1D797); außerdem läuft die Aufstellung nach Verletzungen und
 Sperren (0x0DF0D, 0x0F6D8), nach einem Kauf (0x22FBA) und zu Spielbeginn (0x9D46 mit 1-4-4-2).

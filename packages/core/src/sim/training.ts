@@ -271,7 +271,11 @@ export function trainingBars(g: GameState, manager: number): [number, number, nu
   let te = 0;
   let fr = 0;
   let n = 0;
-  for (const l of g.squadOf(manager)) {
+  // Wie 0x10AF2 über die Plätze 0..Anzahl-1 (0x31A19): ein Starter hinter einer Lücke im Kader
+  // zählt nicht mit
+  const anzahl = g.squadOf(manager).length;
+  for (let platz = 0; platz < anzahl; platz++) {
+    const l = g.lineups.at(manager * 25 + platz);
     const nr = l.u8(10);
     if (nr === 0 || nr >= 12) continue;
     n++;

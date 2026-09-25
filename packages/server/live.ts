@@ -327,7 +327,12 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
   const now = Date.now();
   // Vor dem Anpfiff zeigt das Original eine ganze Seite in Schwarz-Rot-Gold mit der Art des
   // Spieltags (0x1D866: erst die Ligen, dann der DFB-Pokal, dann Europa) und wartet 50 Ticks.
-  const announce = flag & 7 ? "Ligaspiel" : flag & FLAG_CUP ? "DFB-Pokal" : flag & FLAG_EUROPE ? "Europapokal" : undefined;
+  // Am Relegationstag ((Flag & 0x70) = 0x10) steht "Relegationsspiel" (0x33DF), an einem Tag nur
+  // mit Nachholspielen "Nachholspiele" (0x38AF). Fallen Ligaspiele und Nachholspiele auf einen
+  // Tag, zeigt das Original beide Seiten nacheinander; das Remake zeigt nur die erste.
+  const titel = texte("ui.ankuendigung");
+  const nachhol = entries.some((e) => e.nachhol);
+  const announce = flag & 7 ? titel[0] : flag & FLAG_CUP ? titel[1] : (flag & 0x70) === 0x10 ? titel[3] : flag & FLAG_EUROPE ? titel[2] : nachhol ? titel[4] : undefined;
   const halt = announce ? ANNOUNCE_MS : 1500;
   return { dayIndex: k, flag, entries, postponed, minute: 0, paused: false, sceneQueue: [], holdUntil: now + halt, nextMinuteAt: now + halt, finished: false, tempoMs, scenesOn: true, halbzeitStaende: [true, true, true], news: [], subs: {}, einsaetzeVorher, elfmeterQueue: [], announce, announceUntil: announce ? now + halt : undefined };
 }
@@ -679,6 +684,9 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
     if (ins.length > outs.length && rot > 0) return { ok: false, error: "Ein Platzverweis l{~t sich nicht ersetzen" };
     return { ok: false, error: "Elf Spieler m}ssen auf dem Feld stehen" };
   }
+  // Einwechseln lässt sich nur ein Spieler mit Nummer, also von der Bank (0x208E1: "Spieler ist
+  // nicht aufgestellt")
+  if (ins.some((slot) => before[slot * 52 + 10] === 0)) return { ok: false, error: texte("ui.spielerist").join(" ") };
   const used = (state.subs[manager] ??= { goalkeeper: 0, field: 0 });
   let gk = 0;
   let field = 0;
@@ -692,6 +700,14 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
   // Grenzen nach Regelwerk: im Original ein Torwart und zwei Feldspieler, in der Version 2026
   // fünf Wechsel ohne Rücksicht auf die Position
   const grenze = substitutionLimits(g);
+  // Schon der Klick auf den Auszuwechselnden prüft das Kontingent nach dessen Position (0x2092A
+  // bis 0x20999): ist es für seine Gruppe aufgebraucht, "Keine Auswechslung mehr möglich"
+  const frei = (torwart: boolean) =>
+    Math.min(torwart ? grenze.goalkeeper - used.goalkeeper : grenze.field - used.field, grenze.total - used.goalkeeper - used.field);
+  for (const slot of outs) {
+    const p = g.players.at(g.lineups.at(manager * 25 + slot).playerIndex);
+    if (frei(p.u8(31) < 1) <= 0) return { ok: false, error: texte("ui.keinwechsel").join(" ") };
+  }
   if (
     used.goalkeeper + gk > grenze.goalkeeper ||
     used.field + field > grenze.field ||
