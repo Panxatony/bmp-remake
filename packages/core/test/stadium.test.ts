@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, stadiumState, stadiumCapacity, buildDays, buildWeeks, extendStadium, dailyConstruction, bauAblehnen, bauGesperrt, setTicketPrice, takeLoan, loanRate, LOAN_MONTHS, lenderDebt, BANK, dailyFinance, texte } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, stadiumState, stadiumCapacity, buildDays, buildWeeks, restWochen, extendStadium, dailyConstruction, bauAblehnen, bauGesperrt, setTicketPrice, takeLoan, loanRate, LOAN_MONTHS, lenderDebt, BANK, dailyFinance, texte } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -98,8 +98,9 @@ test("Gesamtkapazität und Bauwochen wie im Original (TEST4 in DOSBox nachgemess
   for (let i = 0; i < 4; i++) m.setU8(366 + i, i === 0 ? 0xd0 : i === 1 ? 0x07 : 0); // 2000
   for (let i = 0; i < 4; i++) m.setU8(370 + i, 0);
   assert.deepEqual(stadiumCapacity(g, 0), { jetzt: 24000, nachAusbau: 24000 });
-  // Restzeit in Wochen, aufgerundet: im Original gemessen 72 -> 11, 83 -> 12, 84 -> 12
-  assert.deepEqual([72, 83, 84].map(buildWeeks), [11, 12, 12]);
+  // Restzeit in Wochen wie 0x1FBB, im Original gemessen mit den nach dem Laden gespeicherten
+  // Tagen (#117): 83 -> 12, 82 -> 12, 84 -> 13, 90 -> 13, 89 -> 13, 76 -> 11, 77 -> 12
+  assert.deepEqual([83, 82, 84, 90, 89, 76, 77].map(restWochen), [12, 12, 13, 13, 13, 11, 12]);
   // Die Bauzeit der Rückfrage ist der Wert, mit dem dann auch gebaut wird
   const rng = mulberryRng(7);
   const tage = buildDays(g, 0, 1, rng);

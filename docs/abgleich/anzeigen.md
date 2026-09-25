@@ -10,10 +10,10 @@ Schreibzugriffe auf den Spielstand stimmen.
 | | Was | Stand |
 |---|---|---|
 | A1 | Titelseite am Relegationstag "Relegationsspiel" statt "Europapokal" | behoben (server/live.ts) |
-| A2 | Titelseite "Nachholspiele" an einem Tag nur mit Nachholspielen | behoben; fallen Liga und Nachholspiele zusammen, zeigt das Remake nur die erste Seite (ABWEICHUNGEN) |
+| A2 | Titelseite "Nachholspiele" an einem Tag nur mit Nachholspielen | behoben; fallen Liga und Nachholspiele zusammen, folgen beide Seiten nacheinander (#119) |
 | A3 | Hauptmenü: "Nachholspiel" statt "Spielfrei", wenn der eigene Verein heute nachholt | behoben |
 | A4 | Restprogramm 0x028C4 (aus der Vereinsinfo) | nachgebaut mit F1 (2A41E.md) |
-| A5 | Stadion-Restzeit: der Code rechnet Resttage / 7 + 1, gemessen war 84 Tage -> 12 Wochen (stadium.test.ts) | unklar: der Bildschirm liest das Feld 0x36 + 2k eines Zeigers, vermutlich nicht das in der Messung gesetzte; Remake bleibt bei der Messung |
+| A5 | Stadion-Restzeit: Resttage / 7 + 1 | behoben (#117): die alte Messung war um einen Tag verschoben - das Original zählt beim Laden jeden Bau um einen Tag herunter; neu gemessen mit sieben Werten, `restWochen` |
 | A6 | Credits 0x0F749 | nicht nachgebaut (ABWEICHUNGEN) |
 | S1 | Statistik: Hinweise "(NOCH KEINE...)" / "(NOCH KEINER...)" statt 0 vor dem ersten Heimspiel und ohne Rekord | behoben |
 | S2 | Statistik: Zahlen links mit '^' auf die Mindestbreite (0x7D31), Monatsbilanz Breite 7, Null als "^0" | behoben |

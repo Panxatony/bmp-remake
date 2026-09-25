@@ -277,6 +277,7 @@ export class Assets {
     const names = ["0.VGA", "2.VGA", "3.VGA", "4.VGA", "5.VGA", "22.CP", "23.VGA", "21.VGA", "7.VGA", "9.VGA", "30.VGA", "36.VGA", "38.VGA"];
     for (let i = 80; i <= 147; i++) names.push(i + ".VGA");
     names.push("44.VGA"); // Zeitungskopf
+    names.push("41.VGA"); // Bild der Scherztage (0x1CF86, #120)
     // Pokale des Abschlussbilds: Meisterschale, DfB-Pokal, Landesmeister, Pokalsieger, UEFA
     for (let i = 50; i <= 54; i++) names.push(i + ".VGA");
     names.push("47.VGA"); // Auslosungstafel

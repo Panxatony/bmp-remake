@@ -3619,6 +3619,84 @@
     "len": 9,
     "sum": "4e158969"
    }
+  ],
+  "scherz.brief": [
+   {
+    "off": 320245,
+    "len": 25,
+    "sum": "fec885e0"
+   },
+   {
+    "off": 320271,
+    "len": 39,
+    "sum": "cdc6616f"
+   },
+   {
+    "off": 320311,
+    "len": 38,
+    "sum": "64c0ac0c"
+   },
+   {
+    "off": 320350,
+    "len": 27,
+    "sum": "a0984f9d"
+   },
+   {
+    "off": 320378,
+    "len": 38,
+    "sum": "d6a93ece"
+   },
+   {
+    "off": 320417,
+    "len": 37,
+    "sum": "24406f38"
+   },
+   {
+    "off": 320455,
+    "len": 37,
+    "sum": "0e37adc9"
+   },
+   {
+    "off": 320493,
+    "len": 36,
+    "sum": "ed6e3868"
+   }
+  ],
+  "scherz.schande": [
+   {
+    "off": 320614,
+    "len": 22,
+    "sum": "b49f75eb"
+   },
+   {
+    "off": 320637,
+    "len": 18,
+    "sum": "1e61ec9a"
+   }
+  ],
+  "ui.winterpause": [
+   {
+    "off": 326596,
+    "len": 11,
+    "sum": "81f92fdd"
+   }
+  ],
+  "scherz.titel": [
+   {
+    "off": 335566,
+    "len": 16,
+    "sum": "d4eaf62c"
+   },
+   {
+    "off": 335583,
+    "len": 10,
+    "sum": "45f4d027"
+   },
+   {
+    "off": 335594,
+    "len": 12,
+    "sum": "5e4e98ea"
+   }
   ]
  }
 }

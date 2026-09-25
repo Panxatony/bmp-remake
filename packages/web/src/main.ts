@@ -4,7 +4,7 @@
  * Tabelle, Finanzen, Stadion und Meldungen und schreibt den geänderten
  * Spielstand als *.MAN zurück.
  */
-import { SaveFile, GameState, replays, fixtures, vereinsInfo, restprogramm, restStartRueck, infoX, INFO_Y, INFO_BREITE, INFO_HOEHE, type InfoBefehl, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
+import { SaveFile, GameState, replays, fixtures, vereinsInfo, restprogramm, restStartRueck, infoX, INFO_Y, INFO_BREITE, INFO_HOEHE, type InfoBefehl, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, restWochen, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
 import { Assets, Sounds, COLORS, W, H, bevel, panel, button, hline, drawIcon, drawIconOver, toGame, upperGame, cp437ToGame, dm, type Font } from "./gfx.ts";
 import { Scenes, SCENE_FRAME_MS, VIEW, type SceneData } from "./scene.ts";
 
@@ -66,6 +66,7 @@ interface ServerExtra {
   poachRequests: { poacher: number; owner: number; place: number; bonus: number; playerIndex: number; name: string }[];
   loanRequests: { borrower: number; lender: number; amount: number }[];
   loanOffers?: { borrower: number; lender: number; amount: number; months: number; rate: number }[];
+  sonderseiten?: { manager: number; art: "winter" | "scherz1" | "scherz2"; tag: number; monat: number; saisontag?: number }[];
   freeAgents: { playerIndex: number; name: string; position: string; age: number; strength: number[]; from: number; salary: number; value: number; bids: { manager: number; salary: number }[] }[];
   /** Frisch aus der Jugend aufgerückte Spieler; sie stehen bis zum Tageswechsel zur Abwerbung (#4) */
   jugendFrisch?: { manager: number; place: number; name: string; preis: number }[];
@@ -167,6 +168,8 @@ interface LiveState {
   /** Ankündigung vor dem Anpfiff und ihre Restzeit beim Empfang */
   announce?: string | null;
   announceLeft?: number;
+  announce2?: string | null;
+  announce2Left?: number;
   scene: LiveScene | null;
   entries: LiveEntry[];
   subs: Record<string, { goalkeeper: number; field: number }>;
@@ -270,6 +273,8 @@ const TRAIT_COLORS = ["#b2a271", "#a2a2c3", "#719241", "#c37120", "#b20020"];
 
 const MONTHS = ["Januar", "Februar", "M{rz", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 // Das Original rechnet den Wochentag vier Tage versetzt (11.11.1997 = Samstag, 15.11.1997 = Mittwoch).
+/** Dauer einer Titelseite wie ANNOUNCE_MS im Server (50 Ticks) */
+const ANNOUNCE_MS_CLIENT = 2750;
 const DAYS = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
 
 class App {
@@ -506,6 +511,12 @@ class App {
         if (q.get("manager")) this.manager = Number(q.get("manager"));
         const s = q.get("screen") as Screen | null;
         if (s) this.go(s);
+        // Entwicklung: &sonder=winter|scherz1|scherz2 zeigt eine Sonderseite (#120)
+        const sonder = q.get("sonder");
+        if (sonder) {
+          this.sonderTest = true;
+          this.server.extra = { ...(this.server.extra ?? {}), sonderseiten: [{ manager: this.manager, art: sonder as "winter", tag: 12, monat: 10, saisontag: 106 }] } as typeof this.server.extra;
+        }
         // Entwicklung: &info=Verein[&modus=0..2&platz=n&rest=1] öffnet die Vereinsinfo
         if (q.get("info")) {
           this.oeffneVereinsInfo(Number(q.get("info")), Number(q.get("modus") ?? 2), Number(q.get("versatz") ?? 0), q.get("platz") ? Number(q.get("platz")) : undefined);
@@ -1675,6 +1686,11 @@ class App {
     }
     if (live.announce && Date.now() - this.liveReceived < (live.announceLeft ?? 0)) {
       this.drawAnkuendigung(live.announce);
+      return;
+    }
+    // Zweite Titelseite (Nachholspiele am selben Tag, #119)
+    if (live.announce2 && Date.now() - this.liveReceived < (live.announce2Left ?? 0)) {
+      this.drawAnkuendigung(live.announce2);
       return;
     }
     // Vor dem ersten Schuss deckt die Tafel des Elfmeterschießens die Konferenz zu (GitLab #72)
@@ -3056,6 +3072,7 @@ class App {
         break;
     }
     if (this.screen === "live") this.drawTicker();
+    if (this.screen === "menu" && this.drawSonderseite()) return;
     if (this.vereinsInfo && (this.screen === "table" || this.screen === "spiele" || this.screen === "staerken")) this.drawVereinsInfo();
     else this.vereinsInfo = null;
     // Zahleneingaben und kurze Rückmeldungen liegen über dem Bildschirm, zu dem sie gehören
@@ -4768,6 +4785,79 @@ class App {
     if (vertrag && this.vertragPlace >= 0 && rows[this.vertragPlace]) this.drawVertragsKasten(rows[this.vertragPlace], this.vertragPlace);
   }
 
+  /** Beginn der gerade gezeigten Sonderseite und ob die Schweigeminute gebrochen wurde (#120). */
+  sonderStart = 0;
+  sonderSchande = 0;
+  sonderTest = false;
+
+  /**
+   * Sonderseiten des Tagesablaufs (#120): die Titelseite "WINTERPAUSE" (0x1D99D) und die
+   * Scherzbildschirme am 12.11. und 19.4. (0x1CF86, Index 1 und 2). Scherzseite wie im Original:
+   * Grund Farbe 16 mit Rand in Farbe 19, Bild 41 bei (136,52) im Rahmen (134,50)-(183,108) in
+   * Farbe 29, Datum und acht Briefzeilen in Farbe 11, "Oh happy day !!!" in Farbe 19. Danach eine
+   * Schweigeminute (1080 Timerticks); wer vorher klickt, bekommt "Das war keine Minute !" und
+   * nach 150 Ticks ist es vorbei. Liefert true, solange eine Seite steht.
+   */
+  drawSonderseite(): boolean {
+    const seite = this.server.extra?.sonderseiten?.find((x) => x.manager === this.manager);
+    if (!seite || !(this.online || this.sonderTest)) {
+      this.sonderStart = 0;
+      return false;
+    }
+    const ctx = this.ctx;
+    const f = this.assets.font;
+    const jetzt = Date.now();
+    if (!this.sonderStart) this.sonderStart = jetzt;
+    const fertig = () => {
+      this.sonderStart = 0;
+      this.sonderSchande = 0;
+      void this.post("api/sonderseite", { manager: this.manager, player: this.player, art: seite.art }, true);
+    };
+    this.hits = [];
+    if (seite.art === "winter") {
+      this.drawAnkuendigung(texte("ui.winterpause")[0]);
+      if (jetzt - this.sonderStart > ANNOUNCE_MS_CLIENT) fertig();
+      else setTimeout(() => this.render(), ANNOUNCE_MS_CLIENT);
+      this.hit(0, 0, W, H, fertig);
+      return true;
+    }
+    ctx.fillStyle = "#610010";
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "#c37120";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+    const bild = this.assets.img("41.VGA");
+    if (bild) ctx.drawImage(bild, 136, 52);
+    ctx.strokeStyle = "#f3f3f3";
+    ctx.strokeRect(134.5, 50.5, 49, 58);
+    const mitte = (t: string, y: number, farbe: string) => f.draw(ctx, t, 160 - Math.trunc(f.width(t) / 2), y, farbe, COLORS.black);
+    const datum = `${DAYS[((seite.saisontag ?? 0) + 6) % 7]}, ${seite.tag}. ${MONTHS[seite.monat]}`;
+    mitte(datum, 2, "#d3c3b2");
+    const titel = texte("scherz.titel");
+    mitte(titel[0], 27, "#c37120");
+    texte("scherz.brief").forEach((z, i) => mitte(i === 3 ? z + titel[seite.art === "scherz1" ? 1 : 2] : z, 119 + 11 * i, "#d3c3b2"));
+    const MINUTE = Math.round((1080 / 18.2) * 1000);
+    const SCHANDE = Math.round((150 / 18.2) * 1000);
+    if (this.sonderSchande) {
+      const schande = texte("scherz.schande");
+      mitte(schande[0], 222, "#d3c3b2");
+      mitte(schande[1], 232, "#d3c3b2");
+      if (jetzt - this.sonderSchande > SCHANDE) fertig();
+      else setTimeout(() => this.render(), SCHANDE);
+      this.hit(0, 0, W, H, () => undefined);
+      return true;
+    }
+    if (jetzt - this.sonderStart > MINUTE) {
+      fertig();
+      return true;
+    }
+    setTimeout(() => this.render(), MINUTE - (jetzt - this.sonderStart) + 50);
+    this.hit(0, 0, W, H, () => {
+      this.sonderSchande = Date.now();
+    });
+    return true;
+  }
+
   /** Vereinsinfo aus einer Liste öffnen (Tabelle 0x2D0BA, Spielplan 0x2C089, Stärkeliste 0x2E38A). */
   oeffneVereinsInfo(club: number, modus: number, versatz: number, platz?: number): void {
     if (!this.game) return;
@@ -5672,7 +5762,7 @@ class App {
       s.draw(ctx, cp437ToGame(b), 192, y, a === b ? INK_FAR : INK_MID, false);
       // Rechts daneben die Restzeit des Baus, aufgerundet auf Wochen (0x0602; GitLab #55)
       const e = row >= 1 && row <= 7 ? st[row - 1] : null;
-      if (e && e.days > 0) s.draw(ctx, toGame(`${buildWeeks(e.days)}${T("ui.wochen", 0)}`), 244, y, INK_MID, false);
+      if (e && e.days > 0) s.draw(ctx, toGame(`${restWochen(e.days)}${T("ui.wochen", 0)}`), 243, y, INK_MID, false);
     }
     for (let row = 1; row < 9; row++) this.hit(7, 114 + 8 * row, 281, 8, () => this.pickStadium(row));
     // Kasten rechts: das Original zeigt die Angaben erst nach dem Anklicken einer Zeile, beim
