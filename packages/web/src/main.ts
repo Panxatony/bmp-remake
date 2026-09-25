@@ -4444,7 +4444,8 @@ class App {
       const x = 6 + 60 * i;
       this.iconFrame(x, 195, system === i + 2);
       if (pic) ctx.drawImage(pic, 121, 24 * i, 32, 23, x + 7, 201, 32, 23);
-      this.hit(x, 195, 46, 36, () => void this.post("api/system", { manager: this.manager, player: this.player, system: i + 2 }));
+      // Im laufenden Spiel nimmt das Original die Knöpfe nicht an (0x216DD)
+      if (!this.live) this.hit(x, 195, 46, 36, () => void this.post("api/system", { manager: this.manager, player: this.player, system: i + 2 }));
     }
   }
 

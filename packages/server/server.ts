@@ -3189,12 +3189,16 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const system = Math.trunc(Number(body.system));
     if (!(system >= 1 && system <= 4)) return json(res, 400, { error: "System ungültig" });
     if (room.live && !room.live.paused) return json(res, 409, { error: "Erst das Spiel unterbrechen" });
+    // Im laufenden Spiel wertet das Original die Systemknöpfe nicht aus (0x216DD: nur mit
+    // Argument 0, aus der Konferenz kommt die Zahl der Spieler auf dem Platz). Erlaubt bleibt nur
+    // das Abschalten der Automatik per Klick aufs Spielfeld (0x20197, System 1)
+    if (room.live && system !== SYSTEM_MANUAL) return json(res, 409, { error: "Im laufenden Spiel ist kein Systemwechsel möglich" });
     // Systemwahl im Kaderbildschirm (0x21776) mit sofortiger Aufstellung (0x217B8)
     const vorher = room.game.save.plain.slice(SQUAD_OFFSET + manager * SQUAD_BYTES, SQUAD_OFFSET + (manager + 1) * SQUAD_BYTES);
     setSystem(room.game, manager, system);
     autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager));
-    // Im laufenden Spiel zählt das als Auswechslung: die automatische Aufstellung füllte sonst
-    // auch den Platz eines vom Feld gestellten Spielers wieder auf (GitLab #53)
+    // Im laufenden Spiel kommt hier nur noch System 1 an (keine Aufstellung); die Buchung als
+    // Auswechslung (GitLab #53) bleibt als Absicherung
     if (room.live) {
       const sub = applySubstitutions(room.live, room.game, manager, vorher, room.rng);
       if (!sub.ok) {

@@ -219,5 +219,5 @@ Die 59 Routinen, die bis dahin weder ein Zweigbuch noch dieser Audit nannte, sin
 docs/abgleich/restroutinen.md eingeordnet. Dabei kamen 16 Befunde heraus (R1 bis R16): Kaderzahl
 beim Kauf und beim Jugendspieler, Feldzelle neuer Starter, Aufstellungsautomatik im Kader,
 Saisonverlauf, Heim- und Auswärtstabelle, Reihenfolge der Meldungen und einige kleinere. Offen
-sind R7 (Systemwahl im Spiel), R11 (Umbruch auf der Konferenztafel) und R16 (Stände zurück ins
+sind R11 (Umbruch auf der Konferenztafel) und R16 (Stände zurück ins
 Original).
