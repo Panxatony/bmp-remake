@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, playerValue, marketEntries, listPlayer, takeBack, saleOffer, decideSale, buyOffer, completePurchase, completeLoan, cancelPurchase, aiAccepts, refreshMarket, dailyTransfers, listedCount, OFFER_SQUAD, OFFER_MARKET, MARKET_MANAGER, texte } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, playerValue, marketEntries, listPlayer, takeBack, saleOffer, decideSale, buyOffer, completePurchase, completeLoan, cancelPurchase, aiAccepts, kaderZahl, kaderVoll, TABLES, refreshMarket, dailyTransfers, listedCount, OFFER_SQUAD, OFFER_MARKET, MARKET_MANAGER, texte } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -163,4 +163,24 @@ test("Leihe: das Gehalt trägt den Abschlag des Originals, ein Drittel (GitLab #
   // Ein Drittel, bis auf die Rundung auf volle 100 DM
   assert.ok(Math.abs(gehalt - Math.trunc(vollesGehalt / 3)) <= 200, `${gehalt} statt rund ${Math.trunc(vollesGehalt / 3)}`);
   assert.ok(gehalt < vollesGehalt / 2, `Leihgehalt ${gehalt} ist nicht kleiner als das halbe volle ${vollesGehalt}`);
+});
+
+test("Kaderzahl 0x11354: eigene Spieler auf dem Markt zählen mit; ab 24 kein Kauf mehr (0x224A8)", () => {
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "RIED-CLI.MAN")))));
+  // Manager 0: 15 Kaderplätze und Spieler 47 auf dem Markt (Besitzer 0)
+  assert.equal(g.squadOf(0).length, 15);
+  assert.equal(kaderZahl(g, 0), 16);
+  assert.equal(kaderZahl(g, 1), 12);
+  // Manager 2: 15 belegte Plätze (mit der Lücke auf 14), niemand anderswo
+  assert.equal(kaderZahl(g, 2), 15);
+  // Kader von Manager 0 auf 23 Plätze auffüllen: mit dem Marktspieler sind es 24
+  for (let i = 15; i < 23; i++) g.save.plain.copyWithin(TABLES.lineups.offset + i * 52, TABLES.lineups.offset, TABLES.lineups.offset + 52);
+  assert.equal(kaderZahl(g, 0), 24);
+  const fremd = g.lineups.at(100).playerIndex;
+  assert.equal(kaderVoll(g, 0, fremd), true);
+  // Ein Spieler des eigenen Vereins fällt nicht unter die Grenze
+  assert.equal(kaderVoll(g, 0, g.lineups.at(0).playerIndex), false);
+  // Ohne den Marktspieler wären es 23: dann geht es noch
+  g.players.at(47).setU8(33, 4);
+  assert.equal(kaderVoll(g, 0, fremd), false);
 });

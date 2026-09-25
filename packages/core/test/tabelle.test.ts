@@ -148,3 +148,22 @@ for (const [nach, vor] of PAARE) {
     for (let l = 0; l < 3; l++) assert.deepEqual(tableOrder(g, l), [...o.slice(28244 + 20 * l, 28244 + 20 * l + (l ? 20 : 18))], `Liga ${l}`);
   });
 }
+
+test("Heim- und Auswärtstabelle: dieselbe Sortierung mit den Heim- bzw. Auswärtsbytes (0x2C92B)", () => {
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "RIED-CLI.MAN")))));
+  for (const art of [0, 2] as const) {
+    const [pt, sp, tf, tg] = art === 0 ? [0, 30, 22, 26] : [1, 31, 23, 27];
+    for (let league = 0; league < 3; league++) {
+      const folge = tableOrder(g, league, art);
+      const key = (c: number) => {
+        const s = g.standings.at(c);
+        return [s.u8(pt), -s.u8(sp), s.u8(tf) - s.u8(tg), s.u8(tf)];
+      };
+      for (let i = 0; i + 1 < folge.length; i++) {
+        const [a, b] = [key(folge[i]), key(folge[i + 1])];
+        const k = a.findIndex((v, j) => v !== b[j]);
+        assert.ok(k < 0 || a[k] > b[k], `Liga ${league}, Art ${art}, Platz ${i + 1}`);
+      }
+    }
+  }
+});

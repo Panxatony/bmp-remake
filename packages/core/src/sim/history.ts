@@ -154,8 +154,9 @@ export function bookHistory(g: GameState, home: number, away: number, hg: number
       for (let j = 0; j < 4; j++) p[base + 2 * j + side] = p[base + 2 * (j + 1) + side];
       k = 4;
     }
-    // Byte = Gegentore·16 + eigene Tore (21 gegen 27 zu Hause 4:0 -> 0x04, 31 bei 23 1:4 -> 0x41)
-    p[base + 2 * k + side] = ((Math.min(15, other) << 4) | Math.min(15, own)) & 0xff;
+    // Byte = Gegentore·16 + eigene Tore (21 gegen 27 zu Hause 4:0 -> 0x04, 31 bei 23 1:4 -> 0x41),
+    // ohne Begrenzung als 8-Bit-Summe (0x2C549 bis 0x2C553): ab 16 Toren läuft es über
+    p[base + 2 * k + side] = ((other << 4) + own) & 0xff;
   });
   const h = Math.min(15, hg);
   const a = Math.min(15, ag);

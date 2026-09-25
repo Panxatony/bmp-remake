@@ -367,6 +367,8 @@ class App {
   /** Kader: Spielfeld eingeblendet, dazu der angeklickte Kaderplatz */
   pitchOpen = false;
   pitchSel = -1;
+  /** Seite im Managerverlauf (16 Saisons je Seite wie 0x29BFE). */
+  verlaufSeite = 0;
   /** Kaderbildschirm: Liste der Stärken oder der Verträge */
   squadView: "kader" | "vertrag" = "kader";
   /** Vertragsansicht: angeklickter Kaderplatz für die Verlängerung */
@@ -2178,11 +2180,12 @@ class App {
       for (const r of strengthTable(g, liga)) stark.set(r.club, r);
       const platz = new Map<number, number>();
       tableOrder(g, liga).forEach((club, i) => platz.set(club, i + 1));
+      // Wie 0x2C128: die Stärke ist die Summe der neun Matrixbytes / 9, nicht das Mittel der
+      // schon gekürzten Linienmittel
       const info = (club: number): string => {
-        const r = stark.get(club);
-        if (!r) return "";
-        const t = Math.trunc((r.ko + r.te + r.fo) / 3);
-        return toGame(`${platz.get(club) ?? 0}. PLATZ, ST[RKE ${t} (${r.ko},${r.te},${r.fo})`);
+        if (!stark.get(club)) return "";
+        const r = clubStrength(g, club);
+        return toGame(`${platz.get(club) ?? 0}. PLATZ, ST[RKE ${r.total} (${r.ko},${r.te},${r.fo})`);
       };
       matchdayView(g, liga, md).slice(0, 10).forEach((row, i) => {
         const y = 12 + 16 * i;
@@ -4417,6 +4420,11 @@ class App {
         const c = mitte(col, row);
         this.hit(c.x - 8, c.y - 7, 16, 14, () => {
           const hier = squad.findIndex((l) => l.number >= 1 && l.number <= 11 && l.u8(25) === col && l.u8(26) === row);
+          // Jeder Klick aufs Spielfeld schaltet die Automatik ab, mit Hinweis (0x219EA -> 0x20197)
+          if (this.online && g.save.plain[SYSTEM_OFFSET + 2 * this.manager] > 1) {
+            this.hinweis = [texte("ui.automatik")[0], texte("ui.automatik")[1]];
+            void this.post("api/system", { manager: this.manager, player: this.player, system: 1 }, true);
+          }
           if (this.pitchSel < 0) {
             if (hier >= 0) this.pitchSel = hier;
             return;
@@ -4530,7 +4538,8 @@ class App {
       // im Original auch keinen Status. Eine Dopingsperre benutzt die Mechanik der Verletzung,
       // heißt aber anders (#3).
       const ef = this.einsatzFlag(l);
-      const st = isDopeBanned(l) ? "DOPING" : ef & 2 ? "VERL." : ef & 1 ? "GESP." : l.number === 0 ? "" : l.number > 11 ? "RESERVE" : "IM TEAM";
+      // Wie 0x21E40: Text 4cb3:22FC[Byte 9 & 3], bei der Sperre mit der Dauer (Byte 13) in Klammern
+      const st = isDopeBanned(l) ? "DOPING" : ef === 3 ? " " : ef === 2 ? "VERL." : ef === 1 ? `GESP.(${l.u8(13)})` : l.number === 0 ? "" : l.number > 11 ? "RESERVE" : "IM TEAM";
       const [ko, te, fo] = l.strength;
       if (vertrag) {
         const td = this.tendenz(l);
@@ -4724,6 +4733,12 @@ class App {
   }
 
   pickRow(i: number): void {
+    // Bei eingeschalteter Automatik nimmt die Kaderliste keinen Klick an (0x2084F)
+    if (this.online && this.save!.plain[SYSTEM_OFFSET + 2 * this.manager] > 1) {
+      this.hinweis = [texte("ui.automatik")[0], texte("ui.automatik")[2]];
+      this.selectedRow = -1;
+      return;
+    }
     if (this.selectedRow < 0) {
       this.selectedRow = i;
       return;
@@ -4781,11 +4796,15 @@ class App {
     }
     // Reihenfolge: die Gesamttabelle steht als Platz im Spielstand (Standing-Byte 46) und wird
     // nach jedem Spieltag fortgeschrieben (sim/standings.ts). Gleichauf liegende Vereine
-    // behalten dadurch eine feste Reihenfolge, die ein einfaches Sortieren nicht trifft. Für
-    // Heim- und Auswärtstabelle rechnet das Original eigene Ränge; dort wird nach Punkten,
-    // Tordifferenz und Toren sortiert, bei Gleichstand nach dem Tabellenplatz.
+    // behalten dadurch eine feste Reihenfolge, die ein einfaches Sortieren nicht trifft. Heim-
+    // und Auswärtstabelle sortiert das Original mit derselben Routine (0x2D143, Art 0 bzw. 2)
+    // ab der Gesamtreihenfolge: Punkte, weniger Spiele, Tordifferenz, Tore. Dass es dabei die
+    // Reihenfolgeliste im Spielstand umschreibt, macht das Remake nicht nach (ABWEICHUNGEN).
     if (this.tableMode === "gesamt") rows.sort((a, b) => a.s.u8(46) - b.s.u8(46));
-    else rows.sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga) || b.gf - a.gf || a.s.u8(46) - b.s.u8(46));
+    else {
+      const folge = tableOrder(g, league, this.tableMode === "heim" ? 0 : 2);
+      rows.sort((a, b) => folge.indexOf(a.club) - folge.indexOf(b.club));
+    }
     const matchday = Math.max(...rows.map((r) => r.s.homeGames + r.s.awayGames));
     const INK = "#a2a2c3";
     const SHADOW = "#303051";
@@ -4913,7 +4932,7 @@ class App {
     const s = this.assets.micro;
     const g = this.game!;
     const m = g.managers.at(this.manager);
-    const h = m.history;
+    const h = m.history(g.save.plain[34224] | (g.save.plain[34225] << 8));
     const gelb = "#d3c3b2";
     const hell = "#a2a2c3";
     panel(ctx, 5, 8, 309, 144);
@@ -4926,23 +4945,52 @@ class App {
       s.draw(ctx, t, x, 25, hell, false);
     }
     // Spalten am Original vermessen: Saison links bei 12, Platz links bei 42, die drei
-    // Textspalten mittig über 85, 143 und 246 (GitLab #56)
-    const year0 = g.year - h.length - 1;
+    // Textspalten mittig über 85, 143 und 246 (GitLab #56). Inhalt wie 0x29F11 bis 0x2A2C9:
+    // Saison = 1963, ab einem Startjahr nach 1970 1991, + Managerbyte 315 + Zeile; Platz = Rang
+    // minus Ligaversatz, gelb (Farbe 11) für den Meister; Liga aus Byte 63; DFB-Pokal aus Byte 64
+    // (Bit 7 "SIEGER" gelb, sonst Rundentext 4cb3:24C0[b & 7]); Europapokal aus Byte 65 (Bit 7
+    // "SIEGER", sonst Rundentext 24C4[b & 7], dazu der Wettbewerb, Landesmeister und
+    // Pokalsieger gekürzt; ohne Wettbewerbsbits "nicht im wettbewerb"). Alles in Großbuchstaben
+    // (0x3196D). 16 Saisons je Seite, ein Klick blättert weiter.
+    const seiten = Math.max(1, Math.ceil(h.length / 16));
+    if (this.verlaufSeite >= seiten) this.verlaufSeite = 0;
+    const saisons = g.save.plain[34224] | (g.save.plain[34225] << 8);
+    const jahr0 = 1963 + (g.year - saisons > 1970 ? 28 : 0) + m.u8(315);
+    const gross = (t: string) => t.toUpperCase();
+    const dfbText = texte("verlauf.dfb");
+    const sieger = texte("verlauf.sieger");
     h.forEach((e, i) => {
-      const y = 25 + 8 * i;
-      const liga = ["", "BUNDESLIGA", "ZWEITE LIGA", "AM.-OBERLIGA"][e.league] ?? "";
-      s.draw(ctx, String(year0 + i), 12, y, hell, false);
-      // Den Platz füllt das Original links mit '^' auf zwei Stellen auf - das Zeichen ist leer
-      // und so breit wie eine Ziffer, die einstelligen Plätze rücken damit um fünf Punkte ein
-      s.draw(ctx, e.place ? `${"^".repeat(Math.max(0, 2 - String(e.place).length))}${e.place}.` : "-", 42, y, hell, false);
-      // Saison und Platz stehen links, die drei Textspalten aber mittig über 85, 143 und 246
-      s.drawCenter(ctx, liga, 85, y, hell, false);
-      s.drawCenter(ctx, (roundNames()[e.cupRound] ?? "-").toUpperCase(), 143, y, hell, false);
-      // Ohne Europapokal schreibt das Original "NICHT IM WETTBEWERB", keinen Strich
-      s.drawCenter(ctx, (e.europe ? `${cupNames()[Math.min(3, e.europe)] ?? "EUROPAPOKAL"}` : T("ui.verlauf", 3)).toUpperCase(), 246, y, hell, false);
+      if (Math.trunc(i / 16) !== this.verlaufSeite) return;
+      const y = 25 + 8 * (i % 16);
+      s.draw(ctx, String(jahr0 + i), 12, y, hell, false);
+      if (e.rank === 0xff) {
+        s.draw(ctx, texte("verlauf.nochnicht")[0], 42, y, hell, false);
+      } else {
+        // Den Platz füllt das Original links mit '^' auf zwei Stellen auf - das Zeichen ist leer
+        // und so breit wie eine Ziffer, die einstelligen Plätze rücken damit um fünf Punkte ein
+        s.draw(ctx, `${"^".repeat(Math.max(0, 2 - String(e.place).length))}${e.place}.`, 42, y, e.rank === 1 && e.league === 0 ? gelb : hell, false);
+        const liga = gross(texte("ui.ligen")[e.league] ?? "");
+        s.drawCenter(ctx, liga, 85, y, hell, false);
+        const dfb = e.dfb & 0x80 ? sieger[0] : gross(dfbText[e.dfb & 7] ?? "");
+        s.drawCenter(ctx, dfb, 143, y, e.dfb & 0x80 ? gelb : hell, false);
+        // Der Rundentext steht im selben Puffer wie vorher der DFB-Text (bzw. beim DFB-Sieger der
+        // Liganame): ohne Runde und ohne Siegerbit bleibt der stehen
+        let europa = e.dfb & 0x80 ? (texte("ui.ligen")[e.league] ?? "") : (dfbText[e.dfb & 7] ?? "");
+        if (e.europe & 0x80) europa = sieger[1];
+        else if (e.europe & 7) europa = dfbText[(e.europe & 7) + 1] ?? "";
+        if ((e.europe & 0xf8) === 0) europa = T("ui.verlauf", 3);
+        else {
+          const w = (e.europe & 0x18) >> 3;
+          let name = texte("verlauf.europa")[w] ?? "";
+          if (w === 1 || w === 2) name = name.slice(0, 18 - w) + ".";
+          europa += name;
+        }
+        s.drawCenter(ctx, gross(europa), 246, y, e.europe & 0x80 ? gelb : hell, false);
+      }
       // Unter jeder Saison ein Strich in Palettenfarbe 6, von x 6 über 307 Punkte
       hline(ctx, 6, y + 6, 307, "#414161");
     });
+    if (seiten > 1) this.hit(5, 8, 309, 144, () => (this.verlaufSeite = (this.verlaufSeite + 1) % seiten));
     panel(ctx, 5, 157, 259, 74, COLORS.black);
     const t2 = T("ui.verlauf", 2);
     f.draw(ctx, t2, 6 + Math.trunc(256 / 2) - Math.trunc(f.width(t2) / 2), 159, gelb, false);
@@ -4956,7 +5004,7 @@ class App {
     // ist die einzige, die im Original noch nicht nachgemessen ist.
     const ligafarbe = ["#928251", "#826141", "#614130"];
     h.forEach((e, i) => {
-      for (let y = 170 + e.rank; y <= 228; y++) {
+      for (let y = 170 + Math.max(1, e.rank); y <= 228; y++) {
         const rang = y - 170;
         ctx.fillStyle = ligafarbe[rang > 38 ? 2 : rang > 18 ? 1 : 0];
         ctx.fillRect(7 + i * 5, y, 5, 1);

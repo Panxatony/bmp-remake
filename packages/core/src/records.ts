@@ -272,19 +272,19 @@ export class Manager extends Record {
     this.setI32(496, v);
   }
   /**
-   * Saisonverlauf: je 4 Bytes ab Byte 62. rank = Gesamtrang 1..58 (Bundesliga
-   * 1..18, Zweite Liga 19..38, Oberliga 39..58), cupRound (1 = 1. Runde,
-   * 2 = Achtelfinale laut Anzeige), league (1 Bundesliga, 2 Zweite Liga,
-   * 3 Oberliga), europe (0 = nicht im Wettbewerb). Bestätigt mit RIED-CLI.MAN.
+   * Saisonverlauf: je 4 Bytes ab Byte 62, eine Zeile je gespielte Saison (Saisonzähler 4cb3:07E2,
+   * höchstens 50; so zählt der Bildschirm 0x29BFE). rank = Gesamtrang 1..58 (Bundesliga 1..18,
+   * Zweite Liga 19..38, Oberliga 39..58), 0xFF = noch nicht Manager; league = Liga 0..2
+   * (Byte 63); dfb = DFB-Pokal (Byte 64: Runde + 1, Bit 7 Sieger); europe = Europapokal
+   * (Byte 65: Wettbewerb · 8 + Runde, Bit 7 Sieger, 0 nicht dabei). Geschrieben in season.ts.
    */
-  get history(): { rank: number; place: number; cupRound: number; league: number; europe: number }[] {
+  history(seasons: number): { rank: number; place: number; league: number; dfb: number; europe: number }[] {
     const out = [];
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < Math.min(50, seasons); i++) {
       const o = 62 + 4 * i;
       const rank = this.u8(o);
-      if (rank === 0) break;
-      const league = this.u8(o + 2);
-      out.push({ rank, place: rank - (league === 1 ? 0 : league === 2 ? 18 : 38), cupRound: this.u8(o + 1), league, europe: this.u8(o + 3) });
+      const league = this.u8(o + 1);
+      out.push({ rank, place: rank - ([0, 18, 38][league] ?? 0), league, dfb: this.u8(o + 2), europe: this.u8(o + 3) });
     }
     return out;
   }

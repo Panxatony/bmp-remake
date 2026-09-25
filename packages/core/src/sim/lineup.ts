@@ -236,6 +236,34 @@ export function sperreAusgesetzt(g: GameState, manager: number): boolean {
   return g.managers.at(manager).u8(306) === g.save.plain[28233];
 }
 
+/**
+ * Feldzelle für einen neuen Starter ohne gemerkte Zelle (0x1FF36): Reihe 7 - 7·Position/100
+ * (Spielerbyte 31; aus 7 wird 6), darin die erste Spalte 0..7, auf der kein Starter der Plätze
+ * 0..23 steht (0x1FEC9); ist die Reihe voll, die nächste, nach 7 wieder 0.
+ */
+export function freieZelle(g: GameState, manager: number, place: number): void {
+  const l = g.lineups.at(manager * 25 + place);
+  const belegt = (col: number, row: number) => {
+    for (let i = 0; i < 24; i++) {
+      const s = g.lineups.at(manager * 25 + i);
+      if (s.number >= 1 && s.number <= 11 && s.u8(25) === col && s.u8(26) === row) return true;
+    }
+    return false;
+  };
+  let row = 7 + Math.trunc((7 * g.players.at(l.playerIndex).u8(31)) / -100);
+  if (row === 7) row = 6;
+  for (let versuch = 0; versuch < 8; versuch++) {
+    for (let col = 0; col < 8; col++) {
+      if (!belegt(col, row)) {
+        l.setU8(25, col);
+        l.setU8(26, row);
+        return;
+      }
+    }
+    row = row + 1 === 8 ? 0 : row + 1;
+  }
+}
+
 /** Aufstellung nachziehen, wenn ein System gewählt ist (Tagesroutine, Verletzungsende, Kauf, nach dem Spieltag). */
 export function autoLineupIfEnabled(g: GameState, manager: number, sperreFrei = false): boolean {
   const system = systemOf(g, manager);

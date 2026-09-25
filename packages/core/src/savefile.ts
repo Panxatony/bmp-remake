@@ -149,6 +149,9 @@ export class SaveFile {
     for (let m = 0; m < this.managerCount; m++) {
       for (const msg of messages) {
         if (msg.manager !== m) continue;
+        // Die Zahl steht in einem Byte (MSGCOUNT_OFF): mehr als 255 Meldungen machten den Stand
+        // unlesbar. Die neueste steht vorn, weg fallen die ältesten
+        if (counts[m] === 255) continue;
         let text = msg.text;
         if (!text.endsWith("^")) text += "^";
         const bytes = new Uint8Array(5 + text.length + 1);
@@ -173,9 +176,9 @@ export class SaveFile {
     return kopie;
   }
 
-  /** Kopie mit einer zusätzlichen Meldung für einen Manager (Text im DOS-Zeichensatz, Zeilen mit '^'). */
+  /** Kopie mit einer zusätzlichen Meldung für einen Manager (Text im DOS-Zeichensatz, Zeilen mit '^'), vorn wie 0x30AA0. */
   addMessage(manager: number, text: string): SaveFile {
-    return this.withMessages([...this.messages(), { manager, text }]);
+    return this.withMessages([{ manager, text }, ...this.messages()]);
   }
 
   /** Kopie ohne die Meldungen eines Managers. */

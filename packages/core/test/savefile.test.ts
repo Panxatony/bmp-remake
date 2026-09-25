@@ -61,7 +61,7 @@ test("RIED-CLI.MAN: bekannte Inhalte", () => {
   assert.deepEqual(normi.debt, { total: 0, monthlyInterest: 0 }); // Bank: Gesamtschulden 0, Zinsen 0
   assert.deepEqual(normi.stadium, { seats: 8000, seatsPlanned: 2000, standing: 16000, standingPlanned: 0, roofed: 0, roofedPlanned: 2000 });
   assert.equal(normi.attendanceTotal, 171302);
-  assert.deepEqual(normi.history.map((h) => [h.place, h.league, h.cupRound]), [[6, 3, 2], [2, 3, 2], [9, 2, 1], [6, 2, 1], [1, 2, 1]]);
+  assert.deepEqual(normi.history(5).map((h) => [h.place, h.league, h.dfb]), [[6, 2, 3], [2, 2, 3], [9, 1, 2], [6, 1, 2], [1, 1, 2]]);
   assert.equal(normi.attendanceLow.value, 12747);
   assert.equal(g.clubs.at(normi.attendanceLow.opponent).name, "VFB STUTTGART");
   const adv = g.advertising.at(0);
@@ -121,7 +121,7 @@ test("Meldungen anhängen und löschen: Roundtrip über encode/decode", () => {
   const back = SaveFile.decode(s2.encode());
   assert.equal(back.messages().length, before + 1);
   const mine = back.messages().filter((m) => m.manager === 1);
-  assert.ok(mine[mine.length - 1].text.startsWith("4. Oktober 1997^Verletzung"));
+  assert.ok(mine[0].text.startsWith("4. Oktober 1997^Verletzung"));
   const s3 = back.clearMessages(1);
   assert.equal(SaveFile.decode(s3.encode()).messages().filter((m) => m.manager === 1).length, 0);
   assert.equal(SaveFile.decode(s3.encode()).messages().filter((m) => m.manager === 0).length, back.messages().filter((m) => m.manager === 0).length);

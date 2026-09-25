@@ -68,6 +68,43 @@ export function removePlace(g: GameState, base: number, place: number, count: nu
   p.fill(0, off(count - 1), off(count - 1) + 52);
 }
 
+/** Belegte Plätze einer Liste wie 0x31A19 Modus 0: Plätze 0..23, beim Markt 0..11. */
+function belegtePlaetze(g: GameState, liste: number): number {
+  const n = liste === MARKET_MANAGER ? MARKET_SIZE : 24;
+  let k = 0;
+  for (let i = 0; i < n; i++) if (!g.lineups.at(liste * 25 + i).isEmpty) k++;
+  return k;
+}
+
+/**
+ * Kaderzahl 0x11354: die belegten Plätze des Managers und dazu seine Spieler (Besitzer Byte 33)
+ * auf dem Markt und in den Kadern der Manager 0..Anzahl, bei denen sie verliehen sind. Die
+ * fremden Listen geht das Original über die Plätze 0..Anzahl-1 durch.
+ */
+export function kaderZahl(g: GameState, manager: number): number {
+  let n = 0;
+  for (let liste = 0; liste < 5; liste++) {
+    if (liste > g.save.managerCount && liste !== MARKET_MANAGER) continue;
+    const k = belegtePlaetze(g, liste);
+    if (liste === manager) {
+      n += k;
+      continue;
+    }
+    for (let i = 0; i < k; i++) if (g.players.at(g.lineups.at(liste * 25 + i).playerIndex).u8(33) === manager) n++;
+  }
+  return n & 0xff;
+}
+
+/**
+ * Grenze der Aufnahme 0x224A8 für einen Manager (0x224FF bis 0x2256B): gehört der Spieler
+ * nicht schon zu dessen Verein, darf die Kaderzahl 0x11354 höchstens 23 sein - sonst "Schon 24
+ * Mann im Team", und der Kauf endet wie ein abgelehnter (0x2411C).
+ */
+export function kaderVoll(g: GameState, manager: number, playerIndex: number): boolean {
+  if (g.players.at(playerIndex).u8(36) === g.managers.at(manager).clubIndex) return false;
+  return kaderZahl(g, manager) > 23;
+}
+
 /** Freie Rückennummer ab 12 vergeben (0x224A8 vergibt Nummern ab 12). */
 export function assignNumber(g: GameState, manager: number, place: number): void {
   const l = g.lineups.at(manager * 25 + place);
@@ -471,6 +508,10 @@ export function buyOffer(g: GameState, manager: number, slot: number, amount: nu
   if (!aiAccepts(price, amount, rng)) {
     l.setU8(3, l.u8(3) | (1 << manager) | 0x80);
     return { ok: false, error: texte("ui.angebotabgelehnt").slice(0, 2).join(" ") };
+  }
+  if (kaderVoll(g, manager, l.playerIndex)) {
+    cancelPurchase(g, manager, slot);
+    return { ok: false, error: texte("ui.kadervoll").join(" ") };
   }
   if (loan) {
     const place = completeLoan(g, manager, slot, amount, owner, rng);

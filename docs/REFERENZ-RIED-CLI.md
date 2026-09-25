@@ -286,7 +286,8 @@ Zinsen/Monat 0 DM. Rechts zwei Gesichter (Bankberater) und das Bankgebäude.
 
 Darunter Balkendiagramm "Gesamtentwicklung". Bestätigt: Managerdatensatz ab Byte 62
 je Saison 4 Bytes: Gesamtrang (Oberliga = 38 + Platz, Zweite Liga = 18 + Platz),
-Pokalrunde (2 = Achtelfinale, 1 = 1. Runde), Ligastufe (3, 2), Europapokal (0).
+Liga 0..2 (2, 1), DFB-Pokal = Runde + 1 (3 = Achtelfinale, 2 = 1. Runde, Tabelle 4cb3:24C0),
+Europapokal (0). Bis 25.9.2026 standen hier Liga und Pokalrunde vertauscht (restroutinen.md, R9).
 
 ## Hauptmenü mit Meldungen (Manager BLACKY, Hannover 96)
 
