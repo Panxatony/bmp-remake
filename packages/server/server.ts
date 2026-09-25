@@ -951,6 +951,9 @@ function poachAusfuehren(
     r.log.push(`${werber} wirbt ${q.name} von ${besitzer} ab (${dmText(res.amount)}, Zustimmung ${res.chance} %)`);
     pushMessage(r, q.poacher, [`${q.name} wechselt`, `zu Ihnen. Abl|se:`, dmText(res.amount)]);
     pushMessage(r, q.owner, [`${q.name} verl{~t Sie`, `Richtung ${g.clubs.at(g.managers.at(q.poacher).clubIndex).displayName}.`, `${texte("ui.abloese")[1]} ${dmText(res.amount)}`]);
+    // Neu aufstellen wie nach einem Kauf (0x22FBA), auch beim Besitzer - nur mit Automatik (#109)
+    autoLineupIfEnabled(g, q.poacher);
+    autoLineupIfEnabled(g, q.owner);
   } else {
     r.log.push(`${werber} wirbt vergeblich um ${q.name} (${besitzer}, Zustimmung ${res.chance} %)`);
     pushMessage(r, q.poacher, [`${q.name} bleibt bei`, besitzer + ".", "Er hat abgelehnt."]);
@@ -1752,7 +1755,8 @@ function finanzTag(r: Room, dt: { day: number; month0: number; year: number }): 
       else if (ev.kind === "riot" || ev.kind === "komfort") pushMessage(r, i, wrap(ev.text), dt);
       // Jugendförderung (Version 2026, #4) läuft mit der Monatsabrechnung
       if (ev.kind !== "month") continue;
-      const jugend = jugendMonat(g, i);
+      // Förderung nur für Spieler-Manager: ein Rechner-Manager holt nie jemanden herauf (#112)
+      const jugend = isAi(g, i) ? 0 : jugendMonat(g, i);
       if (jugend > 0) {
         r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: Jugendförderung ${dmText(jugend)}`);
         pushMessage(r, i, ["Jugendf|rderung:", dmText(jugend)], dt);
@@ -2043,7 +2047,9 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
       });
       // Medizinische Versorgung (Version 2026, #2): eine Behandlungswoche an denselben Tagen,
       // an denen die Verletzung herunterzählt - nach dem Training, die reguläre Woche ist dann ab
-      if (seasonDay(kNeu) % 7 === 0) {
+      // Nur mit der Verletzungswoche der Tagesroutine (an Saisontag 322 zählt das Original keine)
+      // und nur für Spieler-Manager: Rechner-Manager behandeln nie, sie bleiben beim Original (#111)
+      if (seasonDay(kNeu) % 7 === 0 && mitTagesroutine && !isAi(g, i)) {
         for (const ev of medWeek(g, i, r.rng)) {
           const name = g.players.at(ev.playerIndex).displayName;
           const stufe = MED_LEVELS[ev.level].name;
@@ -2977,6 +2983,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       if (!erg.ok) return json(res, 400, { error: erg.error });
       const wer = room.game.managers.at(manager).displayName;
       room.jugendFrisch.push({ manager, playerIndex: erg.playerIndex, name: erg.name, preis: jugendPreis(room.game, manager, erg.place) });
+      autoLineupIfEnabled(room.game, manager); // #109
       room.log.push(`Jugend ${wer}: ${erg.name} rückt in die Männermannschaft auf (Stärke ${erg.staerke})`);
       pushMessage(room, manager, [`${erg.name} r}ckt in die`, "Mannschaft auf."]);
       // Die anderen erfahren davon und dürfen ihn bis zum Tageswechsel abwerben (#4, Stufe 2)
@@ -3009,6 +3016,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
         pushMessage(room, manager, [name, "bleibt, wo er ist."]);
       } else {
         room.jugendFrisch = room.jugendFrisch.filter((x) => x !== frisch);
+        autoLineupIfEnabled(room.game, manager); // #109
+        autoLineupIfEnabled(room.game, owner);
         room.log.push(`Jugend: ${wer} wirbt ${name} von ${room.game.managers.at(owner).displayName} ab (${dmText(erg.amount)})`);
         pushMessage(room, manager, [name, "wechselt zu Ihnen.", dmText(erg.amount)]);
         pushMessage(room, owner, [`${name} verl{~t Sie`, `Richtung ${wer}.`, dmText(erg.amount)]);

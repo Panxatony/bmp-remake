@@ -3731,7 +3731,7 @@ class App {
         this.fragJaNein(
           [
             `${cp437ToGame(p.name)} DOPEN?`,
-            `WERTE +${DOPING_BONUS}, FRISCHE +${DOPING_FRESH}.`,
+            `KONDITION UND TECHNIK +${DOPING_BONUS}, FRISCHE +${DOPING_FRESH}.`,
             `SCHON DER ERSTE EINSATZ FLIEGT MIT ${dopingRisk(0)}% AUF,`,
             `JEDER WEITERE IST RISKANTER.`,
             `WER AUFFLIEGT: ${DOPING_BAN[0]} BIS ${DOPING_BAN[1]} WOCHEN SPERRE UND`,

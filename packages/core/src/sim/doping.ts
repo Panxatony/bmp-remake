@@ -18,16 +18,17 @@
  * Beide Bytes sind in allen vorliegenden Spielständen des Originals über alle 1927 belegten
  * Kaderplätze 0, und kein Befehl des Originals greift auf Kaderoffset 44..47 zu. Ein Stand des
  * Originals liest sich damit als "niemand gedopt", und die Angaben wandern beim Transfer mit
- * dem Spieler mit - eine Sperre nimmt er also zum neuen Verein mit.
+ * dem Spieler mit - eine Sperre nimmt er also zum neuen Verein mit; eine laufende Kur endet beim
+ * Wechsel (`kurBeimWechselBeenden`, #110).
  *
  * Bis September 2026 lagen die Angaben in Byte 5 und 8. Die sind im Original aber nicht frei:
  * Byte 5 zählt die Europapokaltore der Saison (0x1BA9C), Byte 8 die Europapokaleinsätze
  * (0x1CC11) - beides war nur in keinem Spielstand zu sehen, weil dort kein Managerverein im
  * Europapokal spielte. `migriereDopingBytes` zieht alte Stände einmalig um (GitLab #88).
  *
- * Der Aufschlag wird so bemessen, dass er nirgends an die Obergrenze stößt (99 bzw. 150).
- * Dadurch lässt er sich später auf den Punkt genau wieder abziehen, ohne dass die Werte vorher
- * irgendwo gemerkt werden müssten.
+ * Der Aufschlag gilt Kondition, Technik (Byte 16/17) und Frische, nicht der Form: die hält das
+ * Original zwischen 45 und 55 (#110). Er wird so bemessen, dass er nirgends an die Obergrenze
+ * stößt (99 bzw. 150); beim Absetzen fällt die Frische nicht unter 50.
  */
 import type { GameState, Lineup } from "../records.ts";
 import type { Rng } from "./match.ts";
@@ -146,10 +147,12 @@ export function dopeStart(g: GameState, manager: number, place: number): { ok: b
   if ((l.u8(9) & 3) !== 0) return { ok: false, error: "Gesperrte und verletzte Spieler nicht" };
   if (dopeState(l) !== DOPE_NONE) return { ok: false, error: "Kur l\u00e4uft schon" };
   if (dopeCures(g, manager) >= DOPING_MAX_CURES) return { ok: false, error: `H\u00f6chstens ${DOPING_MAX_CURES} Kuren gleichzeitig` };
-  const hoch = Math.max(l.u8(16), l.u8(17), l.u8(18));
+  const hoch = Math.max(l.u8(16), l.u8(17));
   const bonus = Math.max(0, Math.min(DOPING_BONUS, 99 - hoch));
   const fresh = Math.max(0, Math.min(DOPING_FRESH, 150 - l.u8(19)));
-  for (const b of [16, 17, 18]) l.setU8(b, l.u8(b) + bonus);
+  // Nur Kondition und Technik: die Form hält das Original zwischen 45 und 55 (Training), ein
+  // Aufschlag von bis zu 12 passte da nicht hinein (#110)
+  for (const b of [16, 17]) l.setU8(b, l.u8(b) + bonus);
   l.setU8(19, l.u8(19) + div(fresh, 2) * 2);
   setBonus(l, bonus, fresh);
   setState(l, DOPE_ON, 0);
@@ -160,9 +163,21 @@ export function dopeStart(g: GameState, manager: number, place: number): { ok: b
 function abziehen(l: Lineup): void {
   const bonus = dopeBonus(l);
   const fresh = dopeFresh(l);
-  for (const b of [16, 17, 18]) l.setU8(b, Math.max(0, l.u8(b) - bonus));
-  l.setU8(19, Math.max(0, l.u8(19) - fresh));
+  for (const b of [16, 17]) l.setU8(b, Math.max(0, l.u8(b) - bonus));
+  // Frische nicht unter die Untergrenze des Originals (Spiele klemmen auf 50) (#110)
+  l.setU8(19, Math.max(Math.min(50, l.u8(19)), l.u8(19) - fresh));
   setBonus(l, 0, 0);
+}
+
+/**
+ * Vereinswechsel (Abwerben, Jugend-Abwerben): eine laufende Kur endet, der Aufschlag fällt weg -
+ * sonst ließe sich die Grenze von drei Kuren je Verein umgehen (#110). Eine Dopingsperre wandert
+ * dagegen mit.
+ */
+export function kurBeimWechselBeenden(l: Lineup): void {
+  if (!isDoped(l)) return;
+  abziehen(l);
+  setState(l, DOPE_NONE, 0);
 }
 
 /** Kur beenden: die Werte fallen auf den Stand ohne Doping zurück. */
@@ -204,7 +219,8 @@ export function dopeMatchday(g: GameState, manager: number, gespielt: (place: nu
     setState(l, DOPE_ON, apps + 1);
     if (rng(1, 100) > dopingRisk(apps)) return;
     abziehen(l);
-    l.setU8(18, Math.max(1, l.u8(18) - DOPING_MALUS));
+    // Formmalus, aber nicht unter die Untergrenze des Originals (45) (#110)
+    l.setU8(18, Math.max(Math.min(45, l.u8(18)), l.u8(18) - DOPING_MALUS));
     const weeks = rng(DOPING_BAN[0], DOPING_BAN[1]);
     // Rot im selben Spiel: die Spielsperre (Bit 0) weicht der Dopingsperre, sonst zählten
     // Spiel- und Wochenzähler dasselbe Byte 13 herunter (AUDIT-2026 A19)

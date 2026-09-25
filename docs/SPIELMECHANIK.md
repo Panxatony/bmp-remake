@@ -2361,7 +2361,8 @@ mit Art, Restwochen, Stufe und Wochenkosten; ein Klick auf die Zeile schaltet di
 
 Im Original ist die Jugend eine Zahl im Etat (Managerbyte 319) und gelegentlich ein Talent, das
 im Kader steht (0x0CE84). In der Version 2026 hat jeder Manager **drei Mannschaften** mit je
-zwölf Plätzen: C-Jugend (13/14), B-Jugend (15/16), A-Jugend (16/17).
+zwölf Plätzen: C-Jugend (13/14), B-Jugend (15/16), A-Jugend (17/18) - bis #112 war die A-Jugend
+16/17. Förderung zahlen nur Spieler-Manager.
 
 **Zwei Hebel je Spieler** (lhunos Vorgabe vom 17.9.2026): **Geld** bezahlt die Betreuung
 (2.000 DM je Spieler und Monat, gebucht mit der Monatsabrechnung), **Training** treibt an
@@ -2447,8 +2448,9 @@ stammen aus einer eigenen Liste im Quelltext, nicht aus dem Original.
 ### Doping (sim/doping.ts, Bildschirm `drawDoping`, POST /api/doping)
 
 Der schmutzige Gegenpol zur medizinischen Versorgung (GitLab #3). Ein gedopter Spieler bekommt
-einen Aufschlag von **12 Punkten** auf Kondition, Technik und Form und **20** auf die Frische -
-mehr, als Training je erreicht. Dafür wird nach **jedem Einsatz** gewürfelt, ob er auffliegt:
+einen Aufschlag von **12 Punkten** auf Kondition und Technik und **20** auf die Frische - mehr,
+als Training je erreicht. Die Form bleibt unberührt: das Original hält sie zwischen 45 und 55
+(#110). Dafür wird nach **jedem Einsatz** gewürfelt, ob er auffliegt:
 **20 % beim ersten Einsatz, je weiterem Einsatz 15 Punkte mehr, höchstens 95 %**. Über mehrere
 Spieltage fliegt Doping damit praktisch sicher auf, für ein einzelnes wichtiges Spiel ist es
 eine Wette.
@@ -2459,11 +2461,14 @@ Wer auffliegt:
 - **Geldstrafe 50.000 DM plus 5 % des Vermögens**; gezählt wird nur ein positiver Kontostand, ein
   Minus senkt die Strafe also nicht. Einen Ligafaktor gibt es nicht mehr - die Liga wirkt über das
   Vermögen (GitLab #48).
-- Die Werte fallen auf den Stand ohne Doping zurück, die Form bekommt zusätzlich 10 Punkte Malus,
-  und der Spieler fliegt aus der Aufstellung.
+- Die Werte fallen auf den Stand ohne Doping zurück, die Form bekommt zusätzlich 10 Punkte Malus
+  (nicht unter 45, die Untergrenze des Originals), und der Spieler fliegt aus der Aufstellung.
+  Eine Rote Karte im selben Spiel geht in der Dopingsperre auf.
 - **Alle Manager** bekommen eine Meldung - das gehört öffentlich gemacht.
 
 Außerdem gilt eine Grenze: **höchstens drei Kuren gleichzeitig** je Manager (`DOPING_MAX_CURES`).
+Wechselt ein Spieler auf Kur den Verein (Abwerben, Jugend), endet die Kur; auf den Markt darf er
+gar nicht (#110, AUDIT-2026 A13). Eine Dopingsperre wandert mit.
 Der Bildschirm zeigt den Stand als "2/3 KUREN LAUFEN" und nennt die Strafe in DM, wie sie beim
 aktuellen Kontostand ausfiele.
 

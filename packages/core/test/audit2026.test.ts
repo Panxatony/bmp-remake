@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import {
   SaveFile, GameState, setRuleSet, RULES_2026, mulberryRng, texte, TABLES,
   jugendLesen, jugendSchreiben, jugendAnlegen, jugendAufruecken, jugendAbwerben, JUGEND_ALTER, istReif,
-  poachCheck, medRows, medSet, saisonbilanz, dopeStart, dopeMatchday,
+  poachCheck, medRows, medSet, saisonbilanz, dopeStart, dopeMatchday, poach, isDoped,
 } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
@@ -101,4 +101,30 @@ test("A19: Rot und Auffliegen im selben Spiel - die Dopingsperre bleibt eine Woc
   dopeMatchday(g, 0, (p) => p === platz, (lo: number) => lo);
   assert.equal(l.u8(9) & 3, 2, "nur noch die Wochensperre");
   assert.ok(l.u8(13) >= 12, `Sperre ${l.u8(13)}`);
+});
+
+test("#110: Doping lässt die Form in der Spanne des Originals, die Kur endet beim Abwerben", () => {
+  const g = laden();
+  const platz = g.squadOf(0).findIndex((l) => (l.u8(9) & 3) === 0);
+  const l = g.lineups.at(platz);
+  const [ko, te, fo, fr] = [16, 17, 18, 19].map((b) => l.u8(b));
+  assert.ok(dopeStart(g, 0, platz).ok);
+  assert.equal(l.u8(18), fo, "Form unverändert");
+  assert.ok(l.u8(16) > ko && l.u8(17) > te && l.u8(19) >= fr);
+  // Auffliegen: Form fällt höchstens auf 45
+  dopeMatchday(g, 0, (p) => p === platz, (lo: number) => lo);
+  assert.equal(l.u8(18), Math.max(Math.min(45, fo), fo - 10));
+  // Abwerben: eine laufende Kur endet, der Aufschlag fällt weg
+  const h = laden();
+  const q = h.squadOf(0).findIndex((x) => (x.u8(9) & 3) === 0 && h.players.at(x.playerIndex).u8(33) === 0 && x.u8(12) === 0);
+  const vorher = [16, 17].map((b) => h.lineups.at(q).u8(b));
+  assert.ok(dopeStart(h, 0, q).ok);
+  const spieler = h.lineups.at(q).playerIndex;
+  h.managers.at(1).balance = 50_000_000;
+  h.save.plain[34099] = h.save.plain[34099]; // Regelbyte bleibt 2026
+  const erg = poach(h, 1, 0, q, 0, () => 0);
+  assert.ok(erg.ok && erg.agreed, JSON.stringify(erg));
+  const neu = h.squadOf(1).find((x) => x.playerIndex === spieler)!;
+  assert.equal(isDoped(neu), false);
+  assert.deepEqual([16, 17].map((b) => neu.u8(b)), vorher);
 });
