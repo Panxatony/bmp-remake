@@ -218,6 +218,5 @@ Beim Abarbeiten kamen Abweichungen dazu, die dieser Audit nicht erfasst hat, wei
 Die 59 Routinen, die bis dahin weder ein Zweigbuch noch dieser Audit nannte, sind in
 docs/abgleich/restroutinen.md eingeordnet. Dabei kamen 16 Befunde heraus (R1 bis R16): Kaderzahl
 beim Kauf und beim Jugendspieler, Feldzelle neuer Starter, Aufstellungsautomatik im Kader,
-Saisonverlauf, Heim- und Auswärtstabelle, Reihenfolge der Meldungen und einige kleinere. Offen
-sind R11 (Umbruch auf der Konferenztafel) und R16 (Stände zurück ins
-Original).
+Saisonverlauf, Heim- und Auswärtstabelle, Reihenfolge der Meldungen und einige kleinere. Alle sind
+behoben; von R16 bleiben nur Randfälle beim Laden, die in ABWEICHUNGEN stehen.
