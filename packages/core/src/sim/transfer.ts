@@ -332,7 +332,10 @@ export function refreshMarket(g: GameState, rng: Rng): void {
     const pl = g.players.at(idx);
     pl.setU8(30, rng(45, 55));
     let club = pl.u8(36);
-    if (club > 199 || managers.some((m) => m.clubIndex === club)) {
+    // Verein 255 (freie Spieler aus dem Pool, 0x3260C) nimmt das Original ohne Grenze: es liest
+    // die Stärke hinter der Vereinstabelle (4238:3066 + 255 · 34), einen nullvorbelegten Bereich,
+    // den nichts beschreibt - also 0 -, und würfelt keinen neuen Verein (#115)
+    if (club <= 199 && managers.some((m) => m.clubIndex === club)) {
       const league = club < 18 ? 0 : club < 38 ? 1 : 2;
       const range = [[0, 17], [18, 37], [38, 57]][league];
       do club = rng(range[0], range[1]);
@@ -342,9 +345,9 @@ export function refreshMarket(g: GameState, rng: Rng): void {
       // es kommen mehr neue Spieler auf den Markt als ausgewürfelt
       n = league;
     }
-    const c = g.clubs.at(club);
-    pl.setU8(28, clamp(rng(0, 14) + c.u8(25) - 10, 10, 99));
-    let te = rng(0, 14) + c.u8(28) - 10;
+    const staerke = (b: number) => (club <= 199 ? g.clubs.at(club).u8(b) : 0);
+    pl.setU8(28, clamp(rng(0, 14) + staerke(25) - 10, 10, 99));
+    let te = rng(0, 14) + staerke(28) - 10;
     if (rng(0, 4) === 0) te += rng(12, 20);
     pl.setU8(29, clamp(te, 10, 99));
     const place = addToSquad(g, MARKET_MANAGER, idx, 0, rng);

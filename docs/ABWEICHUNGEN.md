@@ -45,5 +45,4 @@ soll sich wie das Original verhalten; wo es das nicht tut, ist das ein Fehler.
 |---|---|---|
 | Stärke mit Flag 0 beim Verlassen von Transfermarkt, Trainingslager und Spielplan | keine Bildschirmwechsel im Server; wirkt nur bis zum nächsten Spiel | neuesspiel |
 | 4238:513E am Tagesbeginn | im Original ein Rest vom letzten Hauptmenü; das Remake nimmt 0 | 22030 |
-| Marktspieler mit Verein 255 | das Original läse hinter der Vereinstabelle; das Remake würfelt einen Verein | neuesspiel |
 | Kleine Bank: die 13 auf einen nicht gesetzten Platz | im Standardspiel nie erreicht | 22030 |
