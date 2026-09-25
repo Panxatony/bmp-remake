@@ -48,3 +48,22 @@ test("Kontingent zählt schon beim Auszuwechselnden: Torwartwechsel verbraucht, 
   assert.equal(applySubstitutions(st2, g2, 0, v2, mulberryRng(1)).ok, true);
   assert.deepEqual(st2.subs[0], { goalkeeper: 0, field: 1 });
 });
+
+test("#106: Version 2026 - fünf Wechsel, in der Verlängerung einer mehr; Technikbonus nur bis drei", async () => {
+  const { setRuleSet, RULES_2026 } = await import("../src/index.ts");
+  const { wechselZahl } = await import("../../server/live.ts");
+  const g = laden();
+  setRuleSet(g, RULES_2026);
+  const eintrag = { managerHome: 0, managerAway: undefined, kind: "league" } as unknown as LiveState["entries"][number];
+  // Fünf verbraucht: der sechste geht nur in der Verlängerung
+  const st = { subs: [{ goalkeeper: 0, field: 5 }], news: [], entries: [eintrag] } as unknown as LiveState;
+  const vorher = block(g);
+  tausch(g, 1, 2);
+  assert.deepEqual(applySubstitutions(st, g, 0, vorher, mulberryRng(1)), { ok: false, error: texte("ui.keinwechsel").join(" ") });
+  (eintrag as unknown as { ergebnis90: object }).ergebnis90 = { home: 1, away: 1 };
+  assert.equal(applySubstitutions(st, g, 0, vorher, mulberryRng(1)).ok, true);
+  // Bonus: 2026 höchstens drei Wechsel, im Original alle
+  assert.equal(wechselZahl({ 0: { goalkeeper: 1, field: 4 } }, 0, g), 3);
+  assert.equal(wechselZahl({ 0: { goalkeeper: 1, field: 2 } }, 0, laden()), 3);
+  assert.equal(wechselZahl({ 0: { goalkeeper: 1, field: 4 } }, 0, laden()), 5);
+});

@@ -40,6 +40,7 @@ import {
   FLAG_CUP,
   FLAG_EUROPE,
   substitutionLimits,
+  is2026,
   bookEvents,
   bookShootoutShot,
   bookDefence,
@@ -230,9 +231,11 @@ export function elfmeterSzene(rng: Rng, goal: boolean, available: Set<string>): 
 }
 
 /** Auswechslungen eines Managers im Spiel (4238:90C6). */
-export function wechselZahl(subs: LiveState["subs"] | undefined, manager: number): number {
+export function wechselZahl(subs: LiveState["subs"] | undefined, manager: number, g?: GameState): number {
   const u = subs?.[manager];
-  return u ? u.goalkeeper + u.field : 0;
+  const n = u ? u.goalkeeper + u.field : 0;
+  // Der Technikbonus je Wechsel (0x0FEEF) endet in der Version 2026 nach drei Wechseln (#106)
+  return g && is2026(g) ? Math.min(3, n) : n;
 }
 
 /**
@@ -247,7 +250,7 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
   managers.forEach((m, i) => managerOf.set(m.clubIndex, i));
   const entries: LiveEntry[] = [];
   const add = (kind: LiveEntry["kind"], home: number, away: number, extra: Partial<LiveEntry>) => {
-    entries.push({ key: `${home}-${away}`, kind, home, away, match: new LiveMatch(matrixFor(g, home, rng, (m) => wechselZahl(wechselVorher, m)), matrixFor(g, away, rng, (m) => wechselZahl(wechselVorher, m)), rng, undefined, kind !== "league"), managerHome: managerOf.get(home), managerAway: managerOf.get(away), scorers: [], ...extra });
+    entries.push({ key: `${home}-${away}`, kind, home, away, match: new LiveMatch(matrixFor(g, home, rng, (m) => wechselZahl(wechselVorher, m, g)), matrixFor(g, away, rng, (m) => wechselZahl(wechselVorher, m, g)), rng, undefined, kind !== "league"), managerHome: managerOf.get(home), managerAway: managerOf.get(away), scorers: [], ...extra });
   };
   const postponed: number[][] = [[], [], []];
   for (let league = 0; league < 3; league++) {
@@ -349,7 +352,7 @@ function halbzeitStaerke(state: LiveState, g: GameState, rng: Rng): void {
     if (!(state.flag & FLAG_LEAGUE[league]) || !state.halbzeitStaende[league]) continue;
     if (!managers.some((m) => ligaVon(m.clubIndex) === league)) continue;
     managers.forEach((_, mi) => {
-      const st = matchStrength(g, mi, rng, wechselZahl(state.subs, mi));
+      const st = matchStrength(g, mi, rng, wechselZahl(state.subs, mi, g));
       for (const e of state.entries) {
         if (e.kind !== "league" || e.forfeit !== undefined) continue;
         if (e.managerHome === mi) e.match.home = st;
@@ -437,8 +440,8 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
       if (fresh.length === 0) continue;
       state.news.push(...fresh);
       if (fresh.some((i) => i.kind !== "yellow")) {
-        if (side === "home") e.match.home = matchStrength(g, manager, rng, wechselZahl(state.subs, manager));
-        else e.match.away = matchStrength(g, manager, rng, wechselZahl(state.subs, manager));
+        if (side === "home") e.match.home = matchStrength(g, manager, rng, wechselZahl(state.subs, manager, g));
+        else e.match.away = matchStrength(g, manager, rng, wechselZahl(state.subs, manager, g));
       }
       if (fresh.some((i) => i.kind === "red" || i.kind === "injury")) neuAuslosen = Math.max(neuAuslosen ?? -1, manager);
     }
@@ -699,7 +702,11 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
   }
   // Grenzen nach Regelwerk: im Original ein Torwart und zwei Feldspieler, in der Version 2026
   // fünf Wechsel ohne Rücksicht auf die Position
-  const grenze = substitutionLimits(g);
+  // In der Verlängerung gibt die Version 2026 einen Wechsel mehr frei (#106)
+  const basis = substitutionLimits(g);
+  const eigenes = state.entries.find((x) => x.managerHome === manager || x.managerAway === manager);
+  const zusatz = is2026(g) && eigenes?.ergebnis90 !== undefined ? 1 : 0;
+  const grenze = { goalkeeper: basis.goalkeeper + zusatz, field: basis.field + zusatz, total: basis.total + zusatz };
   // Schon der Klick auf den Auszuwechselnden prüft das Kontingent nach dessen Position (0x2092A
   // bis 0x20999): ist es für seine Gruppe aufgebraucht, "Keine Auswechslung mehr möglich"
   const frei = (torwart: boolean) =>
@@ -742,7 +749,7 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
 export function refreshStrength(state: LiveState, g: GameState, manager: number, rng: Rng): void {
   const club = g.managers.at(manager).clubIndex;
   for (const e of state.entries) {
-    if (e.home === club) e.match.home = matchStrength(g, manager, rng, wechselZahl(state.subs, manager));
-    if (e.away === club) e.match.away = matchStrength(g, manager, rng, wechselZahl(state.subs, manager));
+    if (e.home === club) e.match.home = matchStrength(g, manager, rng, wechselZahl(state.subs, manager, g));
+    if (e.away === club) e.match.away = matchStrength(g, manager, rng, wechselZahl(state.subs, manager, g));
   }
 }

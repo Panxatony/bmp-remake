@@ -360,7 +360,8 @@ export function allTimeBalance(g: GameState, manager: number): AllTimeBalance {
   return {
     titles: [57, 58, 59, 60, 61].map((o) => m.u8(o)),
     rows: [
-      { label: "PUN.", columns: pair(w(420), w(422), w(432), w(434)) },
+      // In der Version 2026 nur die Punkte, wie die Tabelle (#108)
+      { label: "PUN.", columns: is2026(g) ? single(w(420), w(422)) : pair(w(420), w(422), w(432), w(434)) },
       { label: "TORE", columns: pair(w(424), w(426), w(428), w(430)) },
       { label: "SIEGE", columns: single(w(440), w(442)) },
       { label: "NIED.", columns: single(w(444), w(446)) },
