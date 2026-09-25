@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { SaveFile, GameState, autoLineup, autoLineupIfEnabled, setSystem, systemOf, groupOf, FORMATIONS } from "../src/index.ts";
+import { freieZelle } from "../src/sim/lineup.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -105,4 +106,20 @@ test("Automatik-Aufstellung: gesperrte Spieler nur mit 4238:513E (Pokaltag)", { 
   };
   assert.deepEqual(lauf(false), [[1, 3, 7], [2, 4, 6], [3, 1, 5], [4, 2, 6], [0, 5, 6], [5, 5, 5], [6, 2, 3], [7, 0, 3], [0, 6, 3], [8, 4, 3], [9, 6, 3], [13, 5, 0], [10, 2, 0], [11, 4, 0], [12, 4, 0]]);
   assert.deepEqual(lauf(true), [[1, 3, 7], [2, 2, 6], [12, 3, 6], [3, 1, 5], [4, 4, 6], [5, 5, 5], [6, 2, 3], [7, 0, 3], [0, 6, 3], [8, 4, 3], [9, 6, 3], [14, 5, 0], [10, 2, 0], [11, 4, 0], [13, 4, 0]]);
+});
+
+test("Freie Feldzelle für einen neuen Starter wie 0x1FF36", () => {
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "RIED-CLI.MAN")))));
+  // Platz 3 (Position 25) kommt für Platz 14 in die Elf: Reihe 7 - 7·25/100 = 6; dort stehen
+  // Starter auf den Spalten 1, 3 und 5 - die erste freie ist 0
+  g.lineups.at(14).number = 13;
+  g.lineups.at(3).number = 11;
+  g.lineups.at(3).setU8(25, 0xff);
+  freieZelle(g, 0, 3);
+  assert.deepEqual([g.lineups.at(3).u8(25), g.lineups.at(3).u8(26)], [0, 6]);
+  // Platz 7 (Position 63): Reihe 7 - 4 = 3, dort sind die Spalten 0, 2, 4 und 6 besetzt
+  g.lineups.at(13).number = 14;
+  g.lineups.at(7).number = 10;
+  freieZelle(g, 0, 7);
+  assert.deepEqual([g.lineups.at(7).u8(25), g.lineups.at(7).u8(26)], [1, 3]);
 });

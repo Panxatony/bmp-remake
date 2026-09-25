@@ -125,3 +125,21 @@ test("Neues Spiel wie das Original: Würfe und ganzer Spielstand (KP-NEUESSPIEL)
   }
   assert.deepEqual(anders, []);
 });
+
+test("Neues Spiel: Wunschverein 58 wird getauscht, die Tabellensätze bleiben stehen (0xC6D9, 0xAB84)", () => {
+  const mana = parseMana(new Uint8Array(readFileSync(join(BMP_DIR, "MANA.DAT"))));
+  const tpl = SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))).plain;
+  const neu = (club: number) => new GameState(SaveFile.decode(createGame(tpl, mana, { managers: [{ name: "Lars", club, portrait: 2 }], level: 3 }, mulberryRng(42)).encode()));
+  // Welcher Verein nach dem Mischen auf Platz 58 steht, hängt nicht am Wunsch
+  const name = neu(0).clubs.at(58).name;
+  const g = neu(mana.names.indexOf(name));
+  const y = g.managers.at(0).clubIndex;
+  // Nur bis Verein 57 (4cb3:2277) bleibt ein Oberligist stehen - 58 wird gegen 38..57 getauscht
+  assert.ok(y >= 38 && y <= 57, `Verein ${y}`);
+  assert.equal(g.clubs.at(y).name, name);
+  // Die Tabellensätze tauscht 0xAB84 zurück: Platz 58 behält die halbe Vorlage der Vereine
+  // außerhalb der Ligen, der Platz des Managers die volle
+  const bytes = (c: number) => Array.from({ length: 18 }, (_, i) => g.standings.at(c).u8(4 + i));
+  assert.deepEqual(bytes(58), [64, 64, 64, 64, 64, 64, 64, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(bytes(y), [64, 64, 64, 64, 64, 64, 64, 64, 0, 64, 64, 64, 64, 64, 64, 64, 64, 0]);
+});

@@ -66,16 +66,20 @@ export function applyResult(g: GameState, home: number, away: number, hg: number
  * nicht miteinander, können aber durch einen anderen Tausch die Plätze wechseln. Bis #100 fügte
  * das Remake nach Punkten, Tordifferenz und Toren ein, ohne die Spielzahl.
  */
-export function tableOrder(g: GameState, league: number): number[] {
+export function tableOrder(g: GameState, league: number, art: 0 | 1 | 2 = 1): number[] {
   const L = LEAGUES[league];
   const p = g.save.plain;
   let list = Array.from({ length: L.teams }, (_, i) => p[28244 + 20 * league + i]);
   const soll = Array.from({ length: L.teams }, (_, i) => L.base + i);
   // Reihenfolgeliste unbrauchbar (fremder Stand): Ausgang ist die Platzierung aus Byte 46
   if ([...list].sort((x, y) => x - y).join() !== soll.join()) list = soll.slice().sort((x, y) => g.standings.at(x).u8(46) - g.standings.at(y).u8(46) || x - y);
+  // Art 0 Heim, 1 gesamt, 2 auswärts (0x2C92B): dieselbe Sortierung mit den Heim- bzw.
+  // Auswärtsbytes allein, ausgehend von der Reihenfolge der Gesamttabelle
+  const h = art !== 2 ? 1 : 0;
+  const a = art !== 0 ? 1 : 0;
   const key = (c: number) => {
     const s = g.standings.at(c);
-    return { pts: s.u8(0) + s.u8(1), sp: s.u8(30) + s.u8(31), gd: s.u8(22) - s.u8(26) + (s.u8(23) - s.u8(27)), gf: s.u8(22) + s.u8(23) };
+    return { pts: h * s.u8(0) + a * s.u8(1), sp: h * s.u8(30) + a * s.u8(31), gd: h * (s.u8(22) - s.u8(26)) + a * (s.u8(23) - s.u8(27)), gf: h * s.u8(22) + a * s.u8(23) };
   };
   // true, wenn b vor a gehört
   const tauschen = (a: number, b: number): boolean => {

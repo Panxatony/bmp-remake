@@ -88,7 +88,7 @@ Erzeugt von tools/audit.py. Routinen = `push %bp; mov %sp,%bp`. 408 Routinen, da
 | 0x0A89D | 278 | 08bc | 1 | 0 |  |  |  |
 | 0x0A9B3 | 130 | 08bc | 1 | 0 |  |  |  |
 | 0x0AA35 | 33 | 08bc | 1 | 0 |  |  |  |
-| 0x0AA56 | 302 | 08bc | 1 | 0 |  | im Team |  |
+| 0x0AA56 | 302 | 08bc | 1 | 0 |  |  | Anzeige (abgleich/restroutinen.md) |
 | 0x0AB84 | 157 | 08bc | 1 | 0 |  |  |  |
 | 0x0AC21 | 291 | 08bc | 1 | 0 |  |  |  |
 | 0x0AD44 | 7710 | 08bc | 2 | 5 | club,history,manager,player,squad | SERIEN  | abgebildet (0xAD44, 0xBDB8, 0xC7C4) |
@@ -330,7 +330,7 @@ Erzeugt von tools/audit.py. Routinen = `push %bp; mov %sp,%bp`. 408 Routinen, da
 | 0x184BA | 326 | 14a4 | 0x17B0F,0x18600,0x18FC2 | 0 | manager | TASTE DR]CKEN |
 | 0x26376 | 306 | 262f | 0x264A8 | 0 |  |  |
 | 0x21567 | 303 | 1ecd | 0x21696 | 0 | manager,player | ST[RKE:;  JAHRE |
-| 0x0AA56 | 302 | 08bc | 0xAD44 | 0 |  | im Team |
+| 0x0AA56 | 302 | 08bc | 0xAD44 | 0 |  |  |
 | 0x227F1 | 296 | 2277 | 0x139EC | 0 | manager |  |
 | 0x2EFAB | 296 | 2a41 |  | 1 | manager |  |
 | 0x0AC21 | 291 | 08bc | 0xAD44 | 0 |  |  |

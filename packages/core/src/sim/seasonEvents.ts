@@ -7,7 +7,7 @@ import { text as T, texte } from "../data/texte.ts";
 import { is2026 } from "./regeln.ts";
 import type { Rng } from "./match.ts";
 import { playerValue } from "./value.ts";
-import { removePlace } from "./transfer.ts";
+import { removePlace, kaderZahl } from "./transfer.ts";
 import { addToSquad as aufnehmen } from "./newgame.ts";
 import { TABLES } from "../records.ts";
 import { sortIntoSquad } from "./lineup.ts";
@@ -129,14 +129,20 @@ export function releaseExpiring(g: GameState, manager: number, place: number): S
   return { manager, text: `${name} ${texte("ui.vertragsende").slice(0, 2).join(" ")} ${texte("ui.abloese")[1]} ${fee} DM.` };
 }
 
-/** Wo steht Spieler x? Managerkader 0..3 (25 Plätze) oder Transfermarkt (4, 12 Plätze). */
+/**
+ * Wo steht Spieler x (0x320C7)? In den Kadern der Manager 0..Anzahl-1 und im Transfermarkt (4),
+ * jeweils über die Plätze 0..Anzahl-1 mit der Zahl der belegten Plätze (0x31A19 Modus 0): hinter
+ * einer Lücke im Kader findet das Original den Spieler nicht.
+ */
 function fundort(g: GameState, x: number): { manager: number; place: number } | undefined {
   for (let mi = 0; mi < 5; mi++) {
-    const n = mi === 4 ? 12 : 25;
-    const basis = mi === 4 ? 100 : mi * 25;
-    for (let place = 0; place < n; place++) {
-      const l = g.lineups.at(basis + place);
-      if (!l.isEmpty && l.playerIndex === x) return { manager: mi, place };
+    if (mi >= g.save.managerCount && mi !== 4) continue;
+    const n = mi === 4 ? 12 : 24;
+    const basis = mi * 25;
+    let k = 0;
+    for (let place = 0; place < n; place++) if (!g.lineups.at(basis + place).isEmpty) k++;
+    for (let place = 0; place < k; place++) {
+      if (g.lineups.at(basis + place).playerIndex === x) return { manager: mi, place };
     }
   }
   return undefined;
@@ -235,13 +241,14 @@ export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaenger
       events.push({ manager: i, text: "Torschützenkönig aus Ihrem Team (250.000 DM)." });
     }
     // Jugend (0x0CE84): J = Konto/12, Konto auf zwei Drittel; bei J > 30, 1/3 Chance und unter
-    // 23 Spielern ein Jugendspieler mit J/2
+    // 23 Spielern ein Jugendspieler mit J/2 - gezählt mit 0x11354, also samt den eigenen Spielern
+    // auf dem Markt und bei anderen Managern in Leihe (0xCF35)
     let j = div(m.u8(482) | (m.u8(483) << 8), 12);
     j = j + div(j, -3);
     const account = j * 12;
     m.setU8(482, account & 0xff);
     m.setU8(483, (account >> 8) & 0xff);
-    if (j > 30 && rng(0, 2) === 0 && g.squadOf(i).length < 23) {
+    if (j > 30 && rng(0, 2) === 0 && kaderZahl(g, i) < 23) {
       j >>= 1;
       const idx = freePlayer(g, rng);
       if (idx >= 0) {

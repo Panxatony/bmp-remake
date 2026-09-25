@@ -172,6 +172,7 @@ import {
   type HighscoreEntry,
   setSystem,
   systemOf,
+  freieZelle,
   backupSystem,
   restoreSystem,
   SYSTEM_MANUAL,
@@ -186,6 +187,7 @@ import {
   cancelPurchase,
   completePurchase,
   completeLoan,
+  kaderVoll,
   refreshMarket,
   salaryDemand,
   contractCheck,
@@ -831,7 +833,7 @@ function resolveAuctions(r: Room): void {
     }
     let frei = 0;
     while (frei < 24 && !g.lineups.at(w.manager * 25 + frei).isEmpty) frei++;
-    if (frei >= 24) {
+    if (frei >= 24 || kaderVoll(g, w.manager, eintrag.playerIndex)) {
       pushMessage(r, w.manager, ["Ihr Kader ist voll:", `${eintrag.name} bleibt`, "auf dem Markt."]);
       continue;
     }
@@ -952,7 +954,9 @@ function pushMessage(r: Room, manager: number, lines: string[], date?: { day: nu
 /** Vorgemerkte Meldungen in den Spielstand schreiben (neuer Puffer, GameState neu aufbauen). */
 function flushMessages(r: Room): void {
   if (r.pending.length === 0) return;
-  r.save = r.save.withMessages([...r.save.messages(), ...r.pending]);
+  // Die neueste Meldung steht vorn: 0x30AA0 schiebt die Liste nach hinten und setzt die neue auf
+  // Platz 0 (in den Originalständen TEST4, RUNA0 steht der 28.9. vor dem 24.9.)
+  r.save = r.save.withMessages([...r.pending.slice().reverse(), ...r.save.messages()]);
   r.game = new GameState(r.save);
   r.pending = [];
 }
@@ -1026,7 +1030,18 @@ function uebernimmNummern(g: GameState, manager: number, block: Buffer): string 
   const vorher = belegt.map((i) => zeilen[i].number).sort((a, b) => a - b);
   const nachher = belegt.map((i) => neu[i]).sort((a, b) => a - b);
   if (vorher.join(",") !== nachher.join(",")) return "Rückennummern lassen sich nur untereinander tauschen - hat sich der Kader geändert?";
+  // Wer neu in die erste Elf kommt, übernimmt die Feldzelle (Bytes 25/26) dessen, der sie
+  // verlässt (0x20AED, 0x20E8B); ohne so einen sucht 0x1FF36 eine freie Zelle
+  const starter = (n: number) => n >= 1 && n <= 11;
+  const raus = belegt.filter((i) => starter(zeilen[i].number) && !starter(neu[i]));
+  const rein = belegt.filter((i) => !starter(zeilen[i].number) && starter(neu[i]));
   for (const i of belegt) zeilen[i].number = neu[i];
+  rein.forEach((i, k) => {
+    const r = raus[k];
+    if (r === undefined) return freieZelle(g, manager, i);
+    zeilen[i].setU8(25, zeilen[r].u8(25));
+    zeilen[i].setU8(26, zeilen[r].u8(26));
+  });
   return "";
 }
 
@@ -3223,6 +3238,14 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       room.log.push(`${owner} lehnt das Angebot von ${buyerName} für ${offer.name} ab`);
     } else {
       if (room.game.managers.at(buyer).balance < offer.amount) return json(res, 400, { error: "Der Käufer hat nicht genug Geld" });
+      if (kaderVoll(room.game, buyer, offer.playerIndex)) {
+        cancelPurchase(room.game, buyer, slot);
+        pushMessage(room, buyer, texte("ui.kadervoll"));
+        flushMessages(room);
+        room.version++;
+        broadcast(room);
+        return json(res, 400, { error: texte("ui.kadervoll").join(" ") });
+      }
       if (offer.loan) {
         const place = completeLoan(room.game, buyer, slot, offer.amount, manager, room.rng);
         if (place < 0) return json(res, 400, { error: texte("ui.keintransfer").join(" ") });
@@ -3293,6 +3316,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const squad = room.game.squadOf(manager);
     const l = squad[place];
     if (!l || l.number < 1 || l.number > 11) return json(res, 400, { error: "kein Spieler der ersten Elf" });
+    // Der Klick aufs Spielfeld schaltet die Automatik ab (0x219EA -> 0x20197, Byte 079E = 1)
+    const abgeschaltet = systemOf(room.game, manager) !== SYSTEM_MANUAL;
+    if (abgeschaltet) setSystem(room.game, manager, SYSTEM_MANUAL);
     const other = squad.find((x, i) => i !== place && x.number >= 1 && x.number <= 11 && x.u8(25) === col && x.u8(26) === row);
     if (other) {
       other.setU8(25, l.u8(25));
@@ -3302,7 +3328,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     l.setU8(26, row);
     room.version++;
     broadcast(room);
-    return json(res, 200, { ok: true });
+    return json(res, 200, { ok: true, automatikAus: abgeschaltet });
   }
   if (p === "/api/einsatz") {
     // Einsatzregler des Kaderbildschirms: Managerbyte 305, 0..34 (Vorgabe 16, Maximum 34;
@@ -3531,10 +3557,11 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (bytes.length !== SQUAD_BYTES) return json(res, 400, { error: "Kaderblock hat falsche Länge" });
     if (room.live && !room.live.paused) return json(res, 409, { error: "Erst das Spiel unterbrechen" });
     const before = room.game.save.plain.slice(SQUAD_OFFSET + manager * SQUAD_BYTES, SQUAD_OFFSET + (manager + 1) * SQUAD_BYTES);
+    // Bei eingeschalteter Automatik nimmt die Kaderliste keine Änderung an (0x2084F); erst ein
+    // Klick aufs Spielfeld schaltet sie ab (0x20197)
+    if (systemOf(room.game, manager) !== SYSTEM_MANUAL) return json(res, 409, { error: texte("ui.automatik")[0] + " " + texte("ui.automatik")[2] });
     const fehler = uebernimmNummern(room.game, manager, bytes);
     if (fehler) return json(res, 400, { error: fehler });
-    // Handänderung schaltet das System auf manuell (0x20226)
-    setSystem(room.game, manager, SYSTEM_MANUAL);
     if (room.live) {
       const sub = applySubstitutions(room.live, room.game, manager, before, room.rng);
       if (!sub.ok) {

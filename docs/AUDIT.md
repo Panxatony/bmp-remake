@@ -213,3 +213,11 @@ Beim Abarbeiten kamen Abweichungen dazu, die dieser Audit nicht erfasst hat, wei
 *ob* eine Anzeige oder Funktion vorhanden ist: #31 (Kalendermeldungen in der falschen Form),
 #32 (Tage ohne Spiele waren Züge) und #33 (Marktteile im falschen Takt).
 
+## Nachtrag: Restroutinen (25.9.2026)
+
+Die 59 Routinen, die bis dahin weder ein Zweigbuch noch dieser Audit nannte, sind in
+docs/abgleich/restroutinen.md eingeordnet. Dabei kamen 16 Befunde heraus (R1 bis R16): Kaderzahl
+beim Kauf und beim Jugendspieler, Feldzelle neuer Starter, Aufstellungsautomatik im Kader,
+Saisonverlauf, Heim- und Auswärtstabelle, Reihenfolge der Meldungen und einige kleinere. Offen
+sind R7 (Systemwahl im Spiel), R11 (Umbruch auf der Konferenztafel) und R16 (Stände zurück ins
+Original).

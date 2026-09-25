@@ -354,12 +354,18 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
     const o = TABLES.managers.offset + 778 * mi;
     const club = m.clubIndex;
     const cls = club < 18 ? 1 : club < 38 ? 2 : 4;
-    if (!(cls === 4 && club <= 58)) {
+    // Stehen bleibt nur ein Oberligist bis Verein 57 (4cb3:2277, 0xC6D9); Verein 58 wird getauscht
+    if (!(cls === 4 && club <= 57)) {
       let y: number;
       do y = rng(38, 57);
       while (managers.slice(0, mi).some((x) => x.clubIndex === y));
       kp(50);
       swapClubs(g, club, y, false);
+      // 0xAB84 tauscht die beiden Tabellensätze gleich wieder zurück (0xBFB9): die Tabelle bleibt
+      const t = TABLES.standings;
+      const a = g.save.plain.slice(t.offset + club * t.record, t.offset + (club + 1) * t.record);
+      g.save.plain.copyWithin(t.offset + club * t.record, t.offset + y * t.record, t.offset + (y + 1) * t.record);
+      g.save.plain.set(a, t.offset + y * t.record);
     }
     const league = 2;
     const b = div(level, 2) + 27;

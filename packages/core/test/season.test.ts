@@ -258,7 +258,7 @@ test("Saisonwechsel: Ligen bleiben konsistent, Tabellen und Spieltage zurückges
   assert.equal(new Set(pairs.flat()).size, 32);
   assert.ok(pairs.flat().every((c) => c >= 0 && c <= 58));
   for (const m of g.activeManagers()) assert.ok(pairs.flat().includes(m.clubIndex), "Managerverein im Pokal");
-  assert.ok(g.managers.at(0).history.length >= 1);
+  assert.ok(g.managers.at(0).history(g.save.plain[34224]).length >= 1);
   // Absteiger der Bundesliga stehen jetzt in der 2. Liga, Zweitligameister in der Bundesliga
   const g2 = load("RUNA0.MAN");
   const nameOf = (c: number) => g2.clubs.at(c).displayName;
@@ -285,6 +285,12 @@ test("Marktwert und Saisonereignisse: Werte plausibel, Ereignisse laufen ohne Ka
   g.activeManagers().forEach((m, i) => {
     for (const l of g.squadOf(i)) {
       const p = g.players.at(l.playerIndex);
+      // Manager 2 hat eine Lücke (Platz 14 leer, der Leihspieler 120 auf Platz 15): 0x320C7 sucht
+      // nur die Plätze 0..Anzahl-1 ab und findet ihn nicht - er bleibt, der Markt bleibt Besitzer
+      if (l.playerIndex === 120) {
+        assert.equal(p.u8(33), 4);
+        continue;
+      }
       assert.equal(p.u8(33), i);
       assert.equal(p.u8(36), m.clubIndex);
     }
