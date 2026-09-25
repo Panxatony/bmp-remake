@@ -2862,6 +2862,8 @@ class App {
    */
   go(s: Screen): void {
     if (s !== this.screen) {
+      // Transfermarkt und Trainingslager rechnen beim Verlassen die Stärke neu (#113)
+      if ((this.screen === "market" || this.screen === "camp") && this.online && this.game) void this.post("api/verlassen", { manager: this.manager, player: this.player, screen: this.screen }, true);
       this.blende();
       this.vertragsAntwort = "";
       this.resultPage = 0;

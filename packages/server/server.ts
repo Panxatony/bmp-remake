@@ -669,6 +669,12 @@ interface Room {
   /** Saison, deren Winterpause schon angezeigt wurde */
   winterJahr?: number;
   /**
+   * 4238:513E aus dem letzten Hauptmenü des Tages, also dem des letzten Managers in der
+   * Zugfolge. Die Aufstellung am nächsten Tagesbeginn liest noch diesen Wert (#114); nach dem
+   * Laden steht dort 0 wie im Original, das den Wert nicht speichert
+   */
+  sperre513E?: boolean;
+  /**
    * Abgelaufene Verträge, über die noch verhandelt wird (0x0DB40 mit Dialog 0x251FF). Das
    * Original hält den Saisonwechsel dafür an und fragt Spieler für Spieler; im
    * Mehrspielerbetrieb bleibt der Spieler stattdessen mit 0 Vertragsjahren im Kader, und der
@@ -1134,6 +1140,7 @@ function vertragsendeAufloesen(r: Room, manager: number): void {
 
 function zugBeenden(r: Room): void {
   r.hinweise = [];
+  r.sperre513E = sperreAusgesetzt(r.game, r.game.activeManagers().length - 1);
   const stand = saisonwechselStand(r.game);
   if (stand === "zug") saisonwechselBeginnen(r);
   else if (stand === "vertraege") saisonwechselAbschliessen(r);
@@ -1326,7 +1333,7 @@ function nachTageswechsel(r: Room): void {
   if (flag !== 0 && flag !== 9) {
     for (let i = 0; i < n; i++) {
       restoreSystem(g, i);
-      autoLineupIfEnabled(g, i);
+      autoLineupIfEnabled(g, i, r.sperre513E ?? false);
       // danach die Stärke mit Flag 0 in die Vereinsmatrix (0x1D7BA, #100)
       anzeigeStaerke(g, i);
     }
@@ -3457,6 +3464,18 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (room.live && !room.live.paused) return json(res, 409, { error: "Erst das Spiel unterbrechen" });
     const v = Math.max(0, Math.min(34, Number(body.value) | 0));
     room.game.managers.at(manager).setU8(305, v);
+    room.version++;
+    broadcast(room);
+    return json(res, 200, { ok: true });
+  }
+  if (p === "/api/verlassen") {
+    // Beim Verlassen von Transfermarkt (0x242C2) und Trainingslager (0x119C0) rechnet das
+    // Original die Stärke des Managers am Zug mit Flag 0 in die Vereinsmatrix (#113). Die
+    // Übersicht 0x2B61A tut es auch, überschreibt die Matrix an ihrem Ende aber mit Flag 1
+    if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    if (body.screen !== "market" && body.screen !== "camp") return json(res, 400, { error: "unbekannter Bildschirm" });
+    if (room.live) return json(res, 200, { ok: true });
+    anzeigeStaerke(room.game, manager);
     room.version++;
     broadcast(room);
     return json(res, 200, { ok: true });

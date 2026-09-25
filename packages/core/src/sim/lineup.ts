@@ -229,7 +229,7 @@ function aufstellungKern(g: GameState, manager: number, system: number, benchFou
  * 306 = 4238:0008), zählen gesperrte Spieler als verfügbar - die Sperre gilt nur in der Liga
  * (sie zählt auch nur dort herunter). Das lesen die Automatik 0x22305 und der Kaderbildschirm.
  * Den Wert hat nur, wer im Zug aufstellt; am Tagesbeginn steht noch der Wert des letzten
- * Hauptmenüs vom Vortag (meist 0), das Remake nimmt dort 0.
+ * Hauptmenüs vom Vortag (meist 0), den der Server dafür aufhebt (#114).
  */
 export function sperreAusgesetzt(g: GameState, manager: number): boolean {
   if (calendarFlag(g, dayIndex(g)) !== FLAG_CUP) return false;
