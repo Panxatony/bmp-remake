@@ -46,7 +46,10 @@ auch `\u`-Schreibweisen auf.
 Entscheidungen von lhuno (25.9.2026): B1 Mindestgebot = bisheriges Gehalt; B2 nein; B3 Gebote
 offen anzeigen; B5 Bonus endet nach drei Wechseln; B6 ein Zusatzwechsel in der Verlängerung; B9
 kein Zins im Aufnahmemonat; B10 der Borger darf ablehnen; B11 Punktabzug bleibt wie er ist; B12
-Ewige Bilanz in 2026 nur Punkte. Offen: B4, B7, B8, B13, B14.
+Ewige Bilanz in 2026 nur Punkte; B7 Grenzen des Originals, B8 Kur endet beim Wechsel; B14
+Förderung nur für Spieler-Manager, Altersangaben angleichen; B4 und B13 nach Empfehlung
+(Neuaufstellung für beide Seiten; Medizin nur mit der Verletzungswoche, nicht für Rechner-Manager).
+Work Items #104-#112. Umgesetzt: B4 (#109), B7/B8 (#110), B13 (#111), B14 (#112).
 
 | Nr | Funktion | Frage | Vorschlag |
 |---|---|---|---|

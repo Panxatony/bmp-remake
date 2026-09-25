@@ -35,6 +35,7 @@
 import type { GameState } from "../records.ts";
 import type { Rng } from "./match.ts";
 import { is2026 } from "./regeln.ts";
+import { kurBeimWechselBeenden } from "./doping.ts";
 import { texte } from "../data/texte.ts";
 import { addBalance, slotBytes, setSlotBytes, assignNumber, removePlace, kaderVoll, kaderZahl } from "./transfer.ts";
 import { addToSquad } from "./seasonEvents.ts";
@@ -52,11 +53,14 @@ export const JUGEND_TEAMS = 3;
 export const JUGEND_PLAETZE = 12;
 export const JUGEND_SATZ = 24;
 export const JUGEND_NAMEN = ["C-JUGEND", "B-JUGEND", "A-JUGEND"] as const;
-/** Altersgrenzen je Mannschaft. */
+/**
+ * Altersgrenzen je Mannschaft wie im Jugendfußball (U15, U17, U19). Bis #112 war die A-Jugend
+ * 16/17 und überschnitt sich mit der B-Jugend; wer aufstieg, war dort nur noch 17.
+ */
 export const JUGEND_ALTER: readonly (readonly [number, number])[] = [
   [13, 14],
   [15, 16],
-  [16, 17],
+  [17, 18],
 ] as const;
 /** Höchstens so viele Spieler steigen je Mannschaft und Saison auf. */
 export const JUGEND_AUFSTIEGE = 2;
@@ -552,6 +556,7 @@ export function jugendAbwerben(g: GameState, poacher: number, owner: number, pla
   bytes[10] = 0;
   bytes[9] &= 0x3f;
   setSlotBytes(g, poacher * 25 + frei, bytes);
+  kurBeimWechselBeenden(g.lineups.at(poacher * 25 + frei)); // #110
   const ziel = sortIntoSquad(g, poacher, frei);
   assignNumber(g, poacher, ziel);
   removePlace(g, owner * 25, place, 25);

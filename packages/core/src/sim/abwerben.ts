@@ -32,6 +32,7 @@ import type { Rng } from "./match.ts";
 import { playerValue } from "./value.ts";
 import { addBalance, slotBytes, setSlotBytes, assignNumber, removePlace, kaderVoll } from "./transfer.ts";
 import { is2026 } from "./regeln.ts";
+import { kurBeimWechselBeenden } from "./doping.ts";
 import { texte } from "../data/texte.ts";
 import { sortIntoSquad } from "./lineup.ts";
 import { LEAGUES } from "./fixtures.ts";
@@ -183,6 +184,7 @@ export function poach(g: GameState, poacher: number, owner: number, place: numbe
   bytes[10] = 0; // Rückennummer neu vergeben
   bytes[9] &= 0x3f; // offene Angebote bleiben beim alten Verein
   setSlotBytes(g, poacher * 25 + ziel, bytes);
+  kurBeimWechselBeenden(g.lineups.at(poacher * 25 + ziel)); // #110
   ziel = sortIntoSquad(g, poacher, ziel);
   assignNumber(g, poacher, ziel);
   removePlace(g, owner * 25, place, 25);

@@ -32,7 +32,8 @@ test("Doping: die Kur hebt die Werte und nimmt sie genau wieder zurück", () => 
   assert.ok(fresh > 0 && fresh <= DOPING_FRESH, `Frische ${fresh}`);
   assert.equal(l.u8(16), vorher[0] + bonus);
   assert.equal(l.u8(17), vorher[1] + bonus);
-  assert.equal(l.u8(18), vorher[2] + bonus);
+  // Die Form bleibt in der Spanne des Originals (45..55) und bekommt keinen Aufschlag (#110)
+  assert.equal(l.u8(18), vorher[2]);
   assert.equal(l.u8(19), vorher[3] + fresh);
   assert.ok(Math.max(l.u8(16), l.u8(17), l.u8(18)) <= 99, "keine Wert stößt an die Obergrenze");
   // Zweimal starten geht nicht
