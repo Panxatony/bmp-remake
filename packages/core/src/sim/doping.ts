@@ -206,8 +206,10 @@ export function dopeMatchday(g: GameState, manager: number, gespielt: (place: nu
     abziehen(l);
     l.setU8(18, Math.max(1, l.u8(18) - DOPING_MALUS));
     const weeks = rng(DOPING_BAN[0], DOPING_BAN[1]);
-    l.setU8(13, weeks);
-    l.setU8(9, l.u8(9) | 2);
+    // Rot im selben Spiel: die Spielsperre (Bit 0) weicht der Dopingsperre, sonst zählten
+    // Spiel- und Wochenzähler dasselbe Byte 13 herunter (AUDIT-2026 A19)
+    l.setU8(13, Math.max(weeks, (l.u8(9) & 1) !== 0 ? l.u8(13) : 0));
+    l.setU8(9, (l.u8(9) & ~1) | 2);
     l.setU8(23, 0);
     l.setU8(10, 0);
     setState(l, DOPE_BANNED, 0);

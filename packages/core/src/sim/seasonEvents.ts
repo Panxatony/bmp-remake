@@ -7,7 +7,7 @@ import { text as T, texte } from "../data/texte.ts";
 import { is2026 } from "./regeln.ts";
 import type { Rng } from "./match.ts";
 import { playerValue } from "./value.ts";
-import { removePlace, kaderZahl } from "./transfer.ts";
+import { removePlace, kaderZahl, assignNumber } from "./transfer.ts";
 import { addToSquad as aufnehmen } from "./newgame.ts";
 import { TABLES } from "../records.ts";
 import { sortIntoSquad } from "./lineup.ts";
@@ -67,35 +67,19 @@ function freePlace(g: GameState, manager: number): number {
 }
 
 /**
- * Aufnahme für die Jugendarbeit der Version 2026 (sim/jugend.ts): Rückennummer ab 12, Frische
- * 100, Trainingsfaktor 50, Vertrag über zwei bis drei Jahre und die Hälfte der Gehaltsbasis.
- * Der Jugendspieler des Originals am Saisonende läuft über `jugendInKader` (0x224A8).
+ * Aufnahme für die Jugendarbeit der Version 2026 (sim/jugend.ts), wie der Jugendspieler des
+ * Originals am Saisonende (`jugendInKader`): Aufnahme 0x224A8 (Frische random(80,120),
+ * Trainingsfaktor, Trainingsprogramm, Ligatore und -einsätze des alten Datensatzes gelöscht),
+ * danach die Hälfte der Gehaltsbasis und random(2,3) Jahre (0x0D0A6). Dazu eine Rückennummer
+ * ab 12 und der Besitzer. Bis zum Audit (AUDIT-2026 A8) hatte die Jugend eine eigene Aufnahme,
+ * die Byte 20 leer ließ (im Training ein Sonderprogramm) und die Tore des alten Datensatzes erbte.
  */
 export function addToSquad(g: GameState, manager: number, playerIndex: number, rng: Rng): number {
-  const place = freePlace(g, manager);
+  const place = jugendInKader(g, manager, playerIndex, rng);
   if (place < 0) return -1;
-  const l = g.lineups.at(manager * 25 + place);
-  for (let i = 0; i < 52; i++) l.setU8(i, 0);
-  l.setU8(15, playerIndex);
-  let number = 12;
-  const used = new Set(g.squadOf(manager).map((s) => s.number));
-  while (used.has(number)) number++;
-  l.setU8(10, number);
-  const p = g.players.at(playerIndex);
-  l.setU8(16, p.u8(28));
-  l.setU8(17, p.u8(29));
-  l.setU8(18, p.u8(30));
-  l.setU8(19, 100);
-  l.setU8(14, 50);
-  l.setU8(25, p.u8(32));
-  l.setU8(26, 7 - Math.min(7, div(p.u8(31), 10)));
-  p.setU8(33, manager);
-  p.setU8(36, g.managers.at(manager).clubIndex);
-  const salary = div(playerValue(g, manager, place, 1) * 50, 100);
-  for (let i = 0; i < 4; i++) l.setU8(40 + i, (salary >>> (8 * i)) & 0xff);
-  l.setU8(11, rng(2, 3));
-  // Der Kader bleibt nach Mannschaftsteil sortiert
-  return sortIntoSquad(g, manager, place);
+  assignNumber(g, manager, place);
+  g.players.at(playerIndex).setU8(33, manager);
+  return place;
 }
 
 /**

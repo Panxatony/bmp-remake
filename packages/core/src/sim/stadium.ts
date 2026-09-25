@@ -255,7 +255,7 @@ export function loanRequestCheck(g: GameState, manager: number, amount: number, 
   if (!Number.isInteger(amount) || amount <= 0) return "Betrag ung\u00fcltig";
   if (lender < 0 || lender >= g.save.managerCount || lender === manager) return "Geldgeber ung\u00fcltig";
   if (g.managers.at(lender).i32(496) < amount) return `${texte("ui.kreditabsage")[0]} ${texte("ui.kreditabsage")[1]} ${g.managers.at(lender).displayName} ${texte("ui.kreditabsage")[2]}`;
-  if (lenderDebt(g, manager, lender) + amount > LOAN_MAX_MANAGER) return "Sie k\u00f6nnen nur maximal 1 Mio. DM Kredit von einem Mitspieler aufnehmen.";
+  if (lenderDebt(g, manager, lender) + amount > LOAN_MAX_MANAGER) return texte("ui.kreditgrenze").slice(0, 4).join(" "); // Originaltext wie in takeLoan (AUDIT-2026 A17)
   const m = g.managers.at(manager);
   let frei = false;
   for (let s = 0; s < 3; s++) if (m.i32(508 + (lender * 3 + s) * 18) === 0) frei = true;

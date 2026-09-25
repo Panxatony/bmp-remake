@@ -24,6 +24,9 @@ import { join, extname, resolve, sep } from "node:path";
 import { randomBytes, createHash } from "node:crypto";
 import {
   SaveFile,
+  TABLES,
+  isDoped,
+  isDopeBanned,
   GameState,
   toDosText,
   mulberryRng,
@@ -637,7 +640,8 @@ interface Room {
    */
   auctions: Map<number, { name: string; bids: { manager: number; amount: number; loan: boolean }[] }>;
   /** Frisch aus der Jugend aufgerückte Spieler; die anderen dürfen sie bis zum Tageswechsel abwerben (#4). */
-  jugendFrisch: { manager: number; place: number; name: string; preis: number }[];
+  /** Frisch aufgerückte Jugendspieler, abwerbbar bis zum Tageswechsel - über den Spieler, nicht den Platz (AUDIT-2026 A4) */
+  jugendFrisch: { manager: number; playerIndex: number; name: string; preis: number }[];
   /**
    * Kalendermeldungen des Hauptmenüs (0x143ED): das Original zeigt sie beim ersten Öffnen des
    * Hauptmenüs im Hinweiskasten mit OKAY (0x3174A), nicht in der Meldungsliste. Sie gelten für
@@ -872,6 +876,12 @@ function resolvePoachRequests(r: Room): void {
  * Spieler mit einem Zweijahresvertrag zum gebotenen Gehalt, alle anderen eine Absage. Wer keinen
  * Abnehmer findet, geht zu einem anderen Verein.
  */
+/**
+ * Besitzer eines ablösefreien Spielers, der auf die Entscheidung wartet (Version 2026). Mit 5
+ * ("frei") zögen ihn die Markterneuerung und die Jugend als freien Datensatz (AUDIT-2026 A2).
+ */
+const WARTET_ABLOESEFREI = 6;
+
 function resolveFreeAgents(r: Room): void {
   const g = r.game;
   if (r.freeAgents.length === 0) return;
@@ -881,17 +891,24 @@ function resolveFreeAgents(r: Room): void {
   r.freeAgents = [];
   for (const a of liste) {
     const best = bestBid(g, a.bids);
+    const p = g.players.at(a.playerIndex);
+    // Ohne Abnehmer wird der Datensatz wieder frei
+    p.setU8(33, 5);
     if (!best) {
       r.log.push(`${a.name} findet keinen Verein und geht ins Ausland`);
       continue;
     }
-    const platz = addToSquad(g, best.manager, a.playerIndex, 2, r.rng);
+    // Kaderzahl wie bei jeder Aufnahme (0x224A8 mit 0x11354): eigene Spieler auf dem Markt und
+    // in Leihe zählen mit (AUDIT-2026 A3)
+    const platz = kaderVoll(g, best.manager, a.playerIndex) ? -1 : addToSquad(g, best.manager, a.playerIndex, 2, r.rng);
     if (platz < 0) {
-      pushMessage(r, best.manager, ["Ihr Kader ist voll:", `${a.name} geht`, "woanders hin."]);
+      pushMessage(r, best.manager, [...texte("ui.kadervoll"), `${a.name} geht`, "woanders hin."]);
       continue;
     }
+    // Der Spieler gehört jetzt dem Manager (Byte 33), wie nach jedem Kauf (AUDIT-2026 A1)
+    p.setU8(33, best.manager);
     const idx = best.manager * 25 + platz;
-    const off = 21400 + idx * 52 + 40;
+    const off = TABLES.lineups.offset + idx * 52 + 40;
     for (let i = 0; i < 4; i++) g.save.plain[off + i] = (best.salary >>> (8 * i)) & 0xff;
     assignNumber(g, best.manager, platz);
     autoLineupIfEnabled(g, best.manager);
@@ -915,6 +932,9 @@ function poachAusfuehren(
   counter: number,
 ): { agreed: boolean; amount: number; chance: number } | null {
   const g = r.game;
+  // Auch beim Tageswechsel über den Spieler suchen, nicht über den gemerkten Platz
+  const platz = platzVon(g, q.owner, q.playerIndex);
+  if (platz >= 0) q.place = platz;
   const l = g.lineups.at(q.owner * 25 + q.place);
   if (l.isEmpty || l.playerIndex !== q.playerIndex) {
     r.log.push(`${q.name} ist nicht mehr da - die Abwerbung entfällt`);
@@ -1079,6 +1099,7 @@ function vertragsendeFreigeben(r: Room, manager: number, playerIndex: number, ka
     else pushMessage(r, manager, wrap(erg.text));
   }
   if (erg.free) {
+    r.game.players.at(erg.free.playerIndex).setU8(33, WARTET_ABLOESEFREI);
     r.freeAgents.push({ ...erg.free, bids: [] });
     r.freeAgentsDay = dayIndex(r.game);
     // Die anderen Manager erfahren davon und können bieten; der abgebende nicht
@@ -1157,6 +1178,7 @@ function saisonwechselBeginnen(r: Room): void {
   });
   // Ablösefreie Spieler (Version 2026) sammeln, alle Manager dürfen bieten
   r.freeAgents = events.filter((ev) => ev.free).map((ev) => ({ ...ev.free!, bids: [] }));
+  for (const a of r.freeAgents) g.players.at(a.playerIndex).setU8(33, WARTET_ABLOESEFREI);
   r.freeAgentsDay = dayIndex(g);
   if (r.freeAgents.length) {
     r.log.push(`Ablösefrei: ${r.freeAgents.map((a2) => a2.name).join(", ")}`);
@@ -1380,6 +1402,8 @@ async function loadRoom(meta: RoomMeta, path: string): Promise<Room> {
   const save = SaveFile.decode(new Uint8Array(await readFile(path)));
   const r = roomFromSave(meta, save);
   r.log.push(`Spielstand ${meta.file} geladen`);
+  // Die Warteliste der ablösefreien Spieler überlebt keinen Neustart: wer noch wartete, ist frei
+  for (let i = 1; i < 151; i++) if (r.game.players.at(i).u8(33) === WARTET_ABLOESEFREI) r.game.players.at(i).setU8(33, 5);
   repairMarketPrices(r);
   // Vom Rechner geführte Manager warten auf nichts. Ohne das hier bliebe der Tag nach dem Laden
   // eines Spielstands mit KI-Managern für immer stehen (beim Bildvergleich für #56 aufgefallen).
@@ -1640,7 +1664,8 @@ function stateJson(r: Room, user: string) {
       poachRequests: r.poachRequests,
       loanRequests: r.loanRequests,
       freeAgents: r.freeAgents,
-      jugendFrisch: r.jugendFrisch,
+      // Der Client kennt die Aufrücker über ihren heutigen Kaderplatz
+      jugendFrisch: r.jugendFrisch.map((x) => ({ ...x, place: platzVon(r.game, x.manager, x.playerIndex) })).filter((x) => x.place >= 0),
     },
     vertragsende: r.vertragsende.map((v) => ({ manager: v.manager, place: platzVon(r.game, v.manager, v.playerIndex), name: v.name })),
     hinweise: r.hinweise,
@@ -1769,7 +1794,9 @@ function finanzTag(r: Room, dt: { day: number; month0: number; year: number }): 
     for (const d of checkDebt(g)) {
       const mg = g.managers.at(d.manager);
       const liga = mg.clubIndex < 18 ? 0 : mg.clubIndex < 38 ? 1 : 2;
-      updatePositions(g, liga);
+      // Nur bei einem Abzug neu sortieren: am 30.6. (Sommertage) ist die Tabelle schon leer, und
+      // ein Sortieren mischte die Startreihenfolge der neuen Saison (AUDIT-2026 A18)
+      if (d.points > 0) updatePositions(g, liga);
       r.log.push(`${dt.day}.${dt.month0 + 1}. ${mg.displayName}: ${dmText(d.balance)} im Minus - ${d.points} Punkte Abzug und ein Monat Kaufsperre`);
       pushMessage(r, d.manager, ["Ihr Konto ist zu tief", "im Minus: " + d.points + " Punkte", "Abzug, ein Monat", "keine Eink{ufe."], dt);
       g.activeManagers().forEach((_, i) => {
@@ -2920,6 +2947,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
     if (!is2026(room.game)) return json(res, 400, { error: "Nur in der Version 2026" });
     const was = String(body.was ?? "foerdern");
+    // Aufrücken und Abwerben ändern den Kader - nicht im laufenden Spiel (AUDIT-2026 A11)
+    if (room.live && (was === "aufruecken" || was === "abwerben")) return json(res, 409, { error: "Die Konferenz läuft" });
     if (was === "anlegen") {
       if (!jugendVorhanden(room.game)) {
         jugendAnlegen(room.game, room.rng);
@@ -2947,7 +2976,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       const erg = jugendAufruecken(room.game, manager, Math.trunc(Number(body.platz)), room.rng);
       if (!erg.ok) return json(res, 400, { error: erg.error });
       const wer = room.game.managers.at(manager).displayName;
-      room.jugendFrisch.push({ manager, place: erg.place, name: erg.name, preis: jugendPreis(room.game, manager, erg.place) });
+      room.jugendFrisch.push({ manager, playerIndex: erg.playerIndex, name: erg.name, preis: jugendPreis(room.game, manager, erg.place) });
       room.log.push(`Jugend ${wer}: ${erg.name} rückt in die Männermannschaft auf (Stärke ${erg.staerke})`);
       pushMessage(room, manager, [`${erg.name} r}ckt in die`, "Mannschaft auf."]);
       // Die anderen erfahren davon und dürfen ihn bis zum Tageswechsel abwerben (#4, Stufe 2)
@@ -2963,11 +2992,17 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (was === "abwerben") {
       const owner = Math.trunc(Number(body.owner));
       const place = Math.trunc(Number(body.place));
-      const frisch = room.jugendFrisch.find((x) => x.manager === owner && x.place === place);
+      // Der Platz aus der Anzeige führt zum Spieler; abgeworben wird er dort, wo er jetzt steht
+      const frisch = room.jugendFrisch.find((x) => x.manager === owner && platzVon(room.game, owner, x.playerIndex) === place);
       if (!frisch) return json(res, 400, { error: "Spieler steht nicht mehr zur Abwerbung" });
       const name = frisch.name;
+      if (isBlocked(room.game, manager)) return json(res, 400, { error: "Kaufsperre: Ihr Konto stand am Monatsende zu tief im Minus" });
+      // Ein Versuch je Spieler und Tag wie beim Abwerben aus dem Kader (AUDIT-2026 A5)
+      const schluessel = `${manager}:${frisch.playerIndex}`;
+      if (room.poachTried.has(schluessel)) return json(res, 409, { error: `${name} will heute nicht mehr reden` });
       const erg = jugendAbwerben(room.game, manager, owner, place, Math.trunc(Number(body.bonus) || 0), room.rng);
       if (!erg.ok) return json(res, 400, { error: erg.error });
+      room.poachTried.add(schluessel);
       const wer = room.game.managers.at(manager).displayName;
       if (!erg.agreed) {
         room.log.push(`Jugend: ${name} bleibt bei ${room.game.managers.at(owner).displayName} (${wer} abgeblitzt)`);
@@ -2976,7 +3011,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
         room.jugendFrisch = room.jugendFrisch.filter((x) => x !== frisch);
         room.log.push(`Jugend: ${wer} wirbt ${name} von ${room.game.managers.at(owner).displayName} ab (${dmText(erg.amount)})`);
         pushMessage(room, manager, [name, "wechselt zu Ihnen.", dmText(erg.amount)]);
-        pushMessage(room, owner, [`${name} verl{sst Sie`, `Richtung ${wer}.`, dmText(erg.amount)]);
+        pushMessage(room, owner, [`${name} verl{~t Sie`, `Richtung ${wer}.`, dmText(erg.amount)]);
       }
       flushMessages(room);
       room.version++;
@@ -3013,6 +3048,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       const b = body.beschreibung as Parameters<typeof baueSzene>[0];
       if (!b || typeof b !== "object") return json(res, 400, { error: "Keine Beschreibung" });
       b.name = String(b.name ?? "").replace(/[^a-z0-9_-]/gi, "") || "szene";
+      // Die Szenen des Originals heißen nach Nummern (12.T): ein Name mit einer Ziffer vorn
+      // überschriebe sie im Browser, auch in Originalrunden (AUDIT-2026 A16)
+      if (/^[0-9]/.test(b.name)) return json(res, 400, { error: "Der Name mu~ mit einem Buchstaben beginnen" });
       // Sonst füllt eine Schleife im Browser die Platte mit Szenendateien
       try {
         const vorhanden = readdirSync(quelle).filter((f) => f.endsWith(".json"));
@@ -3055,6 +3093,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   if (p === "/api/doping") {
     // Doping (Version 2026, #3): Kur eines Spielers an- oder abschalten
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    // Nicht im laufenden Spiel: wer die Kur vor der Buchung absetzt, spielte gedopt ohne Risiko
+    // (AUDIT-2026 A11)
+    if (room.live) return json(res, 409, { error: "Die Konferenz läuft" });
     const place = Math.trunc(Number(body.place));
     const an = Boolean(body.on);
     const erg = an ? dopeStart(room.game, manager, place) : dopeStop(room.game, manager, place);
@@ -3067,6 +3108,10 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   }
   if (p === "/api/market/list") {
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    // Wer auf Kur ist oder wegen Doping gesperrt, kommt nicht auf den Markt: der Käufer behielte
+    // den Aufschlag ohne Risiko bzw. bekäme die Sperre als verkürzbare Verletzung (AUDIT-2026 A13)
+    const angebot = room.game.lineups.at(manager * 25 + (Number(body.place) | 0));
+    if (!angebot.isEmpty && (isDoped(angebot) || isDopeBanned(angebot))) return json(res, 400, { error: "Erst die Kur absetzen bzw. die Sperre abwarten" });
     const result = listPlayer(room.game, manager, Number(body.place));
     if (!result.ok) return json(res, 400, { error: result.error });
     room.log.push(`${room.game.managers.at(manager).displayName}: Spieler auf den Transfermarkt gesetzt`);
@@ -3411,6 +3456,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     // Abwerben (Version 2026): der Spieler entscheidet, der Werbende zahlt und kann nicht zurück
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
     if (room.live) return json(res, 409, { error: "Die Konferenz läuft" });
+    // In den Vertragsgesprächen des Saisonwechsels stehen offene Verträge mit 0 Jahren im Kader;
+    // ein so abgeworbener Spieler liefe nie mehr aus (AUDIT-2026 A10)
+    if (saisonwechselStand(room.game) === "vertraege") return json(res, 409, { error: "Erst die Vertragsgespr{che beenden" });
     const owner = Number(body.owner) | 0;
     const place = Number(body.place) | 0;
     const bonus = Number(body.bonus) | 0;
@@ -3450,9 +3498,14 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
     const idx = room.poachRequests.findIndex((q) => q.owner === manager && q.playerIndex === (Number(body.playerIndex) | 0));
     if (idx < 0) return json(res, 404, { error: "Keine Anfrage offen" });
+    if (room.live) return json(res, 409, { error: "Die Konferenz läuft" });
     const q = room.poachRequests[idx];
     const counter = Math.max(0, Math.min(POACH_COUNTER_MAX, Number(body.counter) | 0));
     room.poachRequests.splice(idx, 1);
+    // Der Kader kann sich seit der Anfrage verschoben haben: Platz über den Spieler suchen, sonst
+    // bekäme ein anderer die Gehaltserhöhung (AUDIT-2026 A9)
+    q.place = platzVon(room.game, q.owner, q.playerIndex);
+    if (q.place < 0) return json(res, 409, { error: `${q.name} steht nicht mehr in Ihrem Kader` });
     if (counter > 0) {
       const neuesGehalt = raiseSalary(room.game, q.owner, q.place, counter);
       room.log.push(`${room.game.managers.at(q.owner).displayName} h{lt ${q.name} mit ${counter} % mehr Gehalt (${dmText(neuesGehalt)})`.replace("h{lt", "hält"));
@@ -3468,6 +3521,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   if (p === "/api/derby") {
     // Einsatz für Spiele gegen andere Managervereine (Version 2026)
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    // Der Einsatz steht mit dem Anpfiff fest - sonst senkte ihn, wer zurückliegt (AUDIT-2026 A11)
+    if (room.live) return json(res, 409, { error: "Die Konferenz läuft" });
     if (!is2026(room.game)) return json(res, 400, { error: "Nur in der Version 2026" });
     setStakeLevel(room.game, manager, Number(body.level) | 0);
     room.version++;
