@@ -21,11 +21,23 @@ export const FIXED_END = 34368;
 export const TRAILER_LEN = 12;
 export const NMAN_OFF = 2339;
 export const MSGCOUNT_OFF = 41;
+/** Höchstens so viele Meldungen je Manager (Tabelle 4238:5524, 20 Einträge). */
+export const MAX_MELDUNGEN = 20;
+/** Kaderplätze (125 zu 52 Bytes), Ablaufzähler der Meldungen 4238:1D34, Zeiger 4238:5664. */
+const LINEUP_OFF = 21400;
+const ABLAUF_ZAEHLER = 34065;
+const ABLAUF_ZEIGER = 34095;
 
 export interface Message {
   manager: number;
   /** Text in der DOS-Zeichenbelegung des Spiels, Zeilenumbruch = '^'. */
   text: string;
+  /**
+   * Die vier Bytes vor der Länge: im Original die Speicheradresse der Meldung, über die
+   * Kaderplätze (Bytes 48..51) und die Ablauftabelle 4238:5664 auf sie zeigen. Beim Laden ersetzt
+   * 0x334BC jeden alten Wert durch die neue Adresse. Fehlt er, vergibt withMessages einen.
+   */
+  ptr?: number;
 }
 
 export class SaveError extends Error {}
@@ -84,7 +96,8 @@ export class SaveFile {
         const len = this.plain[pos + 4];
         const raw = this.plain.subarray(pos + 5, pos + 5 + len);
         const end = raw.indexOf(0);
-        out.push({ manager: m, text: ascii(end < 0 ? raw : raw.subarray(0, end)) });
+        const ptr = (this.plain[pos] | (this.plain[pos + 1] << 8) | (this.plain[pos + 2] << 16) | (this.plain[pos + 3] << 24)) >>> 0;
+        out.push({ manager: m, text: ascii(end < 0 ? raw : raw.subarray(0, end)), ptr });
         pos += 5 + len;
       }
     }
@@ -146,15 +159,30 @@ export class SaveFile {
     const trailer = this.plain.subarray(this.plain.length - (TRAILER_LEN + 1));
     const chunks: Uint8Array[] = [];
     const counts = [0, 0, 0, 0];
+    // Zeiger: jede Meldung braucht einen eigenen Wert ungleich 0 (R16). Mit 0 setzte das Original
+    // beim Laden die Adresse der ersten Meldung in jeden Kaderplatz ohne Angebot (0x33E38) und
+    // machte danach keine Vertragsangebote mehr (0xE940 verlangt einen Nullzeiger)
+    const vergeben = new Set<number>();
+    let frei = 0x7f000001;
+    const zeiger = (p: number | undefined): number => {
+      if (p && !vergeben.has(p)) return p;
+      while (vergeben.has(frei)) frei++;
+      return frei++;
+    };
     for (let m = 0; m < this.managerCount; m++) {
       for (const msg of messages) {
         if (msg.manager !== m) continue;
-        // Die Zahl steht in einem Byte (MSGCOUNT_OFF): mehr als 255 Meldungen machten den Stand
-        // unlesbar. Die neueste steht vorn, weg fallen die ältesten
-        if (counts[m] === 255) continue;
+        // Die Tabelle des Originals (4238:5524) hat 20 Plätze je Manager; beim Laden schreibt es
+        // ohne Grenze weiter in die Ablauftabelle 5664 (0x33F44). Das Original lässt Meldungen
+        // nach drei Tagen verfallen, das Remake behält sie bis "Gelesen" - es hält die 20
+        // neuesten (die neueste steht vorn)
+        if (counts[m] === MAX_MELDUNGEN) continue;
         let text = msg.text;
         if (!text.endsWith("^")) text += "^";
         const bytes = new Uint8Array(5 + text.length + 1);
+        const p = zeiger(msg.ptr);
+        vergeben.add(p);
+        for (let k = 0; k < 4; k++) bytes[k] = (p >>> (8 * k)) & 0xff;
         bytes[4] = text.length + 1;
         for (let i = 0; i < text.length; i++) bytes[5 + i] = text.charCodeAt(i) & 0xff;
         chunks.push(bytes);
@@ -171,6 +199,21 @@ export class SaveFile {
       pos += c.length;
     }
     plain.set(trailer, pos);
+    // Verweise auf Meldungen, die es nicht mehr gibt, zeigten im Original ins Leere: Kaderplätze
+    // (Bytes 48..51) und laufende Einträge der Ablauftabelle 5664 samt Zähler 1D34 werden dann 0.
+    // Einträge mit Zähler 0 sind frei; alte Zeiger darin lässt auch das Original stehen
+    const lese = (o: number) => (plain[o] | (plain[o + 1] << 8) | (plain[o + 2] << 16) | (plain[o + 3] << 24)) >>> 0;
+    for (let i = 0; i < 125; i++) {
+      const o = LINEUP_OFF + 52 * i + 48;
+      if (lese(o) !== 0 && !vergeben.has(lese(o))) plain.fill(0, o, o + 4);
+    }
+    for (let i = 0; i < 30; i++) {
+      const o = ABLAUF_ZEIGER + 4 * i;
+      if (plain[ABLAUF_ZAEHLER + i] !== 0 && !vergeben.has(lese(o))) {
+        plain.fill(0, o, o + 4);
+        plain[ABLAUF_ZAEHLER + i] = 0;
+      }
+    }
     const kopie = new SaveFile(plain);
     kopie.anhang = this.anhang;
     return kopie;

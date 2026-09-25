@@ -32,7 +32,7 @@ Grafikpuffer. Der Text steht in 4cb3:4D38 und gehört zu 0x224A8.
 | 0x1618E | Wert ± random(1,7) - 4, begrenzt auf 30..99 | Hilfsroutine von 0x161D8 | `poolTargets` (pool.ts) | stimmt |
 | 0x1704A | Titelbild einer Saisonendphase | Anzeige | - | - |
 | 0x19810 | "Liga GEGEN Liga:" in der Pokalübersicht | Anzeige | - | - |
-| 0x1A7CE, 0x1A8D0 | Werte und Vereinsname auf der Konferenztafel | Anzeige | `drawLivePanel` | **R11** (Umbruch) |
+| 0x1A7CE, 0x1A8D0 | Werte und Vereinsname auf der Konferenztafel | Anzeige | `drawLivePanel` | **R11** (Umbruch), behoben |
 | 0x1FEC9 | Starter auf einer Feldzelle suchen | Hilfsroutine | `freieZelle`, `/api/position` | stimmt |
 | 0x1FF36 | Freie Feldzelle für einen neuen Starter | Spiellogik (Kader) | `freieZelle` (lineup.ts) | **R5**, behoben |
 | 0x1FFFA, 0x20105, 0x21328, 0x213B6 | Trikots, Einsatzregler, Spielfeld, Systemknöpfe zeichnen | Anzeige | `drawPitch` | - |
@@ -67,7 +67,7 @@ Grafikpuffer. Der Text steht in 4cb3:4D38 und gehört zu 0x224A8.
 | 0x320C7 | Kaderplatz eines Spielers suchen | Hilfsroutine von 0xCB62 | `fundort` (seasonEvents.ts) | **R15**, behoben |
 | 0x3216C | Managerkopf neu zeichnen (0x322B6: Diskettenfehler) | Anzeige | `gesichtSpalte` | - |
 | 0x322F7, 0x323EF | Block verschlüsseln und schreiben, lesen und entschlüsseln | Datei | savefile.ts, cipher.ts | stimmt |
-| 0x334BC | Spielstand laden | Datei | `roomFromSave`, `decode` | **R16** |
+| 0x334BC | Spielstand laden | Datei | `roomFromSave`, `decode`, `withMessages` | **R16**, behoben bis auf Randfälle |
 | 0x34E6E | Dateiauswahl | Datei/System | `/api/saves` | - |
 
 ## Befunde
@@ -84,9 +84,9 @@ Grafikpuffer. Der Text steht in 4cb3:4D38 und gehört zu 0x224A8.
 | R8 | Kaderstatus: "GESP.(n)" mit der Sperrdauer, Flag 3 als leerer Text | behoben |
 | R9 | Verlauf: Byte 63 ist die Liga, Byte 64 der DFB-Pokal - das Remake las beide vertauscht; Europapokal als Runde und Wettbewerb, Sieger gelb, Saisonzahl wie 0x29F11, 16 Saisons je Seite, Zeilen über den Saisonzähler, "EXISTIERTEN SIE NOCH GAR NICHT ALS MANAGER..." für 0xFF | behoben; Test angepasst |
 | R10 | Ergebnisseite: Stärke = Summe der neun Matrixbytes / 9 | behoben |
-| R11 | Konferenztafel: Umbruch des Vereinsnamens über 60 Punkte am ersten Leerzeichen, das Remake bricht am letzten bis Stelle 15 | offen, nur Anzeige |
+| R11 | Konferenztafel: Umbruch des Vereinsnamens, wenn die ersten Länge - 1 Zeichen breiter als 60 Punkte sind, am ersten Leerzeichen; ohne Leerzeichen einzeilig. Das Remake brach ab 16 Zeichen am letzten Leerzeichen | behoben |
 | R12 | Bilanzbyte ohne Begrenzung auf 15 Tore (8-Bit-Summe) | behoben |
 | R13 | Heim- und Auswärtstabelle mit "weniger Spiele"; das Umschreiben der Reihenfolgeliste dabei macht das Remake nicht nach | behoben; Test; Rest in ABWEICHUNGEN |
 | R14 | Die neueste Meldung steht vorn (0x30AA0) | behoben; Test |
 | R15 | Saisonende sucht Spieler nur auf den Plätzen 0..Anzahl-1 der Kader 0..Anzahl-1 (0x320C7): hinter einer Lücke bleibt z. B. ein Leihspieler stehen (RIED-CLI, Spieler 120) | behoben; Test angepasst |
-| R16 | Laden: V1-Stände mit Levelabfrage, Sperre gegen das Wiederladen desselben Stands, fehlender Anhang, Meldungszeiger und höchstens 20 Meldungen je Manager, wenn ein Remake-Stand im Original geladen wird | offen, nur für den Weg zurück ins Original (ABWEICHUNGEN) |
+| R16 | Remake-Stand im Original: (1) Das Remake schrieb alle Meldungszeiger als 0; das Original setzte beim Laden die Adresse der ersten Meldung in jeden Kaderplatz ohne Angebot und machte danach keine Vertragsangebote mehr. (2) Mehr als 20 Meldungen je Manager schreibt das Original beim Laden über seine Tabelle hinaus. Dazu Randfälle beim Laden (V1-Stände, Wiederladesperre, fehlender Anhang) | (1) und (2) behoben: Zeiger aus dem Originalstand bleiben, neue Meldungen bekommen eigene Werte, tote Verweise in Kaderplätzen und laufenden Ablaufeinträgen werden 0; höchstens die 20 neuesten je Manager. Im Original geprüft: TEST4 mit drei neuen Meldungen geladen und gespeichert - mit Nullzeigern 49 Kaderplätze auf der ersten Meldung, jetzt keiner, die Ablaufeinträge zeigen auf die neuen Adressen. Die Randfälle bleiben (ABWEICHUNGEN) |

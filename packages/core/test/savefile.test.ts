@@ -141,3 +141,28 @@ test("Neues Spiel aus einer Vorlage mit Meldungen: Spielstand bleibt lesbar (jed
     assert.equal(again.messages().length, 0);
   }
 });
+
+test("Meldungszeiger für das Original: alte bleiben, neue eindeutig, tote Verweise 0, höchstens 20 (R16)", () => {
+  const s = SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "RIED-CLI.MAN"))));
+  const lese = (p: Uint8Array, o: number) => (p[o] | (p[o + 1] << 8) | (p[o + 2] << 16) | (p[o + 3] << 24)) >>> 0;
+  const kader55 = 21400 + 52 * 55 + 48;
+  // Kaderplatz 55 zeigt auf die einzige Meldung (Manager 2); der Zeiger bleibt samt Verweis
+  const alt = s.messages()[0].ptr;
+  assert.equal(lese(s.plain, kader55), alt);
+  let t = s;
+  for (let i = 0; i < 25; i++) t = t.addMessage(2, `${i}. Oktober 1997^Test^`);
+  const back = SaveFile.decode(t.encode());
+  const mine = back.messages().filter((m) => m.manager === 2);
+  assert.equal(mine.length, 20);
+  assert.ok(mine[0].text.startsWith("24. Oktober"));
+  const ptrs = back.messages().map((m) => m.ptr);
+  assert.ok(ptrs.every((p) => p !== 0));
+  assert.equal(new Set(ptrs).size, ptrs.length);
+  // Die alte Meldung ist unter den 20 neuesten nicht mehr dabei: der Verweis wird 0
+  assert.ok(!ptrs.includes(alt));
+  assert.equal(lese(back.plain, kader55), 0);
+  // Ohne Überlauf bleibt der Verweis stehen
+  const eine = SaveFile.decode(s.addMessage(2, "1. Oktober 1997^Test^").encode());
+  assert.equal(lese(eine.plain, kader55), alt);
+  assert.ok(eine.messages().some((m) => m.ptr === alt));
+});

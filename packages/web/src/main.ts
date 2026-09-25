@@ -1544,11 +1544,14 @@ class App {
     // liegen im Bild die Ziffern. Wir haben sie bisher abgeschnitten (GitLab #56).
     if (pic) ctx.drawImage(pic, 0, 0, 153, 114, x, y, 153, 114);
     else panel(ctx, x, y, 153, 114);
+    // Wie 0x1A8D0: erst ab mehr als 60 Punkten Breite in zwei Zeilen, getrennt am ersten
+    // Leerzeichen; ohne Leerzeichen bleibt der Name einzeilig. Gemessen werden nur die ersten
+    // Länge - 1 Zeichen (0x1A8E9 übergibt strlen - 1 an die Breitenroutine 0x38974)
     const lines = (n: string): string[] => {
       const t = toGame(n);
-      if (t.length <= 15) return [t];
-      const i = t.lastIndexOf(" ", 15);
-      return i > 0 ? [t.slice(0, i), t.slice(i + 1)] : [t.slice(0, 15), t.slice(15)];
+      if (s.width(t.slice(0, -1)) <= 60) return [t];
+      const i = t.indexOf(" ");
+      return i >= 0 ? [t.slice(0, i), t.slice(i + 1)] : [t];
     };
     // Die Vereinsnamen stehen in Palettenfarbe 11 auf Zeile 8 der Tafel (im Original gemessen);
     // was darüber liegt, ist das Punktmuster der Anzeigetafel
