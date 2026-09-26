@@ -39,13 +39,14 @@ export function contractScore(g: GameState, manager: number, place: number): num
  *
  * `source` nennt den Kaderplatz, dessen Daten gelten (Transfermarkt: Manager 4), die Liga ist die des Managers.
  */
-export function salaryDemand(g: GameState, manager: number, place: number, years: number, source?: { manager: number; place: number }): number {
+export function salaryDemand(g: GameState, manager: number, place: number, years: number, source?: { manager: number; place: number }, rng?: Rng): number {
   const m = g.managers.at(manager);
   const src = source ?? { manager, place };
   const l = g.lineups.at(src.manager * 25 + src.place);
   const p = g.players.at(l.playerIndex);
   const league = m.u8(312);
-  const v = playerValue(g, src.manager, src.place, 5);
+  // Mit KI-Angebot (Byte 9 Bit 7) würfelt der Marktwert random(95,100) (0x250F9, Audit 2 F1)
+  const v = playerValue(g, src.manager, src.place, 5, rng);
   const prog = div(g.nextMatchday(league) * -100, LEAGUES[league].matchdays) + 100;
   const t = 100 * (years - 1) + prog;
   const q = div(((div(t, 6) + 122) << 3), 10);
@@ -90,7 +91,7 @@ export function contractCheck(g: GameState, manager: number, place: number, year
   const prog = div(g.nextMatchday(league) * -100, LEAGUES[league].matchdays) + 100;
   const t = (years - 1) * 100 + prog;
   const q = div(((div(t, 6) + 110) << 3), 10);
-  let v = playerValue(g, src.manager, src.place, 5);
+  let v = playerValue(g, src.manager, src.place, 5, rng);
   v = div(v * rng(q - 6, q + 4), 100);
   if (seasonDay(dayIndex(g)) > 321) v = div(v * rng(132 - p.u8(26), 152 - p.u8(26)), 100);
   if (v >= 100000) return false;
@@ -104,6 +105,55 @@ export function contractCheck(g: GameState, manager: number, place: number, year
 export const contractRefusals = (): string[] => texte("ui.vertragsabsage");
 
 export const MAX_CONTRACT_YEARS = 4;
+
+/** Warum der Vertragsdialog ohne Einigung endet (Zustand 2). */
+export type DialogAbsage = "zulange" | "sodumm" | "nein" | "spieler";
+
+/**
+ * Vertragsdialog 0x251FF, aufgerufen mit einem Kaderplatz (Kauf, Angebot des Spielers,
+ * Saisonende): der Knopf OK (Zustand 1) ist genau ein Versuch, danach kehrt der Dialog zurück.
+ * - mehr als vier Saisons: "zu lange" (0x259F1)
+ * - Jahre 0 -> das Angebot des Spielers bzw. die bisherigen, Gehalt 0 -> das bisherige (0x25F07)
+ * - mehr Jahre für weniger als das bisherige Gehalt: "So dumm ist ... leider nicht..." (0x25F4D)
+ * - Angebot des Spielers (Byte 24 = 100 + Jahre): angenommen nur mit denselben Jahren und
+ *   mindestens dem bisherigen Gehalt, ohne 0x249E0 und ohne Meldung (0x25FB8)
+ * - sonst die Verhandlung 0x249E0; nein: "... ist nicht an Ihrem Angebot interessiert." (0x26127)
+ * Bei Einigung Jahre (11) und Gehalt (40) auf den Platz (0x26046). Jeder Ausgang außer ABBRUCH
+ * (Zustand 3) setzt Byte 24 = random(10,18) (0x26195) - auch die Einigung (#125, #126, Audit 2 F2-F6).
+ */
+export function vertragsDialog(g: GameState, manager: number, place: number, years: number, salary: number, rng: Rng, spielerJahre = 0): { einig: boolean; absage?: DialogAbsage } {
+  const l = g.lineups.at(manager * 25 + place);
+  const altJahre = l.u8(11);
+  const altGehalt = l.i32(40);
+  let absage: DialogAbsage | undefined;
+  if (years > MAX_CONTRACT_YEARS) absage = "zulange";
+  const jahre = years || spielerJahre || altJahre;
+  const gehalt = salary || altGehalt;
+  if (!absage && jahre > altJahre && gehalt < altGehalt) absage = "sodumm";
+  if (!absage) {
+    if (spielerJahre) {
+      if (gehalt < altGehalt || jahre !== spielerJahre) absage = "spieler";
+    } else if (!contractCheck(g, manager, place, jahre, gehalt, rng)) absage = "nein";
+  }
+  if (!absage) {
+    l.setU8(11, jahre);
+    for (let b = 0; b < 4; b++) l.setU8(40 + b, (gehalt >>> (8 * b)) & 0xff);
+  }
+  l.setU8(24, rng(10, 18));
+  return absage ? { einig: false, absage } : { einig: true };
+}
+
+/** Text der Absage im Hinweiskasten (0x3091:0E3A), mit dem Namen des Spielers. */
+export function dialogAbsageText(absage: DialogAbsage, name: string): string[] {
+  if (absage === "zulange") return texte("ui.zulange");
+  const t = texte("ui.vertragsabsage");
+  if (absage === "sodumm") return [t[9], `${t[10]} ${name}`, t[11]];
+  if (absage === "nein") {
+    const k = texte("ui.keinInteresse");
+    return [`${name} ${k[0]}`, k[1], k[2]];
+  }
+  return [];
+}
 export const tooLongText = (): string => texte("ui.zulange").join(" ");
 
 export interface ContractOffer {

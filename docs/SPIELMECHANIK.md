@@ -1891,10 +1891,17 @@ wurde bereits abgelehnt") blockiert. KI-Spieler (0x248E1, Preis = i32@40, Leihe 
 Preis·random(75,85)/100 abgelehnt, ab Preis·random(120,130)/100 angenommen, sonst angenommen
 wenn Angebot·100/Preis > random(80,120). Ablehnung setzt Byte 3 |= (1 << Manager) | 0x80
 ("Ihr Angebot wurde abgelehnt"); täglich verfällt das Bit mit 1/3, wenn nur dieser Manager
-abgelehnt hat. Annahme: neuer Kaderplatz (0x224A8, Nummer ab 12), Flags/Verletzung/Karten vom
-Marktplatz, dann Vertragsdialog 0x251FF (Forderung wie bei Verlängerungen, mindestens die
-Gehaltsbasis; Abbruch setzt das Ablehnungsbit), Kaufpreis vom Konto, Spieler gehört dem Käufer
-(Byte 33) und trägt seinen Verein. Leihe: Platz kopiert, Vertrag 1 Jahr, Byte 12 = Verein |
+abgelehnt hat. Annahme: neuer Kaderplatz aus 0x224A8 **vor** dem Dialog (würfelt Byte 19,
+14 und 20; keine Rückennummer - Byte 10 schreibt 0x224A8 nicht), dann der Vertragsdialog 0x251FF
+auf diesem Platz mit genau einem Versuch: mehr als vier Jahre "zu lange", mehr Jahre für weniger
+als das Gehalt der Aufnahme "So dumm ...", sonst die Verhandlung 0x249E0 - auch für die gewählte
+Forderung; jeder Ausgang außer ABBRUCH würfelt Byte 24 = random(10,18). Ohne Einigung geht der
+Platz wieder weg (Spielerbyte 36 zurück, 34/35 bleiben genullt), beim Kauf vom Rechner mit
+Ablehnungsbit; ein voller Kader endet ohne Bit. Bei Einigung wandern Byte 9 (ungefiltert),
+Verletzung und Karten nur beim Kauf von einem Manager mit, Kaufpreis vom Konto, Spieler gehört
+dem Käufer (Byte 33) und trägt seinen Verein; Sponsor-Zuschuss 0x272D nur beim Kauf oder der
+Leihe vom Rechner (#125). Auf den Markt setzen und Zurückholen laufen ebenfalls durch 0x224A8
+und würfeln dabei fünfmal. Leihe: Platz kopiert, Vertrag 1 Jahr, Byte 12 = Verein |
 0x80, Gehalt aus der Kaderaufnahme, Tore/Karten 0, Besitzer bleibt der Markt; am Saisonende
 löscht das Original Byte 12 (0x2F617). Spieler anderer Manager: Angebot zwischen 60 % und
 140 % des Marktwerts ("Dieser Betrag liegt außerhalb des Erlaubten !"), der Besitzer

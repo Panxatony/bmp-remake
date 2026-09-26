@@ -75,7 +75,7 @@ Grafikpuffer. Der Text steht in 4cb3:4D38 und gehört zu 0x224A8.
 | | Was | Stand |
 |---|---|---|
 | R1 | Jugendspieler am Saisonende nur bei Kaderzahl 0x11354 < 23 (0xCF35): eigene Spieler auf dem Markt und in Leihe zählen mit | behoben (`kaderZahl` in seasonEvents.ts) |
-| R2 | Kauf und Leihe: ist die Kaderzahl über 23 und der Spieler nicht vom eigenen Verein, kommt "Schon 24 Mann im Team" und der Kauf endet wie ein abgelehnter (0x224FF, 0x2411C). Das Remake prüfte nur freie Kaderplätze | behoben (`kaderVoll`: Marktkauf, Verkauf unter Managern, Bietgefecht); Test |
+| R2 | Kauf und Leihe: ist die Kaderzahl über 23 und der Spieler nicht vom eigenen Verein, kommt "Schon 24 Mann im Team"; 0x2411C endet dann ohne Ablehnungsbit (0x224FA liefert 0x7F, Audit 2 E24). Das Remake prüfte nur freie Kaderplätze | behoben (`kaderVoll`: Marktkauf, Verkauf unter Managern, Bietgefecht; ohne Bit seit #125); Test |
 | R3 | Neues Spiel: nur Oberligisten bis Verein 57 (4cb3:2277) bleiben stehen, das Remake ließ auch 58 stehen | behoben; Test |
 | R4 | Neues Spiel: 0xAB84 tauscht die Tabellensätze nach 0x3C24 zurück; wirkt nur bei Wunschverein 58..63 | behoben; Test |
 | R5 | Wer über die Kaderliste in die Elf kommt, übernimmt die Feldzelle des Herausgenommenen (0x20AED, 0x20E8B), sonst sucht 0x1FF36 eine freie. Das Remake ließ die alte Zelle stehen, zwei Starter konnten auf einer Zelle stehen (Torwahl, Stärke) | behoben (`uebernimmNummern`, `freieZelle`); Test |
