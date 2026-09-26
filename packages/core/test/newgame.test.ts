@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, originalRng, originaltag, TABLES, parseMana, createGame, dayIndex, calendarFlag, playMatchday, playCupDay, cupPairs, dailyTraining, trainingInput, advertisingAmount } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, originalRng, originaltag, TABLES, parseMana, createGame, dayIndex, calendarFlag, playMatchday, playCupDay, cupPairs, dailyTraining, trainingInput, advertisingAmount, type Rng } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 
@@ -142,4 +142,29 @@ test("Neues Spiel: Wunschverein 58 wird getauscht, die Tabellensätze bleiben st
   const bytes = (c: number) => Array.from({ length: 18 }, (_, i) => g.standings.at(c).u8(4 + i));
   assert.deepEqual(bytes(58), [64, 64, 64, 64, 64, 64, 64, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   assert.deepEqual(bytes(y), [64, 64, 64, 64, 64, 64, 64, 64, 0, 64, 64, 64, 64, 64, 64, 64, 64, 0]);
+});
+
+test("Neues Spiel: die Kaderwertschleife würfelt je Manager N·20·6 Mal (0xC0A8, #129, Audit 2 B5)", () => {
+  const tpl = SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))).plain;
+  const mana = parseMana(new Uint8Array(readFileSync(join(BMP_DIR, "MANA.DAT"))));
+  const zaehle = (clubs: number[]) => {
+    let n = 0;
+    const base = mulberryRng(42);
+    const rng = ((lo: number, hi: number) => {
+      n++;
+      return base(lo, hi);
+    }) as Rng;
+    let start = -1;
+    let schleife = -1;
+    createGame(tpl, mana, { managers: clubs.map((club, i) => ({ name: `M${i}`, club, portrait: 1 })), level: 3, kp: (k) => {
+      if (k === 50) start = n;
+      if (k === 52 && start >= 0 && schleife < 0) schleife = n - start;
+      if (k === 50 && schleife >= 0) schleife = -1;
+    } }, rng);
+    return schleife;
+  };
+  // Der letzte Manager: zwischen seinem Vereinstausch und dem ersten Gehalt liegt die Schleife
+  const eins = zaehle([5]);
+  const zwei = zaehle([5, 12]);
+  assert.equal(zwei - eins, 20 * 6);
 });

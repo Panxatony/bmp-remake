@@ -1205,7 +1205,11 @@ class App {
         ctx.fillRect(x + 12, 110, 40, 40);
         if (logo) ctx.drawImage(logo, x + 12, 110);
       } else s.drawCenter(ctx, "VEREIN", x + 32, 128, COLORS.white);
-      this.hit(x + 12, 110, 40, 40, () => (sl.club = st.selected));
+      // Einen Verein, den schon ein anderer Manager gewählt hat, nimmt das Original nicht an
+      // (0xB659-0xB688, #129, Audit 2 B6)
+      this.hit(x + 12, 110, 40, 40, () => {
+        if (!st.slots.some((o) => o !== sl && o.club === st.selected)) sl.club = st.selected;
+      });
       const faces = this.assets.img("0.VGA");
       ctx.fillStyle = "#000";
       ctx.fillRect(x + 12, 156, 40, 40);

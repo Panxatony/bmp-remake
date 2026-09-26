@@ -376,14 +376,28 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
     // der Leistenstellung bekommt die Werte des letzten Kaderplatzes (NG18 gegen das Original:
     // ein Klick auf das Wappen, Spieler 1 mit 28/33/47, #100)
     const zeiger = g.players.at((opt.leiste ?? 0) & 63);
-    g.squadOf(mi).forEach((l) => {
-      for (let k = 0; k < 3; k++) {
-        const v = rng(b, b + 5);
-        const f = rng(40, 60);
-        l.setU8(16 + k, k === 2 ? f : v);
-        zeiger.setU8(28 + k, k === 2 ? f : v);
+    // Die Schleife zählt die Kader aller vier Manager (0xC188: 0x31A19 mit dem Schleifenzähler),
+    // schreibt aber immer in den Kader dessen, der gerade angelegt wird (0xC0E8, 25·304A): mit N
+    // Managern würfelt jeder N·20·6 Mal, es bleibt die letzte Runde (#129, Audit 2 B5). Die
+    // Kader der Plätze ab N sind leer.
+    const belegt = (r: number) => {
+      if (r >= opt.managers.length) return 0;
+      let k = 0;
+      for (let i = 0; i < 24; i++) if (!g.lineups.at(r * 25 + i).isEmpty) k++;
+      return k;
+    };
+    for (let r = 0; r < 4; r++) {
+      const anzahl = belegt(r);
+      for (let slot = 0; slot < anzahl; slot++) {
+        const l = g.lineups.at(mi * 25 + slot);
+        for (let k = 0; k < 3; k++) {
+          const v = rng(b, b + 5);
+          const f = rng(40, 60);
+          l.setU8(16 + k, k === 2 ? f : v);
+          zeiger.setU8(28 + k, k === 2 ? f : v);
+        }
       }
-    });
+    }
     g.squadOf(mi).forEach((_, slot) => {
       kp(52);
       writeI32(p, TABLES.lineups.offset + (mi * 25 + slot) * 52 + 40, playerValue(g, mi, slot, 1, rng));
