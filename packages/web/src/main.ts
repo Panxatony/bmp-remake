@@ -2683,10 +2683,9 @@ class App {
     // Stadion: der Rechtsklick im Kasten holt die Rückfrage zum Ausbau (im Original bestätigt
     // man so die am Regler eingestellte Menge)
     if (this.screen === "stadium" && this.stadiumPick > 0) {
-      if (this.stadiumAsk) {
-        this.stadiumAsk = false;
-        if (this.stadiumPick >= 4) this.stadiumAmount = 0;
-      } else if (this.stadiumPick < 8 && this.stadiumAmount > 0) {
+      // Die Rückfrage endet im Original nur mit NA KLAR oder ACH NEE (0x053E-0x0570, #130 A2)
+      if (this.stadiumAsk) return;
+      else if (this.stadiumPick < 8 && this.stadiumAmount > 0) {
         void this.rueckfrageOeffnen(this.stadiumPick);
         return;
       } else this.stadiumPick = 0;
@@ -5871,7 +5870,9 @@ class App {
         s.drawCenter(ctx, cp437ToGame(names[cur + amount] ?? ""), 220, 42, INK);
       }
       s.drawCenter(ctx, toGame(`KOSTEN: ${num((amount / step) * k.price)} DM`), 220, 51, INK);
-      s.drawCenter(ctx, T("ui.stadiumpick", 2), 220, 60, INK);
+      // Läuft schon ein Ausbau dieser Art, rechnet 0x0000 dessen Resttage ein: "BAUZEIT: INSGESAMT
+      // CA." (0x041B, #130, Audit 2 A1)
+      s.drawCenter(ctx, e.days > 0 ? T("ui.bauzeitgesamt", 0) : T("ui.stadiumpick", 2), 220, 60, INK);
       // Die Bauzeit würfelt der Server, sobald die Rückfrage aufgeht, und hält sie bis zum
       // Tageswechsel fest - genau die steht hier und wird beim Zuschlag übernommen (GitLab #55)
       s.drawCenter(ctx, toGame(`${buildWeeks(this.bauTage[k.kind] ?? 7 * k.base)} WOCHEN`), 220, 69, INK);
@@ -5966,11 +5967,13 @@ class App {
 
   /** Eine Zeile der Übersicht anklicken: läuft dort schon ein Ausbau, weist das Original ab. */
   pickStadium(row: number): void {
+    // Solange die Rückfrage steht, nimmt das Original keinen anderen Klick an (#130, Audit 2 A2)
+    if (this.stadiumAsk) return;
     if (row < 8) {
-      const e = stadiumState(this.game!, this.manager)[row - 1];
-      // Es baut schon jemand an dieser Stelle, oder das Angebot ist heute schon abgelehnt worden
+      // Das Original prüft nur die Sperre nach einer Ablehnung (0x07E9); ein laufender Ausbau
+      // lässt sich erweitern (#130, Audit 2 A1)
       const abgelehnt = (this.server.extra?.bauAbgelehnt ?? []).includes(`${this.manager}:${row}`);
-      if (e.days || abgelehnt) {
+      if (abgelehnt) {
         const abs = stadiumMessages();
         this.hinweis = [abs[2], abs[3]];
         this.render();

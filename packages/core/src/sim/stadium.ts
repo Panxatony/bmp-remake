@@ -114,9 +114,12 @@ export function restWochen(days: number): number {
   return Math.trunc(days / 7) + 1;
 }
 
-/** Bauzeit in der Rückfrage vor dem Bau, aufgerundet (gemessen: Grundwert 10 ergab 9 und 10 Wochen). */
+/**
+ * Bauzeit in der Rückfrage vor dem Bau: Tage/7 + 1 (0x047B-0x048F), wie die Restzeit der
+ * Übersicht. Bis #130 aufgerundet - bei Vielfachen von 7 eine Woche zu wenig (Audit 2 A3).
+ */
 export function buildWeeks(days: number): number {
-  return Math.ceil(days / 7);
+  return Math.trunc(days / 7) + 1;
 }
 
 /**

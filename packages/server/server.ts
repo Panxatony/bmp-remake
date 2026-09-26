@@ -3440,6 +3440,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const art = Math.trunc(Number(body.kind));
     if (!(art >= 1 && art <= 7)) return json(res, 400, { error: "Ausbauart ungültig" });
     const tage = bauAblehnen(room.game, art, room.rng);
+    room.bauTage.delete(`${manager}:${art}`);
     room.log.push(`${room.game.managers.at(manager).displayName} lehnt ${stadiumKinds()[art - 1].name} ab - ${tage} Tage keine Baufirma`);
     await persist(room);
     room.version++;
@@ -3452,12 +3453,10 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
     const kind = Math.trunc(Number(body.kind));
     if (!(kind >= 1 && kind <= 7)) return json(res, 400, { error: "Ausbauart ungültig" });
+    // 0x0000 würfelt bei jedem Aufruf neu (#130, Audit 2 A1); die Zahl gilt bis zur Antwort
     const key = `${manager}:${kind}`;
-    let days = room.bauTage.get(key);
-    if (days === undefined) {
-      days = buildDays(room.game, manager, kind, room.rng);
-      room.bauTage.set(key, days);
-    }
+    const days = buildDays(room.game, manager, kind, room.rng);
+    room.bauTage.set(key, days);
     return json(res, 200, { ok: true, days });
   }
   if (p === "/api/stadium") {
@@ -3467,6 +3466,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       return json(res, 400, { error: `${abs[2]} ${abs[3]}` });
     }
     const result = extendStadium(room.game, manager, Number(body.kind), Number(body.amount), room.rng, room.bauTage.get(`${manager}:${Math.trunc(Number(body.kind))}`));
+    room.bauTage.delete(`${manager}:${Math.trunc(Number(body.kind))}`);
     if (!result.ok) return json(res, 400, { error: result.error });
     room.log.push(`${room.game.managers.at(manager).displayName}: ${stadiumKinds()[Number(body.kind) - 1].name} (${result.cost} DM, ca. ${buildWeeks(result.days)} Wochen)`);
     room.version++;
