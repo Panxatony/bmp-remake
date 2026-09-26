@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, statistics, allTimeTable, allTimeBalance, bookHistory, seriesCurrent, clubRecords, resultsAgainst } from "../src/index.ts";
+import { SaveFile, GameState, statistics, allTimeTable, allTimeBalance, bookHistory, seriesCurrent, clubRecords, resultsAgainst, seriesRecord, serienrekordeBuchen, playMatchday, mulberryRng, HISTORY } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -49,4 +49,70 @@ test("Statistik: Serien, Rekorde, Zuschauer und Ewige Tabelle/Bilanz wie im Orig
   assert.equal(clubRecords(g, club)[0].opponent, 4);
   assert.equal(clubRecords(g, club)[2].text, "9");
   assert.deepEqual(resultsAgainst(g, 0, 4).home.at(-1), [9, 1]);
+});
+
+const rekordbyte = (g: GameState, club: number, k: number) => g.save.plain[HISTORY + 3988 + 8 * club + k];
+const gegnerbyte = (g: GameState, club: number, k: number) => g.save.plain[HISTORY + 4500 + 8 * club + k];
+
+test("Torrekorde: kassiert heim (k = 3) und erzielt auswärts (k = 6) im unteren Halbbyte (0x2DBDF, #128 G1)", () => {
+  // In allen Spielständen des Originals: k = 2/7 nur oben, k = 3/6 nur unten
+  const dateien = readdirSync(BMP_DIR).filter((f) => /\.man$/i.test(f));
+  assert.ok(dateien.length >= 9);
+  for (const f of dateien) {
+    const g = load(f);
+    for (let club = 0; club < 58; club++) {
+      for (const k of [2, 7]) assert.equal(rekordbyte(g, club, k) & 15, 0, `${f} Verein ${club} k=${k}`);
+      for (const k of [3, 6]) assert.equal(rekordbyte(g, club, k) >> 4, 0, `${f} Verein ${club} k=${k}`);
+    }
+  }
+  // Fortschreibung: 2:5 zwischen zwei Vereinen ohne Rekorde
+  const g = load("TEST4.MAN");
+  for (const c of [4, 5]) for (let k = 0; k < 8; k++) g.save.plain[HISTORY + 3988 + 8 * c + k] = 0;
+  bookHistory(g, 4, 5, 2, 5);
+  assert.deepEqual([0, 1, 2, 3].map((k) => rekordbyte(g, 4, k)), [0, 0x25, 0x20, 0x05]);
+  assert.deepEqual([4, 5, 6, 7].map((k) => rekordbyte(g, 5, k)), [0x25, 0, 0x05, 0x20]);
+  assert.deepEqual(clubRecords(g, 4).map((r) => r.text), ["", "2:5", "2", "5", "", "", "", ""]);
+  assert.deepEqual(clubRecords(g, 5).map((r) => r.text), ["", "", "", "", "5:2", "", "5", "2"]);
+  // Ein kleinerer Wert ersetzt nichts, ein größerer schon
+  bookHistory(g, 4, 6, 1, 3);
+  assert.equal(rekordbyte(g, 4, 3), 0x05);
+  bookHistory(g, 4, 6, 1, 7);
+  assert.equal(rekordbyte(g, 4, 3), 0x07);
+  assert.equal(gegnerbyte(g, 4, 3), 6);
+});
+
+test("Leerer Torrekord: ein Spiel ohne Tore schreibt weder Byte noch Gegner (0x2DC61, #128 G2)", () => {
+  const g = load("TEST4.MAN");
+  for (const c of [4, 5]) {
+    for (let k = 0; k < 8; k++) {
+      g.save.plain[HISTORY + 3988 + 8 * c + k] = 0;
+      g.save.plain[HISTORY + 4500 + 8 * c + k] = 0x33;
+    }
+  }
+  bookHistory(g, 4, 5, 0, 0);
+  for (const c of [4, 5]) {
+    for (let k = 0; k < 8; k++) {
+      assert.equal(rekordbyte(g, c, k), 0);
+      assert.equal(gegnerbyte(g, c, k), 0x33, `Verein ${c} k=${k}: Gegner bleibt`);
+    }
+  }
+});
+
+test("Serienrekorde aller Manager nach der Buchung einer Liga (0x2D812, #128 G3)", () => {
+  const g = load("TEST4.MAN");
+  // Manager 1 (Verein 21, 2. Liga) hat eine laufende Serie über seinem Rekord, etwa nach einem
+  // Vereinswechsel
+  const verein = g.managers.at(1).clubIndex;
+  assert.equal(verein, 21);
+  g.save.plain[HISTORY + 2560 + 21 * verein] = 60;
+  // Ein Spiel ohne seinen Verein bucht nur die Serien der beiden Vereine
+  bookHistory(g, 4, 5, 1, 0);
+  assert.ok(seriesRecord(g, 1)[0][0] < 60);
+  serienrekordeBuchen(g);
+  assert.equal(seriesRecord(g, 1)[0][0], 60);
+  // Der Bundesligaspieltag übernimmt sie ebenso, obwohl Verein 21 nicht spielt
+  const h = load("TEST4.MAN");
+  h.save.plain[HISTORY + 2560 + 21 * verein] = 60;
+  playMatchday(h, 0, mulberryRng(3));
+  assert.equal(seriesRecord(h, 1)[0][0], 60);
 });

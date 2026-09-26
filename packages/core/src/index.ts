@@ -56,7 +56,7 @@ export { generateOffers, stadiumValue, signShirt, signBoard, monthlyAdvertising,
 export { newSeason, saisonwechselTeil1, saisonwechselTeil2, saisonbilanz, saisonwechselStand, swapClubs, promoteRelegate, shuffleLeagues, writeHistory, CALENDAR_TEMPLATE } from "./sim/season.ts";
 export type { SaisonTeil1 } from "./sim/season.ts";
 export { playerValue } from "./sim/value.ts";
-export { seasonEvents, releaseExpiring, optionenNachLigen } from "./sim/seasonEvents.ts";
+export { seasonEvents, torschuetzenKoenige, releaseExpiring, optionenNachLigen } from "./sim/seasonEvents.ts";
 export type { SeasonEvent } from "./sim/seasonEvents.ts";
 export { contractOffers, contractCooldown, contractScore, acceptOffer, declineOffer, rejectOffer, vertragsgespraechSperren, salaryDemand, contractCheck, contractRefusals, retirementAnnouncements, MAX_CONTRACT_YEARS, tooLongText, vertragsDialog, dialogAbsageText, type DialogAbsage, type ContractOffer } from "./sim/contracts.ts";
 export { LiveMatch, SUBSTITUTIONS, type LiveChance, type MatchSim } from "./sim/live.ts";
@@ -64,12 +64,12 @@ export { parseMana, type ManaData } from "./data/mana.ts";
 export { createGame, addToSquad, type NewGameOptions, type NewGameManager } from "./sim/newgame.ts";
 export { stadiumKinds, stadiumMessages, sizeNames, statusNames, TOTAL_CAPACITY, TICKET_RANGE, stadiumState, stadiumCapacity, extendStadium, buildDays, buildWeeks, restWochen, dailyConstruction, bauAblehnen, bauGesperrt, BAU_SPERRE, setTicketPrice, BANK, LOAN_MAX_BANK, LOAN_MAX_MANAGER, LOAN_MONTHS, LOAN_MONTHS_MAX, LOAN_RATE_MIN, LOAN_RATE_MAX, loanRate, driftInterest, takeLoan, loanCheck, loanRequestCheck, type StadiumState } from "./sim/stadium.ts";
 export { marketEntries, listedCount, listPlayer, takeBack, saleOffer, decideSale, buyOffer, cancelPurchase, completePurchase, completeLoan, kaufplatz, kaufVertrag, kaufAbbrechen, managerZusage, kaderZahl, kaderVoll, aiAccepts, refreshMarket, dailyTransfers, removePlace, assignNumber, addBalance, chooseOfferClub, strengthenClub, MARKET_MANAGER, MARKET_SIZE, MAX_LISTED, OFFER_SQUAD, OFFER_MARKET, LOAN_FLAG, type MarketEntry, type SaleOffer, type BuyResult, type TransferEvent, type MarketResult } from "./sim/transfer.ts";
-export { squadHelp, tendencyWords, liveTexts, shootoutTexts, clubStrength, strengthTable, strengthModes, matchdayView, matchdayDate, leagueScorers, playerScorers, squadScorers, cupView, cupRoundName, nextCupDate, roundNames, statistics, allTimeTable, allTimeBalance, type StrengthRow, type MatchdayRow, type ScorerRow, type CupPairRow, type Statistics, type AllTimeBalance } from "./sim/display.ts";
-export { HISTORY, seriesRows, recordRows, seriesCurrent, seriesRecord, clubRecords, resultsAgainst, bookHistory, type ClubRecord } from "./sim/history.ts";
+export { squadHelp, tendencyWords, liveTexts, shootoutTexts, clubStrength, strengthTable, strengthModes, matchdayView, matchdayDate, leagueScorers, playerScorers, squadScorers, torschuetzenSchreiben, cupView, cupRoundName, nextCupDate, roundNames, statistics, allTimeTable, allTimeBalance, type StrengthRow, type MatchdayRow, type ScorerRow, type CupPairRow, type Statistics, type AllTimeBalance } from "./sim/display.ts";
+export { HISTORY, seriesRows, recordRows, seriesCurrent, seriesRecord, clubRecords, resultsAgainst, bookHistory, serienrekordeBuchen, type ClubRecord } from "./sim/history.ts";
 
 export { minuteIncidents, matchIncidents, verlaengerungsMerker, newIncidentState, pickStarter, fitStarters, isForfeit, bookForfeit, FORFEIT_FINE, FOULS_PER_MATCH, type Incident, type IncidentState } from "./sim/incidents.ts";
 export { creditAiGoals, bookBaseBonus, driftClubs } from "./sim/ai.ts";
-export { poolTargets, seasonPlayerPool, distributePlayers, pickPoolClub } from "./sim/pool.ts";
+export { poolTargets, seasonPlayerPool, distributePlayers, pickPoolClub, ziehePoolKandidat } from "./sim/pool.ts";
 export { placementPoints, highscoreEntry, decodeHighscore, encodeHighscore, insertHighscore, highscoreFile, HIGHSCORE_MAX, type HighscoreEntry } from "./sim/highscore.ts";
 export { composeZeitung, reportFromMatch, expandTemplate, gameToCp437, schlagzeilen, artikel, HEADLINE_GROUPS, ARTICLE_GROUPS, type MatchReport, type Zeitung, type ReportSource } from "./sim/zeitung.ts";
 export { playerInfo, sideLabel, ageLabels, dataLabels, type PlayerInfo } from "./sim/playerinfo.ts";

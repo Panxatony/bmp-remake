@@ -177,6 +177,7 @@ import {
   setSystem,
   systemOf,
   markiereVerein,
+  torschuetzenSchreiben,
   freieZelle,
   backupSystem,
   restoreSystem,
@@ -1313,10 +1314,10 @@ function saisonMeldungen(r: Room, events: SeasonEvent[]): void {
     // Das Vertragsende zeigt das Original im Hinweiskasten ("... kehrt Ihrem Verein den
     // Rücken. Sie erhalten eine Ablösesumme von ...", BMMAIN 0x503CF; GitLab #36), den
     // Hinweis auf die Werbeverträge nach einem Aufstieg ebenso (0x0CC77; GitLab #38). Die
-    // übrigen Saisonende-Meldungen bleiben vorerst in der Meldungsliste.
-    if (ev.kasten) r.hinweise.push({ manager: ev.manager, zeilen: ev.kasten });
-    // Das Karriereende hat im Original einen festen Zeilenschnitt und keine Überschrift (#58)
-    else if (ev.meldung) pushMessage(r, ev.manager, ev.meldung);
+    // übrigen Saisonende-Meldungen bleiben vorerst in der Meldungsliste. Das Karriereende hat
+    // einen festen Zeilenschnitt ohne Überschrift (#58) und steht im Original nur im
+    // Meldungskasten, danach nicht mehr in der Liste (0x0D576/0x0D588; #128, Audit 2 H2)
+    if (ev.kasten) r.hinweise.push({ manager: ev.manager, zeilen: ev.kasten.map((z) => toDosText(z)) });
     else if (/kehrt Ihrem Verein/.test(ev.text)) r.hinweise.push({ manager: ev.manager, zeilen: wrap(ev.text).map((z) => toDosText(z)) });
     else pushMessage(r, ev.manager, ["Saisonende", ...wrap(ev.text)]);
   }
@@ -3516,6 +3517,15 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const club = Number(body.club) | 0;
     if (!(club >= 0 && club < 64)) return json(res, 400, { error: "Verein ungültig" });
     markiereVerein(room.game, club);
+    room.version++;
+    broadcast(room);
+    return json(res, 200, { ok: true });
+  }
+  if (p === "/api/bestenliste") {
+    // Menü "Bestenliste" (0xA6ED -> 0x16515 mit Argument 0): vor der Liste schreibt das Original
+    // die Kadertore aller Manager in Spielerbyte 34 (0x16543; #128, Audit 2 D2)
+    if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    torschuetzenSchreiben(room.game);
     room.version++;
     broadcast(room);
     return json(res, 200, { ok: true });

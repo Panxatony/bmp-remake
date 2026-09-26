@@ -8,6 +8,7 @@
  * (DGROUP 0x226E): 0, 18, 38.
  */
 import type { GameState } from "../records.ts";
+import { TABLES } from "../records.ts";
 import type { Rng } from "./match.ts";
 import { wertAusDatensatz } from "./value.ts";
 import { chooseOfferClub } from "./transfer.ts";
@@ -115,6 +116,31 @@ export function pickPoolClub(g: GameState, league: number, rng: Rng): number {
 }
 
 /**
+ * Einen Kandidaten ziehen (0x0F3EA bis 0x0F41F): random(0, Anzahl-1), bis ein unverbrauchter
+ * Eintrag getroffen ist - aber höchstens 1001 Würfe (Zähler -0x56 bis 1000). Danach nimmt das
+ * Original den verbrauchten Eintrag 0xFF, also Spieler 255 (#128, Audit 2 B16; bis dahin ohne
+ * Grenze). `liste` enthält Spielernummern, verbrauchte Einträge sind -1.
+ */
+export function ziehePoolKandidat(liste: number[], rng: Rng): { platz: number; spieler: number } {
+  let zaehler = 0;
+  for (;;) {
+    const r = rng(0, liste.length - 1);
+    if (liste[r] >= 0) return { platz: r, spieler: liste[r] };
+    if (zaehler++ >= 1000) return { platz: r, spieler: 0xff };
+  }
+}
+
+/**
+ * Verein eines gezogenen Spielers setzen (0x0F45B: Spielerbyte 36). Spieler 255 liegt hinter der
+ * Tabelle: 4238:57DD + 37·255 + 36 = 4238:7CDC, das ist Aufstellungsplatz 27 (Manager 1, Platz 2),
+ * Byte 22 - dorthin schreibt das Original.
+ */
+function poolVerein(g: GameState, spieler: number, club: number): void {
+  if (spieler <= PLAYERS) g.players.at(spieler).setU8(36, club);
+  else g.save.plain[TABLES.lineups.offset + (0x57dd + 37 * spieler + 36 - 0x774a)] = club & 0xff;
+}
+
+/**
  * 0x0F2A6 (Saisonende, nach den Vertragsdialogen): Sollzahlen je Liga (0x161D8), Fehlbestand
  * = Soll minus vorhandene Spieler im Ligabereich; Kandidaten sind Spieler, die keinem Manager
  * gehören (Byte 33 > 3). Je Liga mit Fehlbestand werden zufällige Kandidaten aus den anderen
@@ -140,12 +166,9 @@ export function seasonPlayerPool(g: GameState, rng: Rng, vorZweitem?: () => void
     for (let src = 0; src < 4 && need[l] > 0; src++) {
       if (src === l) continue;
       while (avail[src] > 0 && need[l] > 0) {
-        let r: number;
-        do r = rng(0, cand[src].length - 1);
-        while (cand[src][r] < 0);
-        const pl = cand[src][r];
-        cand[src][r] = -1;
-        g.players.at(pl).setU8(36, pickPoolClub(g, l, rng));
+        const { platz, spieler } = ziehePoolKandidat(cand[src], rng);
+        cand[src][platz] = -1;
+        poolVerein(g, spieler, pickPoolClub(g, l, rng));
         avail[src]--;
         need[l]--;
       }

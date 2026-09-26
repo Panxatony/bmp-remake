@@ -12,7 +12,7 @@ import { applyResult, updatePositions } from "./standings.ts";
 import { fixtures, LEAGUES } from "./fixtures.ts";
 import { bookChance, bookDefence } from "./goals.ts";
 import { attendance, bookAttendance, bookGate } from "./attendance.ts";
-import { bookHistory } from "./history.ts";
+import { bookHistory, serienrekordeBuchen } from "./history.ts";
 import { isForfeit, bookForfeit, matchIncidents, type Incident } from "./incidents.ts";
 import { creditAiGoals, bookBaseBonus } from "./ai.ts";
 import { riotCheck } from "./finance.ts";
@@ -139,16 +139,20 @@ export function playMatchday(g: GameState, league: number, rng: Rng, postponed: 
     const gespielt = spieleEins(g, league, md, m, home, away, rng, sim, attendanceOf, live);
     out.push(gespielt);
   });
+  // Nach allen Paarungen der Liga die Serienrekorde aller Manager (0x2D812, #128, Audit 2 G3)
+  serienrekordeBuchen(g);
   // Einsätze und Tore der Spieler der KI-Vereine (0x160A2 am Ende des Spieltags)
   for (const p of out) {
     creditAiGoals(g, p.home, p.result.home, rng);
     creditAiGoals(g, p.away, p.result.away, rng);
   }
   updatePositions(g, league, md1);
-  if (md1 < LEAGUES[league].matchdays) {
-    g.save.plain[SCALARS.nextMatchday + league] = md1 + 1;
-    writePairings(g, league, md1 + 1);
-  }
+  // Der Spieltagzähler 4cb3:225A läuft im Original ohne Grenze weiter (0x1D917-0x1D94A): nach
+  // dem letzten Spieltag steht er auf 35/39/39, bis der Saisonwechsel 1 schreibt (0x1E47B) - so
+  // in KP-RELEG1, KP-RELEG2 und KP-SAISON-START. Nur die Paarungen schreibt das Hauptmenü allein
+  // unterhalb der Spieltagszahl (0x97AA). Bis #128 blieb der Zähler stehen (Audit 2 E6).
+  g.save.plain[SCALARS.nextMatchday + league] = (md1 + 1) & 0xff;
+  if (md1 < LEAGUES[league].matchdays) writePairings(g, league, md1 + 1);
   return out;
 }
 
@@ -248,6 +252,8 @@ export function playReplays(
     creditAiGoals(g, home, played.result.home, rng);
     creditAiGoals(g, away, played.result.away, rng);
   }
+  // Die Buchung 0x2D143 endet auch am Nachholtag mit den Serienrekorden aller Manager (0x2D812)
+  if (out.length) serienrekordeBuchen(g);
   // 0x2D144 schreibt den Platz nach Managerbyte 267 + 4cb3:225A - 1; am Nachholtag ist das der
   // zuletzt gespielte Spieltag (KP-RUN0-NACHHOL, KP-RIED4-NACHHOL; bis #100 einer zu weit)
   for (const league of new Set(out.length ? eintraege.map((e) => e.league) : [])) updatePositions(g, league, g.nextMatchday(league) - 1);

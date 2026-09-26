@@ -33,7 +33,11 @@ Richtung - eine Verwechslung fällt im Disassemblat nicht auf, im Spiel aber sof
   Bundesliga nutzt 9 Spiele je Spieltag, die anderen Ligen 10. Heimtore = 30
   markiert ein verlegtes Spiel (Nachholspiel), ungespielte Spieltage stehen auf 0:0.
   Wird von der Tabellenfortschreibung gelesen. Initialisierung in 0x0462F.
-- **Nächster Spieltag je Liga** (Save-Offset 28432, DGROUP 0x225A, 3 Bytes, 1-basiert).
+- **Nächster Spieltag je Liga** (Save-Offset 28432, DGROUP 0x225A, 3 Bytes, 1-basiert). Der
+  Tagesablauf zählt ihn an jedem Ligatag ohne Grenze weiter (0x1D917-0x1D94A): nach dem letzten
+  Spieltag steht er auf 35/39/39 (KP-RELEG1, KP-RELEG2, KP-SAISON-START), bis der Saisonwechsel 1
+  schreibt (0x1E47B); die Paarungen schreibt das Hauptmenü nur unterhalb der Spieltagszahl (0x97AA;
+  #128, Audit 2 E6).
 - **Paarungen des aktuellen Spieltags** (Save-Offset 27900, 4238:4B5E, 60 Bytes):
   18 Bytes Bundesliga (9 Paare heim, gast), 2 Bytes Trenner, 20 Bytes 2. Liga,
   20 Bytes Oberliga.
@@ -1120,7 +1124,10 @@ x + 1 + (57 - Breite)/2 und y + 4, gewählt in Farbe 0x12, sonst 1. Die blauen F
 Pixel Rand in den Farben 1 links, 2 oben, 7 rechts und 6 unten und zwei Pixel schwarzen Schatten. Spiele: Paarungen aus dem
 Spielplan (fixtures) mit Tabellenplatz und "STÄRKE (Ko+Te+Fo)/3 (Ko,Te,Fo)", Ergebnis aus der
 Ergebnistabelle. Bestenliste (0x16515): das Original überträgt zuerst die Ligatore der Managerkader (Kaderplatz
-Byte 3) in die Spielerdatensätze (Byte 34) und sortiert dann alle Spieler 1..150 absteigend nach
+Byte 3, Plätze 0..Kaderzahl-1 aller Manager) in die Spielerdatensätze (Byte 34) - bei jedem
+Aufruf, also beim Öffnen aus dem Menü (0xA6ED, Server `/api/bestenliste`) und je Manager am
+Saisonende (0x1E1AA); wer von einem Rechnerverein kam, behält danach nur die Tore seit dem
+Wechsel (#128, Audit 2 D2) - und sortiert dann alle Spieler 1..150 absteigend nach
 Toren, bei Gleichstand nach weniger Einsätzen; gezeigt werden Spieler mit mindestens zwei Toren.
 LIGA zeigt davon die Spieler der eigenen Liga (Byte 36 Verein) mit mindestens 0,4 Toren je Spiel
 (TEST4: Gaber, Schlünz, Breitenreiter, Eckel wie im Original), SPIELER alle. Darstellung:
@@ -1152,9 +1159,17 @@ Heimniederlage, erzielte/kassierte Heimtore, dasselbe auswärts; Byte = Heimtore
 Gasttore, Auswärtseinträge werden als Gast:Heim angezeigt) und ab 4500 die Gegner der
 Rekorde. Nach jedem Ligaspiel werden Serien beider Vereine fortgeschrieben (Sieg: gewonnen
 und nicht verloren +1, verloren/unentschieden/nicht gewonnen 0; Niederlage und Remis
-entsprechend; ohne Gegentor/Torerfolg +1 oder 0), Serienrekorde der Manager als Maximum,
-Vereinsrekorde bei neuem Höchstwert (Tore auf 15 begrenzt) mit Gegner, und die Bilanz der
-Manager gegen den Gegner. TEST4 stimmt mit dem Bildschirmfoto docs/original/buero-statistik.png
+entsprechend; ohne Gegentor/Torerfolg +1 oder 0), Vereinsrekorde bei neuem Höchstwert mit Gegner,
+und die Bilanz der Manager gegen den Gegner. Die Vereinsrekorde setzt 0x2DBDF mit (a, b) = (Heim-,
+Gasttore) und Faktoren p, q: neuer Wert p·a - q·b, alter hi·p - lo·q, geschrieben nur bei alt <
+neu (Niederlagen k = 1/4 im Modus 1: bei neu < alt), Byte = (p·a)<<4 + |q|·b in 8 Bit ohne Grenze.
+Siege/Niederlagen und die Torrekorde k = 2/7 (p = 1, q = 0) stehen damit oben, "kassiert heim"
+(k = 3) und "erzielt auswärts" (k = 6) mit p = 0, q = -1 im **unteren** Halbbyte - so in allen
+Spielständen des Originals; ein leerer Rekord zählt als 0, ein Spiel ohne Tore schreibt dort
+weder Byte noch Gegner (#128, Audit 2 G1/G2; bis dahin oben und auf 15 begrenzt). Nach allen
+Paarungen einer Liga (0x2D812-0x2D8B3) übernimmt **jeder** Manager die laufenden Serien seines
+Vereins, die über seinem Rekord liegen - auch wenn der Verein an diesem Tag nicht spielt; die
+Bundesliga bucht zuerst (#128, Audit 2 G3). TEST4 stimmt mit dem Bildschirmfoto docs/original/buero-statistik.png
 überein (Test history.test.ts).
 
 Statistikbildschirm: Serien "laufend(Rekord)", Tore/Gegentore je Spiel aus dem
@@ -1273,7 +1288,10 @@ minus vorhandene Spieler im Ligabereich (nicht unter 0). Kandidaten sind Spieler
 Manager gehören (Byte 33 > 3). Je Liga mit Fehlbestand werden aus den anderen Ligen in
 Ligareihenfolge (0, 1, 2, 3) zufällige Kandidaten zu einem Zielverein der Liga versetzt, bis
 der Fehlbestand oder die Quelle erschöpft ist; ein versetzter Spieler wird nicht erneut
-gezogen. Zum Schluss läuft 0x161D8 ein zweites Mal (zweite Drift, weitere random(5,15)
+gezogen. Je Zug würfelt das Original random(0, Anzahl-1) höchstens 1001-mal (0x0F41C); trifft es
+nur verbrauchte Einträge, nimmt es den Eintrag 0xFF, also Spieler 255, und schreibt dessen
+Vereinsbyte hinter die Spielertabelle nach 4238:7CDC (Aufstellungsplatz 27, Byte 22; #128,
+Audit 2 B16 - praktisch nie). Zum Schluss läuft 0x161D8 ein zweites Mal (zweite Drift, weitere random(5,15)
 Wechsel). Vereinsbyte 36 der Managerspieler bleibt unberührt.
 
 **Spielbeginn (0x942A -> 0x1643B)**: Sollzahlen wie oben; jeder Spieler ohne Verein (Byte 36 =
@@ -1939,12 +1957,21 @@ Verein28 - 10 (1/5: + random(12,20)), Aufnahme (0x224A8), Preis = Marktwert Flag
 ## Saisonende je Manager (0x0CB62; sim/seasonEvents.ts; Zweigbuch docs/abgleich/0CB62.md)
 
 Ablauf (GitLab #94): je Manager der Reihe nach Prämien, Torschützenkönig, Jugend und
-Karriereende; **beim ersten Manager** zwischen Jugend und Karriereende einmal für alle 150
+Karriereende. Ob ein Manager den Torschützenkönig stellt, fragt der Tagesablauf schon vorher, je
+Manager vor Ewigkeitspunkten, Auf- und Abstieg und Mischen (0x1E199-0x1E1C2, 0x16515 mit
+Argument 1, Liga aus Managerbyte 312 - also der alten Liga), und reicht die Antworten durch
+(0x0D6B6; #128, Audit 2 B12); **beim ersten Manager** zwischen Jugend und Karriereende einmal für alle 150
 Spieler der Jahrgangswechsel (0x0D288..0x0D472): Alter + 1, auf Kader- und Marktplätzen
 Angebotsmarken (Byte 9 Bits 6/7) weg und Vertragsjahr - 1; wer nicht dem gehört, bei dem er
 steht (Spielerbyte 33 - Leihspieler, eigene Spieler auf der Transferliste), geht zurück: zum
-Manager über die Aufnahme 0x224A8 mit dem ganzen alten Kaderplatz, ohne Leihmarke (12) und
-Vertragsgespräch (24); gehörte er dem Markt, ist er frei. Nach der Schleife werden in den
+Manager über die Aufnahme 0x224A8 mit dem ganzen alten Kaderplatz; gehörte er dem Markt, ist er
+frei. Danach schiebt 0x1FDBE den alten Platz beim Halter auf, mit der Länge (2 - (Platz == 4))·12:
+steht der Rückkehrer auf **Platz 4**, rücken nur die Plätze bis 12 nach, Platz 12 verliert nur die
+Spielernummer, 13..23 bleiben stehen (0x0D396; #128, Audit 2 B15). Leihmarke (12) und
+Vertragsgespräch (24) löscht das Original im Kader von **Manager 0** am neuen Platz (0x0D3BC-
+0x0D3E8), nicht beim Besitzer: der Rückkehrer eines anderen Managers behält beide, und der Spieler
+von Manager 0 auf diesem Platz verliert sie (auch nach einer Rückkehr zum Markt, dann mit dem
+Platz der letzten Aufnahme; #128, Audit 2 B14). Nach der Schleife werden in den
 Managerkadern (Plätze 0..23) die Saisonwerte Byte 0..8 gelöscht - die Karrieresummen 28..38
 bleiben (in RIED-2TE bis RIED-6TE wachsen sie über jeden Saisonwechsel) -, dann die
 Vertragsenden. Torschützenkönig: Platz 1 der Torschützenliste der eigenen Liga (0x16515:
@@ -1963,11 +1990,19 @@ J = Jugendkonto(482)/12, Konto = (J - J/3)·12; bei J > 30, random(0,2) = 0 und 
 Spielern: J halbiert, freier Spielerdatensatz (Manager 5) mit Positionsart random(0,6),
 Alter random(17,19), Form random(45,55), Te und Ko random(J-3, J+3) im Bereich 10..90,
 Aufnahme in den Kader (0x224A8) mit Gehalt = Gehaltsbasis·50/100 und Vertrag random(2,3). Alle Spieler ein Jahr älter, Vertragsjahre -1 (0x0D3ED).
-Rücktritt (0x0D475): Kaderspieler mit Alter > random(32,34) beenden die Karriere; die Meldung
-dazu steht in der Vorlage 0x4E0AE ("$ hängt den^Fußballjob im Alter von^# Jahren an den Nagel.^",
-Aufruf 0x0D55E) und nennt das Alter beim Rücktritt. Der
-Datensatz wird als neuer Marktspieler belegt (Alter random(18,25), J = random(30,92), Ko
-und Te random(J-5, J+5), Positionsart random(0,6)). Vertragsende (0x0DB40): ohne
+Rücktritt (0x0D475): je Spieler random(32,34); Kaderspieler des Managers gehen, wenn ihr Vertrag
+ausläuft (Byte 11 = 0) und sie das Karriereende angekündigt haben (Byte 24 Bit 7), Spieler ohne
+Kader- oder Marktplatz bei Alter > Wurf. Die Meldung zum Rücktritt steht in der Vorlage 0x4E0AE
+("$ hängt den^Fußballjob im Alter von^# Jahren an den Nagel.^", Aufruf 0x0D55E über 0x30AA0 mit
+dessen Wurf random(0,3)) und nennt das Alter beim Rücktritt; sie erscheint nur im Meldungskasten
+(0x30ED4) und wird gleich wieder gelöscht (0x30954), der Server zeigt sie als Hinweis (#128, Audit
+2 H2). Der Datensatz wird neu belegt (Alter random(18,25), J = random(30,92), Ko und Te
+random(J-5, J+5), dazwischen random(0,6)). Den Wurf random(0,6) schreibt das Original über die
+Variable -0x7c (0x0D628) als Positionsart (Byte 32) in einen **anderen** Spieler: nach dem
+Aufstieg eines Managers Spieler 6 (Ende der Bandenschleife 0x0CC7F), nach einem Jugendspieler
+dessen Datensatz (0x0CF96); die Variable läuft über die Manager weiter, davor ist sie ein
+Stapelrest (im Remake: kein Ziel). Der neu belegte Spieler behält seine alte Positionsart (#128,
+Audit 2 B13). Vertragsende (0x0DB40): ohne
 Verlängerung (0x251FF, Dialog) geht der Spieler ("kehrt Ihrem Verein den Rücken"), Ablöse =
 halber Marktwert. Werbeverträge (0x0CC00): nur beim Aufsteiger, siehe Abschnitt "Werbung".
 Der 1. April bringt nur den Scherz "älter und schwächer". Offen: Zuschlag der Ablöse bei
@@ -2028,7 +2063,7 @@ Aufrufern - zusammen **acht** Meldungen. Mehr schreibt das Original nicht:
 | Komfortbewertung eine Note schlechter | 0x0E470 | ✔ seit #57 |
 | Verletzung im Training | 0x0E6A0 | ✔ |
 | Der Ausbau der ... ist abgeschlossen | 0x022E2 | ✔ |
-| ... hängt den Fußballjob an den Nagel | 0x0D55E | ✔ seit #58 |
+| ... hängt den Fußballjob an den Nagel | 0x0D55E | ✔ seit #58; nur im Kasten, sofort wieder gelöscht (0x30954) - im Server ein Hinweis seit #128 |
 | ... bietet an, von # auf # Jahre zu verlängern | 0x0E1CD | ✔ |
 | ... ist an ... interessiert | 0x0EA61 | ✔ |
 | ... kündigt an, dass er seinen Vertrag nicht mehr verlängern wird | 0x0E9C1 | ✔ seit #59 |

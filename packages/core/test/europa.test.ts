@@ -124,8 +124,10 @@ test("Werbung am Saisonende: nur der Aufsteiger, alle anderen unberührt (0x0D92
     if (!aufsteiger.includes(i)) assert.equal(stand(i), vorher[i], `Manager ${i}: Verträge unberührt`);
     assert.deepEqual(summen(i), betraege[i], `Manager ${i}: die Beträge bleiben erhalten`);
   });
-  assert.deepEqual(events.find((e) => e.kasten)?.kasten, texte("ui.werbepartner"), "Hinweiskasten des Originals");
-  assert.equal(events.filter((e) => e.kasten).length, 1, "nur für den Aufsteiger");
+  // Seit #128 steht auch das Karriereende im Kasten (Audit 2 H2): hier nur die Werbung
+  const werbung = events.filter((e) => e.kasten && e.text === texte("ui.werbepartner").join(" "));
+  assert.deepEqual(werbung[0]?.kasten, texte("ui.werbepartner"), "Hinweiskasten des Originals");
+  assert.equal(werbung.length, 1, "nur für den Aufsteiger");
 });
 
 test("Hin-/Rückspielentscheid 0x19208: Gesamttore, Auswärtstore, offen", () => {

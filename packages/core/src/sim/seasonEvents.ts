@@ -11,7 +11,7 @@ import { removePlace, kaderZahl, assignNumber } from "./transfer.ts";
 import { addToSquad as aufnehmen } from "./newgame.ts";
 import { TABLES } from "../records.ts";
 import { sortIntoSquad } from "./lineup.ts";
-import { leagueScorers } from "./display.ts";
+import { leagueScorers, torschuetzenSchreiben } from "./display.ts";
 
 const div = (a: number, b: number): number => Math.trunc(a / b);
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
@@ -26,8 +26,6 @@ export interface SeasonEvent {
   free?: { playerIndex: number; name: string; position: string; age: number; strength: number[]; salary: number; value: number; from: number };
   /** Zeilen für den Hinweiskasten, wenn das Original die Meldung dort zeigt (statt in der Liste). */
   kasten?: string[];
-  /** Zeilen für die Meldungsliste, wenn das Original einen festen Zeilenschnitt hat. */
-  meldung?: string[];
   /**
    * Vertrag abgelaufen, Verhandlung noch offen (0x0DB40 ruft je Spieler den Vertragsdialog
    * 0x251FF). Der Spieler bleibt bis zur Antwort im Kader; `releaseExpiring` gibt ihn frei.
@@ -42,14 +40,19 @@ function addBalance(g: GameState, manager: number, amount: number): void {
 }
 
 /**
- * Torschützenkönig aus dem eigenen Verein? Das Original fragt die Torschützenliste der eigenen
- * Liga (0x16515 mit Argument 1): Platz 1 - mindestens zwei Tore, bei Gleichstand weniger
- * Spiele vorn - muss für den Verein des Managers spielen (0x16A1B).
+ * Torschützenkönig aus dem eigenen Verein? Der Tagesablauf fragt es je Manager **vor** den
+ * Ewigkeitspunkten, dem Auf- und Abstieg und dem Mischen (0x1E199-0x1E1C2: 304A = m, 0x16515
+ * mit Argument 1) und reicht die Antworten an das Saisonende 0x0CB62 durch (0x0D6B6). Die Liga
+ * kommt aus Managerbyte 312, also noch die alte; Platz 1 der Liste - mindestens zwei Tore, bei
+ * Gleichstand weniger Spiele vorn - muss für den Verein des Managers spielen (0x16A1B). Jeder
+ * Aufruf schreibt vorher die Kadertore in die Spielertabelle (`torschuetzenSchreiben`). Bis #128
+ * fragte das Remake erst in der Managerschleife, mit der neuen Liga (Audit 2 B12, D2).
  */
-function hasTopScorer(g: GameState, manager: number): boolean {
-  const club = g.managers.at(manager).clubIndex;
-  const league = club < 18 ? 0 : club < 38 ? 1 : 2;
-  return leagueScorers(g, league, 1)[0]?.club === club;
+export function torschuetzenKoenige(g: GameState): boolean[] {
+  return g.activeManagers().map((m) => {
+    torschuetzenSchreiben(g);
+    return leagueScorers(g, m.u8(312), 1)[0]?.club === m.clubIndex;
+  });
 }
 
 /** Freien Spielerdatensatz (Manager 5 = niemand) finden. */
@@ -153,13 +156,23 @@ function jugendInKader(g: GameState, manager: number, idx: number, rng: Rng): nu
  * Bits 6/7) und ein Vertragsjahr. Gehört er nicht dem, bei dem er steht (Spielerbyte 33) - ein
  * Leihspieler oder ein eigener Spieler auf der Transferliste -, geht er zurück: zu einem
  * Manager über die Aufnahme 0x224A8, deren Platz dann den ganzen alten Kaderplatz bekommt
- * (0x0D35D), ohne Leihmarke (Byte 12) und Vertragsgespräch (Byte 24); gehörte er niemandem
- * (Markt), ist er frei (Byte 33 = 5). Der alte Platz wird aufgeschoben (0x1FDBE).
+ * (0x0D35D); gehörte er niemandem (Markt), ist er frei (Byte 33 = 5). Der alte Platz wird
+ * aufgeschoben (0x1FDBE).
  * Im Modus "Spiele automatisch" (4cb3:05D4) würfelt das Original stattdessen das Alter neu -
  * den Modus gibt es hier nicht.
+ *
+ * Zwei Eigenheiten des Originals (#128, Audit 2 B14/B15):
+ * * Die Länge des Aufschiebens hängt am **Platz**, nicht am Halter (0x0D396 `cmpb $0x4,-0x68`):
+ *   (2 - (Platz == 4))·12. Steht der Rückkehrer auf Platz 4, rücken nur die Plätze bis 12 auf,
+ *   Platz 12 verliert nur seine Spielernummer, und die Plätze 13..23 bleiben stehen (Lücke).
+ * * Leihmarke und Vertragsgespräch (Byte 12/24) löscht es im Kader von **Manager 0** am neuen
+ *   Platz (0x0D3BC-0x0D3E8: 304A = -0x44 = 0), nicht beim Besitzer - auch nach der Rückkehr zum
+ *   Markt, dann mit dem Platz der letzten Aufnahme (-0x80; vor der ersten Aufnahme unbestimmt,
+ *   hier ohne Schreiben).
  */
 function jahrgangswechsel(g: GameState, rng: Rng): void {
   const plain = g.save.plain;
+  let letzterNeu: number | undefined; // 0x0CB62 -0x80
   for (let x = 1; x < 151; x++) {
     const p = g.players.at(x);
     p.setU8(26, (p.u8(26) + 1) & 0xff);
@@ -174,20 +187,38 @@ function jahrgangswechsel(g: GameState, rng: Rng): void {
     const besitzer = p.u8(33);
     if (besitzer === wo.manager) continue;
     const alt = plain.slice(TABLES.lineups.offset + (basis + wo.place) * 52, TABLES.lineups.offset + (basis + wo.place + 1) * 52);
-    removePlace(g, basis, wo.place, wo.manager === 4 ? 12 : 25);
+    // Erst die Aufnahme beim Besitzer samt Kopie des alten Platzes (0x0D319, 0x0D35D), dann das
+    // Aufschieben beim Halter (0x0D3B4)
+    let aufgenommen = false;
     if (besitzer < 4) {
       const neu = aufnehmen(g, besitzer, x, 1, rng);
       if (neu >= 0) {
-        const o = TABLES.lineups.offset + (besitzer * 25 + neu) * 52;
-        plain.set(alt, o);
-        plain[o + 24] = 0;
-        plain[o + 12] = 0;
+        plain.set(alt, TABLES.lineups.offset + (besitzer * 25 + neu) * 52);
         p.setU8(33, besitzer);
-        continue;
+        letzterNeu = neu;
+        aufgenommen = true;
       }
     }
-    p.setU8(33, 5);
+    if (!aufgenommen) p.setU8(33, 5);
+    aufschieben(g, basis, wo.place, wo.place === 4 ? 12 : 24);
+    if (letzterNeu !== undefined) {
+      const o = TABLES.lineups.offset + letzterNeu * 52;
+      plain[o + 24] = 0;
+      plain[o + 12] = 0;
+    }
   }
+}
+
+/**
+ * 0x1FDBE mit Flag 1: Platz k+1 nach k für k = Platz..Länge-1, danach nur Byte 15 (Spieler) von
+ * Platz Länge auf 0 (0x1FE92-0x1FEBC). Ein leerer Platz (Spieler 0) bleibt, wie er ist.
+ */
+function aufschieben(g: GameState, basis: number, place: number, laenge: number): void {
+  const p = g.save.plain;
+  const off = (i: number) => TABLES.lineups.offset + (basis + i) * 52;
+  if (p[off(place) + 15] === 0) return;
+  for (let k = place; k <= laenge - 1; k++) p.copyWithin(off(k), off(k + 1), off(k + 1) + 52);
+  p[off(laenge) + 15] = 0;
 }
 
 /**
@@ -198,16 +229,28 @@ function jahrgangswechsel(g: GameState, rng: Rng): void {
  * (0x0D288 bis 0x0D472). Der Jugendspieler des ersten Managers altert und verliert also
  * gleich ein Vertragsjahr, die der anderen nicht. Danach die Saisonwerte der Kader
  * (0x0D9A6) und die Vertragsenden (0x0DB40).
+ *
+ * `torKoenig` je Manager kommt aus dem Tagesablauf vor dem Auf- und Abstieg
+ * (`torschuetzenKoenige`); ohne Angabe fragt die Routine selbst, vor allem anderen.
  */
-export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaengerung = false): SeasonEvent[] {
+export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaengerung = false, torKoenig?: boolean[]): SeasonEvent[] {
   const events: SeasonEvent[] = [];
   const managers = g.activeManagers();
+  const koenig = torKoenig ?? torschuetzenKoenige(g);
+  // 0x0CB62 -0x7c: 6 nach der Bandenschleife eines Aufsteigers (0x0CC7F-0x0CCEB), der zuletzt
+  // gezogene Datensatz beim Jugendspieler (0x0CF96). Die Variable läuft über alle Manager weiter;
+  // vor der ersten Belegung ist sie ein Stapelrest und hier unbestimmt.
+  let stapel7c: number | undefined;
   const neuBelegen = (p: ReturnType<typeof g.players.at>) => {
-    // Reihenfolge der Würfel wie bei 0x0D5BE: erst das Alter, dann der Grundwert
+    // Reihenfolge der Würfel wie bei 0x0D5BE: erst das Alter, dann der Grundwert. Die
+    // Positionsart random(0,6) schreibt das Original über -0x7c (0x0D628), also nicht an den neu
+    // belegten Spieler, sondern an den aus `stapel7c`; der neue behält sein Byte 32. Ist -0x7c
+    // ein Stapelrest, bleibt der Wurf ohne Ziel (#128, Audit 2 B13).
     p.setU8(26, rng(18, 25));
     const jj = rng(30, 92);
     p.setU8(28, rng(jj - 5, jj + 5));
-    p.setU8(32, rng(0, 6));
+    const art = rng(0, 6);
+    if (stapel7c !== undefined) g.players.at(stapel7c).setU8(32, art);
     p.setU8(29, rng(jj - 5, jj + 5));
   };
   managers.forEach((m, i) => {
@@ -216,11 +259,12 @@ export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaenger
       const bonus = m.u8(312) === 0 ? 1600000 : 800000;
       addBalance(g, i, bonus);
       events.push({ manager: i, text: texte("ui.aufstieg")[bonus === 1600000 ? 0 : 1] });
+      stapel7c = 6; // Bandenschleife 0x0CC7F endet auf 6
     }
     if (f & 2) events.push({ manager: i, text: texte("ui.aufstieg")[2] });
     if (f & 4) events.push({ manager: i, text: T("quell.seasonevents", 0) });
     if (f & 8) events.push({ manager: i, text: T("quell.seasonevents", 1) });
-    if (hasTopScorer(g, i)) {
+    if (koenig[i]) {
       addBalance(g, i, 250000);
       events.push({ manager: i, text: "Torschützenkönig aus Ihrem Team (250.000 DM)." });
     }
@@ -236,6 +280,7 @@ export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaenger
       j >>= 1;
       const idx = freePlayer(g, rng);
       if (idx >= 0) {
+        stapel7c = idx;
         const p = g.players.at(idx);
         const jj = clamp(j, 10, 90);
         p.setU8(32, rng(0, 6));
@@ -277,11 +322,15 @@ export function seasonEvents(g: GameState, flags: number[], rng: Rng, verlaenger
       if (l.u8(11) !== 0 || !(l.u8(24) & 0x80)) continue;
       const name = p.displayName;
       const alter = p.u8(26);
+      // Meldung über 0x30AA0 (0x0D55E) mit ihrem Wurf random(0,3), sofort im Meldungskasten
+      // gezeigt (0x30ED4) und gleich wieder gelöscht (0x30954): sie bleibt nicht in der
+      // Meldungsliste. Wurf und Kasten fehlten bis #128 (Audit 2 H2).
+      rng(0, 3);
       removeFromSquad(g, i, wo.place);
       neuBelegen(p);
       // Wortlaut und Zeilenschnitt des Originals (Meldungsvorlage 3 bei 0x4E0AE, GitLab #58)
       const nagel = texte("ui.karriereende");
-      events.push({ manager: i, text: `${name} ${nagel[0]} ${nagel[1]} ${alter} ${nagel[2]}`, meldung: [`${name} ${nagel[0]}`, nagel[1], `${alter} ${nagel[2]}`] });
+      events.push({ manager: i, text: `${name} ${nagel[0]} ${nagel[1]} ${alter} ${nagel[2]}`, kasten: [`${name} ${nagel[0]}`, nagel[1], `${alter} ${nagel[2]}`] });
     }
   });
 

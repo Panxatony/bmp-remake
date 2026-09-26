@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { texte, SaveFile, GameState, fixtures, applyResult, updatePositions, playMatchday, afterMatch, dailyTraining, trainingInjuries, injuries, bookGoal, attendance, bookAttendance, monthlyIncome, monthlyExpenses, loanTotal, bookMonth, dailyFinance, playCupDay, cupPairs, cupRound, newSeason, tableOrder, playerValue, promoteRelegate, swapClubs, salaryDemand, mulberryRng, dayIndex, seasonDay, dateOfSeasonDay, seasonStartYear, setDayIndex } from "../src/index.ts";
+import { texte, SaveFile, GameState, fixtures, applyResult, updatePositions, playMatchday, afterMatch, dailyTraining, trainingInjuries, injuries, bookGoal, attendance, bookAttendance, monthlyIncome, monthlyExpenses, loanTotal, bookMonth, dailyFinance, playCupDay, cupPairs, cupRound, newSeason, tableOrder, playerValue, promoteRelegate, swapClubs, salaryDemand, mulberryRng, dayIndex, seasonDay, dateOfSeasonDay, seasonStartYear, setDayIndex, TABLES } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (n: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, n)))));
@@ -412,4 +412,29 @@ test("Karriereende am Saisonende wie im Original (0x0D475, #81)", () => {
     if (inKader) continue;
     assert.ok(g.players.at(x).u8(26) <= 34, `Poolspieler ${x} ist ${g.players.at(x).u8(26)}`);
   }
+});
+
+// Spieltagzähler 4cb3:225A (Save 28432) ohne Grenze: im Original nach dem letzten Spieltag
+// 35/39/39, bis der Saisonwechsel 1 schreibt (0x1D917; #128, Audit 2 E6)
+const DOSBOX = resolve(import.meta.dirname, "../../../tools/dosbox");
+test("Spieltagzähler läuft über den letzten Spieltag hinaus wie im Original (0x1D917, #128 E6)", { skip: !existsSync(join(DOSBOX, "KP-FINALE.MAN")) }, () => {
+  const lade = (f: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(DOSBOX, `${f}.MAN`)))));
+  for (const f of ["KP-RELEG1", "KP-RELEG2", "KP-SAISON-START"]) {
+    const s = lade(f);
+    assert.deepEqual([0, 1, 2].map((l) => s.save.plain[28432 + l]), [35, 39, 39], f);
+  }
+  const g = lade("KP-FINALE");
+  assert.deepEqual([0, 1, 2].map((l) => g.nextMatchday(l)), [33, 37, 37]);
+  const rng = mulberryRng(5);
+  const block = () => [...g.save.plain.slice(TABLES.tableOrder.offset, TABLES.tableOrder.offset + 60)];
+  for (let l = 0; l < 3; l++) {
+    const letzter = [34, 38, 38][l];
+    while (g.nextMatchday(l) < letzter) playMatchday(g, l, rng);
+    const paare = block();
+    playMatchday(g, l, rng);
+    assert.equal(g.nextMatchday(l), letzter + 1, `Liga ${l + 1}`);
+    assert.deepEqual(block(), paare, "keine Paarungen hinter dem letzten Spieltag (0x97AA)");
+    assert.notEqual(g.result(l, letzter - 1, 0), null, "Ergebnis des Schlussspieltags vorhanden");
+  }
+  assert.deepEqual([0, 1, 2].map((l) => g.save.plain[28432 + l]), [35, 39, 39]);
 });

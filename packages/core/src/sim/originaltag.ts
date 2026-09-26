@@ -33,7 +33,7 @@ import { tagesroutine } from "./tagesroutine.ts";
 import { generateOffers } from "./werbung.ts";
 import { driftClubs, bookBaseBonus, creditAiGoals } from "./ai.ts";
 import { applyResult, updatePositions } from "./standings.ts";
-import { bookHistory } from "./history.ts";
+import { bookHistory, serienrekordeBuchen } from "./history.ts";
 import { autoLineupIfEnabled, backupSystem, restoreSystem, SYSTEM_OFFSET } from "./lineup.ts";
 import { refreshMarket } from "./transfer.ts";
 import { newSeason, saisonbilanz } from "./season.ts";
@@ -525,6 +525,8 @@ function ligaBuchung(g: GameState, rng: Rng, kp: (punkt: number) => void, paare:
     bookBaseBonus(g, sp.home, hg - ag, rng);
     bookBaseBonus(g, sp.away, ag - hg, rng);
   }
+  // Serienrekorde aller Manager nach den Paarungen (0x2D812, #128, Audit 2 G3)
+  serienrekordeBuchen(g);
   // 0x2D144 sortiert am Ende die Tabelle (Austauschsortieren, Byte 46) und schreibt den Platz nach
   // Managerbyte 267 + 4cb3:225A - 1: am Spieltag ist 225A schon weitergezählt (hier noch nicht),
   // am Nachholtag nicht - dann trifft es den zuletzt gespielten Spieltag

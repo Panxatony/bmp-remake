@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, poolTargets, seasonPlayerPool, distributePlayers, pickPoolClub } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, poolTargets, seasonPlayerPool, distributePlayers, pickPoolClub, ziehePoolKandidat } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -85,4 +85,16 @@ test("Spielbeginn (0x1643B): Spieler ohne Verein bekommen Vereine der Managerlig
     if (c < 38) inManagerLeagues++;
   }
   assert.ok(inManagerLeagues >= free.length * 0.8, `${inManagerLeagues} von ${free.length}`);
+});
+
+test("Spielerpool: höchstens 1001 Würfe je Zug, danach Spieler 255 (0x0F41C, #128 B16)", () => {
+  // Trifft der Wurf einen unverbrauchten Eintrag, gilt er sofort
+  let wuerfe = 0;
+  const folge = [0, 1, 2];
+  assert.deepEqual(ziehePoolKandidat([-1, -1, 7], () => folge[wuerfe++]), { platz: 2, spieler: 7 });
+  assert.equal(wuerfe, 3);
+  // Nur verbrauchte Treffer: nach dem 1001. Wurf nimmt das Original den Eintrag 0xFF
+  wuerfe = 0;
+  assert.deepEqual(ziehePoolKandidat([-1, 5], () => (wuerfe++, 0)), { platz: 0, spieler: 255 });
+  assert.equal(wuerfe, 1001);
 });

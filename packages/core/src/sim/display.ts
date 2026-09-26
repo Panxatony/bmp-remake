@@ -132,10 +132,28 @@ export interface ScorerRow {
  * wie die Tauschkette sie legt, und ein gewöhnliches Sortieren trifft sie nicht (GitLab #62).
  */
 /**
- * Saisontore für die Torschützenliste: 0x16515 schreibt vorher bei allen Spielern in den
- * Managerkadern die Tore aus dem Kaderplatz (Byte 3) über Spielerbyte 34 (0x16566). Wer im
- * Laufe der Saison von einem Verein des Rechners kam, zählt also nur mit den Toren seit dem
- * Wechsel. Hier ohne Schreiben - der Saisonwechsel löscht Byte 34 ohnehin.
+ * Kadertore in die Spielertabelle (0x16543 bis 0x165A5): 0x16515 schreibt bei **jedem** Aufruf
+ * für alle Manager und die Plätze 0..Kaderzahl-1 (0x31A19 Modus 0, belegte Plätze 0..23) das
+ * Kaderbyte 3 (Ligatore) über Spielerbyte 34. Wer im Laufe der Saison von einem Verein des
+ * Rechners kam, hat danach nur noch die Tore seit dem Wechsel - auch wenn er später wieder zu
+ * einem Verein des Rechners geht. Aufrufer: das Menü "Bestenliste" (0xA6ED, Server
+ * `/api/bestenliste`) und das Saisonende je Manager (0x1E1AA, `torschuetzenKoenige`). Bis #128
+ * schrieb das Remake nicht (Audit 2 D2).
+ */
+export function torschuetzenSchreiben(g: GameState): void {
+  for (let m = 0; m < g.save.managerCount; m++) {
+    let k = 0;
+    for (let place = 0; place < 24; place++) if (!g.lineups.at(m * 25 + place).isEmpty) k++;
+    for (let place = 0; place < k; place++) {
+      const l = g.lineups.at(m * 25 + place);
+      g.players.at(l.playerIndex).setU8(34, l.u8(3));
+    }
+  }
+}
+
+/**
+ * Saisontore für die Torschützenliste: wie nach `torschuetzenSchreiben` - die Anzeige schreibt
+ * selbst nicht, sie liest die Kadertore der Managerspieler.
  */
 function saisonTore(g: GameState): (c: number) => number {
   const kader = new Map<number, number>();
