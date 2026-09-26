@@ -123,3 +123,24 @@ test("Freie Feldzelle für einen neuen Starter wie 0x1FF36", () => {
   freieZelle(g, 0, 7);
   assert.deepEqual([g.lineups.at(7).u8(25), g.lineups.at(7).u8(26)], [1, 3]);
 });
+
+test("513E an Europapokaltagen: Verein in der laufenden Runde, Sperre ausgesetzt (#123, Audit 2 B1)", async () => {
+  const { sperreAusgesetzt } = await import("../src/sim/lineup.ts");
+  const { calendarFlag, setDayIndex, CALENDAR_DAYS } = await import("../src/sim/calendar.ts");
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+  const m = g.managers.at(0);
+  const liga = m.clubIndex < 18 ? 0 : m.clubIndex < 38 ? 1 : 2;
+  let tag = -1;
+  for (let k = 0; k < CALENDAR_DAYS && tag < 0; k++) {
+    const f = calendarFlag(g, k);
+    if (f & 0x70 && f !== 0x10 && !(f & (1 << liga))) tag = k;
+  }
+  assert.ok(tag >= 0, "kein Europapokaltag");
+  setDayIndex(g, tag);
+  // Landesmeister (k = 1): Managerbyte 307 gleich der laufenden Runde 4238:0009
+  g.save.plain[28234] = 2;
+  m.setU8(307, 2);
+  assert.equal(sperreAusgesetzt(g, 0), true);
+  m.setU8(307, 1); // ausgeschieden: alte Runde
+  assert.equal(sperreAusgesetzt(g, 0), false);
+});

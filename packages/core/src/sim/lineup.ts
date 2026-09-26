@@ -232,8 +232,17 @@ function aufstellungKern(g: GameState, manager: number, system: number, benchFou
  * Hauptmenüs vom Vortag (meist 0), den der Server dafür aufhebt (#114).
  */
 export function sperreAusgesetzt(g: GameState, manager: number): boolean {
-  if (calendarFlag(g, dayIndex(g)) !== FLAG_CUP) return false;
-  return g.managers.at(manager).u8(306) === g.save.plain[28233];
+  const flag = calendarFlag(g, dayIndex(g));
+  const m = g.managers.at(manager);
+  if (flag === FLAG_CUP) return m.u8(306) === g.save.plain[28233];
+  // Europapokaltag (0x9B88-0x9C0A): kein Ligabit der eigenen Liga, Kalenderbyte & 0x70, nicht die
+  // Relegation (0x10); der Verein steht in der laufenden Runde eines der drei Europapokale
+  // (Managerbyte 306 + k = 4238:0008 + k, k = 1..3) (#123, Audit 2 B1)
+  if (!(flag & 0x70) || flag === 0x10) return false;
+  const liga = m.clubIndex < 18 ? 0 : m.clubIndex < 38 ? 1 : 2;
+  if (flag & (1 << liga)) return false;
+  for (let k = 1; k <= 3; k++) if (m.u8(306 + k) === g.save.plain[28233 + k]) return true;
+  return false;
 }
 
 /**
