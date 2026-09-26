@@ -93,7 +93,7 @@ A7 (Nachholtermin nur bis Tag 89), B16 (Pool zieht höchstens 1001 Mal), B20 (Tr
 | E28 | Trick des Originals, nicht nachgebaut - in ABWEICHUNGEN |
 | B8 | Manager im laufenden Spiel aufnehmen: nachbauen (#132) |
 | B9 | 1- und 3-Jahres-Spiel: nachbauen (#133) |
-| B11 | Keine Jugend an den Saisonenden 1993-1995: nachbauen (#134) |
+| B11 | Keine Jugend an den Saisonenden 1993-1995: nicht nachgebaut, Jugend ab dem ersten Saisonende - in ABWEICHUNGEN (#134) |
 | F7 | Schummeltasten der Einstellungen: nachbauen (#135) |
 
 ## Work Items
