@@ -283,7 +283,10 @@ function kaderAngebote(g: GameState, manager: number, day: number, rng: Rng, eve
     squad.forEach((l, place) => {
       if (l.isEmpty || l.u8(12) !== 0 || l.u8(24) & 0x80) return;
       const v = div(playerValue(g, manager, place, 0, rng), 10000);
-      if (rng(0, 200) >= v || rng(0, 450) !== 0 || (l.u8(9) & OFFER_SQUAD) !== 0) return;
+      // 0xEAFA prüft den Meldungszeiger (Kaderbytes 48/50): ihn setzt auch ein liegendes
+      // Verlängerungsangebot (Byte 24 = 100 + Jahre, 0xE9C1) - dann kein fremdes Angebot
+      // (#126, Audit 2 B18)
+      if (rng(0, 200) >= v || rng(0, 450) !== 0 || (l.u8(9) & OFFER_SQUAD) !== 0 || (l.u8(24) >= 100 && !(l.u8(24) & 0x80))) return;
       l.setU8(9, l.u8(9) | OFFER_SQUAD);
       const foreign = v > 90 && rng(0, 12) === 0;
       const club = chooseOfferClub(g, v, foreign, rng);

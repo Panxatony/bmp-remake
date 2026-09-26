@@ -196,6 +196,8 @@ import {
   kaufAbbrechen,
   managerZusage,
   dialogAbsageText,
+  vertragsDialog,
+  contractRefusals,
   completeLoan,
   kaderVoll,
   refreshMarket,
@@ -2934,35 +2936,41 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const l = room.game.squadOf(manager)[place];
     if (!l) return json(res, 400, { error: "kein Spieler" });
     if (!(years >= 1) || !(salary >= 0)) return json(res, 400, { error: "Angabe ungültig" });
-    if (years > MAX_CONTRACT_YEARS) return json(res, 200, { ok: false, message: tooLongText() });
     const name = room.game.players.at(l.playerIndex).displayName;
     const offen = room.vertragsende.find((v) => v.manager === manager && v.playerIndex === l.playerIndex);
-    if (!contractCheck(room.game, manager, place, years, salary, room.rng)) {
+    const b24 = l.u8(24);
+    if (!offen) {
+      // Absagen beim Öffnen (0x2557D, 0x255C9, 0x255F3): ausgeliehen - mit dem Verein -, Ruhestand
+      // angekündigt, oder nach einem Gespräch noch nicht wieder bereit (#126, Audit 2 F4, F11)
+      const abs = contractRefusals();
+      if (l.u8(12) !== 0) return json(res, 200, { ok: false, message: `${name} ${abs[3]} ${room.game.clubs.at(l.u8(12) & 0x7f).displayName} ${abs[4]}` });
+      if (b24 & 0x80) return json(res, 200, { ok: false, message: `${name} ${abs.slice(5, 8).join(" ")}` });
+      if (b24 > 0 && b24 < 100) return json(res, 200, { ok: false, message: `${name} ${abs[0]} ${abs[1].replace(/-$/, "")}${abs[2]}` });
+    }
+    // Ein Versuch im Dialog 0x251FF; ein liegendes Angebot des Spielers (Byte 24 = 100 + Jahre)
+    // gilt nur mit denselben Jahren und mindestens dem bisherigen Gehalt (#126, Audit 2 F3)
+    const spielerJahre = !offen && b24 >= 100 && b24 < 0x80 ? b24 - 100 : 0;
+    const d = vertragsDialog(room.game, manager, place, years, salary, room.rng, spielerJahre);
+    room.offers = room.offers.filter((o) => !(o.manager === manager && o.place === place));
+    if (!d.einig) {
       room.log.push(`${room.game.managers.at(manager).displayName}: ${name} lehnt ${salary} DM für ${years} Jahre ab`);
-      if (offen) {
-        // Am Saisonende gibt es wie im Original nur einen Versuch: nach der Absage kehrt der
-        // Vertragsdialog zurück, und der Spieler geht (0x0DC66). In der Version 2026 ist er
-        // danach ablösefrei, und die anderen Manager können bieten (GitLab #95, D3).
-        vertragsendeFreigeben(room, manager, l.playerIndex);
-      } else l.setU8(24, room.rng(10, 18));
+      // Am Saisonende gibt es wie im Original nur einen Versuch: nach der Absage kehrt der
+      // Vertragsdialog zurück, und der Spieler geht (0x0DC66). In der Version 2026 ist er
+      // danach ablösefrei, und die anderen Manager können bieten (GitLab #95, D3).
+      if (offen) vertragsendeFreigeben(room, manager, l.playerIndex);
       room.version++;
       broadcast(room);
-      return json(res, 200, { ok: false, message: `${name} ${texte("ui.keinInteresse").join(" ")}` });
+      return json(res, 200, { ok: false, message: d.absage ? dialogAbsageText(d.absage, name).join(" ") : "" });
     }
-    l.setU8(11, years);
-    for (let i = 0; i < 4; i++) l.setU8(40 + i, (salary >>> (8 * i)) & 0xff);
-    // Auch nach einer Einigung ruht das Thema eine Weile (0x26195)
-    l.setU8(24, room.rng(10, 18));
-    room.log.push(`${room.game.managers.at(manager).displayName}: Vertrag mit ${name} auf ${years} Jahre verlängert (${salary} DM)`);
+    room.log.push(`${room.game.managers.at(manager).displayName}: Vertrag mit ${name} auf ${l.u8(11)} Jahre verlängert (${l.i32(40)} DM)`);
     if (offen) {
-      // Kasten des Originals nach einer Einigung am Saisonende (0x0DDF0)
       room.vertragsende = room.vertragsende.filter((v) => v !== offen);
       // Kasten "<Name> bleibt Ihnen auch die nächste Saison erhalten." (0x0DDF0)
       room.hinweise.push({ manager, zeilen: [toDosText(name), ...texte("ui.vertragsende").slice(2)] });
     }
     room.version++;
     broadcast(room);
-    return json(res, 200, { ok: true, message: `${name} unterschreibt.` });
+    return json(res, 200, { ok: true, message: contractRefusals()[8] });
   }
   if (p === "/api/vertragsende") {
     // "Kein Angebot" im Vertragsdialog des Saisonendes: der Spieler verlässt den Verein
@@ -2971,39 +2979,10 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const l = room.game.squadOf(manager)[place];
     const offen = l && room.vertragsende.find((v) => v.manager === manager && v.playerIndex === l.playerIndex);
     if (!offen) return json(res, 404, { error: "keine offene Verhandlung" });
+    // KEIN ANGEBOT nach Saisontag 321 ist kein Abbruch (Zustand 3): der Dialog würfelt
+    // Byte 24 = random(10,18), bevor der Spieler geht (0x26195, #126, Audit 2 F6)
+    l.setU8(24, room.rng(10, 18));
     vertragsendeFreigeben(room, manager, offen.playerIndex);
-    room.version++;
-    broadcast(room);
-    return json(res, 200, { ok: true });
-  }
-  if (p === "/api/contract") {
-    if (!mine) return json(res, 403, { error: "nicht dein Manager" });
-    const place = Number(body.place);
-    const idx = room.offers.findIndex((o) => o.manager === manager && o.place === place);
-    if (idx < 0) return json(res, 404, { error: "kein Angebot" });
-    const offer = room.offers[idx];
-    if (body.accept && body.salary !== undefined) {
-      // Eigenes Angebot (Vertragsdialog 0x251FF -> 0x249E0); bei Ablehnung bleibt das Angebot offen
-      const years = Math.trunc(Number(body.years));
-      const salary = Math.trunc(Number(body.salary));
-      if (!(years >= 1) || !(salary >= 0)) return json(res, 400, { error: "Angabe ungültig" });
-      if (years > MAX_CONTRACT_YEARS) return json(res, 200, { ok: false, message: tooLongText() });
-      if (!contractCheck(room.game, manager, offer.place, years, salary, room.rng)) {
-        room.offers.splice(idx, 1);
-        rejectOffer(room.game, offer, room.rng);
-        room.log.push(`${room.game.managers.at(manager).displayName}: ${offer.name} lehnt ${salary} DM für ${years} Jahre ab`);
-        room.version++;
-        broadcast(room);
-        return json(res, 200, { ok: false, message: `${offer.name} ${texte("ui.keinInteresse").join(" ")}` });
-      }
-      offer.yearsTo = years;
-      offer.salary = salary;
-    }
-    room.offers.splice(idx, 1);
-    if (body.accept) {
-      acceptOffer(room.game, offer, room.rng);
-      room.log.push(`${room.game.managers.at(manager).displayName}: Vertrag mit ${offer.name} bis ${offer.yearsTo} Jahre verlängert (${offer.salary} DM)`);
-    } else declineOffer(room.game, offer, room.rng);
     room.version++;
     broadcast(room);
     return json(res, 200, { ok: true });

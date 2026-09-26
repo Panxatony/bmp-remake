@@ -74,3 +74,32 @@ test("Auf den Markt und zurück: je fünf Würfe aus 0x224A8, keine neue Rücken
   const zurueck = g.squadOf(0).find((l) => l.playerIndex === idx)!;
   assert.equal(zurueck.number, 0);
 });
+
+test("Angebot des Spielers (Byte 24 = 100 + Jahre): nur dieselben Jahre und mindestens das bisherige Gehalt (#126, F3)", () => {
+  const g = load("TEST4.MAN");
+  const l = g.lineups.at(0);
+  const gehalt = l.i32(40);
+  const { rng, wuerfe } = zaehler(5);
+  l.setU8(24, 103);
+  assert.deepEqual(vertragsDialog(g, 0, 0, 2, gehalt, rng, 3), { einig: false, absage: "spieler" });
+  assert.deepEqual(vertragsDialog(g, 0, 0, 3, gehalt - 100, rng, 3), { einig: false, absage: "sodumm" });
+  const vorher = wuerfe.length;
+  assert.deepEqual(vertragsDialog(g, 0, 0, 3, gehalt, rng, 3), { einig: true });
+  // ohne Verhandlung 0x249E0: nur der Wurf für Byte 24
+  assert.equal(wuerfe.length, vorher + 1);
+  assert.equal(l.u8(11), 3);
+});
+
+test("Verlängerungsangebot nicht bei liegendem fremdem Angebot (0xE93C, #126, B19)", async () => {
+  const { verlaengerungsangebot } = await import("../src/sim/contracts.ts");
+  const g = load("TEST4.MAN");
+  const l = g.lineups.at(0);
+  l.setU8(11, 1);
+  l.setU8(24, 0);
+  l.setU8(9, l.u8(9) & ~0x40);
+  const immer = ((lo: number) => lo) as Rng;
+  assert.ok(verlaengerungsangebot(g, 0, 0, immer), "ohne fremdes Angebot bietet er an");
+  l.setU8(24, 0);
+  l.setU8(9, l.u8(9) | 0x40);
+  assert.equal(verlaengerungsangebot(g, 0, 0, immer), null);
+});
