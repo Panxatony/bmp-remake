@@ -165,6 +165,40 @@ export function dailyFinance(g: GameState, manager: number, date: { day: number;
 
   if (tagesroutine) events.push(...stadionTag(g, manager, rng, "krawall"));
 
+  if (date.day === daysInMonth) {
+    const youth = (m.u8(482) | (m.u8(483) << 8)) + 4 * m.u8(319);
+    m.setU8(482, youth & 0xff);
+    m.setU8(483, (youth >> 8) & 0xff);
+    monthlyAdvertising(g, manager);
+    let income = monthlyIncome(g, manager, date.day);
+    let expenses = 0;
+    const balance = m.i32(496);
+    const avg = acc ? div(acc.sum, date.day) : balance;
+    // Guthabenzins über den Monatsdurchschnitt. In der Version 2026 zählt davon höchstens
+    // INTEREST_CAP mit - Geld horten ist dann keine Strategie mehr (sim/regeln.ts).
+    if (avg > 0) income += div(Math.min(fester ? INTEREST_CAP : Number.MAX_SAFE_INTEGER, div(acc ? acc.sum : balance * date.day, date.day)), 75);
+    else if (avg < 0) expenses += div(avg, -10);
+    if (acc) acc.sum = 0;
+    // 0x11D0D bucht zuerst die Einnahmen (0x11F1C); die Ausgaben 0x17262 rechnen die Steuer auf
+    // diesen Stand, erst danach kommen Zinsen und Rückzahlungen der Kredite (ab 0x12002). Bis
+    // #124 zog das Remake die Kredite vorher ab und rechnete die Steuer ohne die Einnahmen.
+    writeI32(g, manager, 496, balance + income);
+    expenses += monthlyExpenses(g, manager);
+    writeI32(g, manager, 496, m.i32(496) - expenses);
+    events.push({ kind: "month", text: `Monatsabrechnung: +${income} DM, -${expenses} DM, Kontostand ${m.i32(496)} DM` });
+    const fans = m.u8(476) | (m.u8(477) << 8);
+    if (fans < 95) {
+      const o = ADV_OFFSET + manager * 36 + 32;
+      const p = g.save.plain;
+      const adExpenses = (p[o] | (p[o + 1] << 8) | (p[o + 2] << 16) | (p[o + 3] << 24)) | 0;
+      if (rng(0, 22) < div(adExpenses, 2500)) {
+        const f = fans + rng(1, 3);
+        m.setU8(476, f & 0xff);
+        m.setU8(477, (f >> 8) & 0xff);
+        events.push({ kind: "fans", text: `Fanwert steigt auf ${f}` });
+      }
+    }
+  }
   for (let lender = 0; lender < 5; lender++) {
     for (let slot = 0; slot < 3; slot++) {
       const o = 508 + (lender * 3 + slot) * 18;
@@ -195,35 +229,6 @@ export function dailyFinance(g: GameState, manager: number, date: { day: number;
     }
   }
 
-  if (date.day === daysInMonth) {
-    const youth = (m.u8(482) | (m.u8(483) << 8)) + 4 * m.u8(319);
-    m.setU8(482, youth & 0xff);
-    m.setU8(483, (youth >> 8) & 0xff);
-    monthlyAdvertising(g, manager);
-    let income = monthlyIncome(g, manager, date.day);
-    let expenses = monthlyExpenses(g, manager);
-    const balance = m.i32(496);
-    const avg = acc ? div(acc.sum, date.day) : balance;
-    // Guthabenzins über den Monatsdurchschnitt. In der Version 2026 zählt davon höchstens
-    // INTEREST_CAP mit - Geld horten ist dann keine Strategie mehr (sim/regeln.ts).
-    if (avg > 0) income += div(Math.min(fester ? INTEREST_CAP : Number.MAX_SAFE_INTEGER, div(acc ? acc.sum : balance * date.day, date.day)), 75);
-    else if (avg < 0) expenses += div(avg, -10);
-    if (acc) acc.sum = 0;
-    writeI32(g, manager, 496, balance + income - expenses);
-    events.push({ kind: "month", text: `Monatsabrechnung: +${income} DM, -${expenses} DM, Kontostand ${m.i32(496)} DM` });
-    const fans = m.u8(476) | (m.u8(477) << 8);
-    if (fans < 95) {
-      const o = ADV_OFFSET + manager * 36 + 32;
-      const p = g.save.plain;
-      const adExpenses = (p[o] | (p[o + 1] << 8) | (p[o + 2] << 16) | (p[o + 3] << 24)) | 0;
-      if (rng(0, 22) < div(adExpenses, 2500)) {
-        const f = fans + rng(1, 3);
-        m.setU8(476, f & 0xff);
-        m.setU8(477, (f >> 8) & 0xff);
-        events.push({ kind: "fans", text: `Fanwert steigt auf ${f}` });
-      }
-    }
-  }
   if (tagesroutine) events.push(...stadionTag(g, manager, rng, "komfort"));
   return events;
 }
