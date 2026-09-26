@@ -4462,13 +4462,16 @@ class App {
   vertragEingabe(l: Lineup, place: number, feld: number): void {
     const g = this.game!;
     const forderung = (jahre: number) => salaryDemand(g, this.manager, place, jahre);
-    this.fragVertrag("", forderung(l.u8(11)), l.u8(11), true, (jahre, gehalt) => {
+    // Mit einem Angebot des Spielers stehen dessen Jahre vorn (0x255F8)
+    const vorgabe = l.u8(24) >= 100 && l.u8(24) < 0x80 ? l.u8(24) - 100 : l.u8(11);
+    this.fragVertrag("", forderung(vorgabe), vorgabe, true, (jahre, gehalt) => {
       const abs = contractRefusals();
       const name = cp437ToGame(g.players.at(l.playerIndex).name);
       void this.post("api/newcontract", { manager: this.manager, player: this.player, place, years: jahre, salary: gehalt }, true).then((antwort) => {
-        // Wortlaut des Originals, unter der Tabelle: "Ihr Angebot wurde angenommen !" bzw.
-        // "So dumm ist <Name> leider nicht..."
-        this.vertragsAntwort = antwort.ok ? abs[8] : `${abs[9]} ${abs[10]} ${name} ${abs[11]}`;
+        // Wortlaut des Originals, unter der Tabelle: "Ihr Angebot wurde angenommen !" bzw. die
+        // Absage des Dialogs, die der Server schickt ("So dumm ...", "... ist nicht an Ihrem
+        // Angebot interessiert.", zu lange) (#126, Audit 2 F12)
+        this.vertragsAntwort = antwort.ok ? abs[8] : toGame(antwort.message ?? "") || `${abs[9]} ${abs[10]} ${name} ${abs[11]}`;
         this.status = "";
         this.statusUntil = 0;
         this.render();
@@ -4693,11 +4696,19 @@ class App {
           const abs = contractRefusals();
           const name = cp437ToGame(g.players.at(l.playerIndex).name);
           if (l.u8(12) !== 0) {
-            this.hinweis = [`${name} ${abs[3]}`, abs[4]];
+            // "ist leider von <Verein> nur ausgeliehen." (0x2557D, Audit 2 F11)
+            this.hinweis = [`${name} ${abs[3]}`, cp437ToGame(g.clubs.at(l.u8(12) & 0x7f).name), abs[4]];
             this.vertragPlace = -1;
             return;
           }
-          if (l.u8(24) > 0 && !(l.u8(24) & 0x80)) {
+          if (l.u8(24) & 0x80) {
+            // Ruhestand angekündigt: "wird sich mit Ablauf des Vertrages zur Ruhe setzen." (0x255C9, F4)
+            this.hinweis = [`${name} ${abs[5]}`, abs[6], abs[7]];
+            this.vertragPlace = -1;
+            return;
+          }
+          // Ein Angebot des Spielers (Byte 24 = 100 + Jahre) öffnet den Dialog (#126, F3)
+          if (l.u8(24) > 0 && l.u8(24) < 100) {
             this.hinweis = [`${name} ${abs[0]}`, abs[1].replace(/-$/, "") + abs[2]];
             this.vertragPlace = -1;
             return;

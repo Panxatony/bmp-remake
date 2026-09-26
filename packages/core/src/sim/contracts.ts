@@ -256,7 +256,10 @@ export function verlaengerungsangebot(g: GameState, manager: number, place: numb
     // Kein liegendes Angebot (das Original prüft dessen Meldungszeiger in Feld 48), keine
     // Karriereankündigung, letztes Vertragsjahr
     const b24 = l.u8(24);
-    if (b24 & 0x80 || b24 >= 100 || l.u8(11) !== 1) return null;
+    // 0xE93C prüft den Meldungszeiger (Kaderbytes 48/50); ihn setzen ein liegendes
+    // Verlängerungsangebot (Byte 24 = 100 + Jahre) und ein fremdes Angebot (Byte 9 Bit 6,
+    // 0xEA6D) (#126, Audit 2 B19)
+    if (b24 & 0x80 || b24 >= 100 || (l.u8(9) & 0x40) !== 0 || l.u8(11) !== 1) return null;
     const wurf = rng(0, 100);
     const jahre = wurf > 90 ? 4 : wurf > 70 ? 3 : 2;
     l.setU8(24, 100 + jahre);
