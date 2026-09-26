@@ -85,16 +85,35 @@ unten genannten Ausnahmen.
 A7 (Nachholtermin nur bis Tag 89), B16 (Pool zieht höchstens 1001 Mal), B20 (Trainingsgewinn
 16 Bit), E20 (Angebot genau Wert·140/100), F1 (Marktwertwurf bei Byte 9 Bit 7 auf dem Kaderplatz).
 
-### Zu entscheiden
+### Entschieden (lhuno, 26.9.2026)
 
-| ID | Frage |
+| ID | Entscheidung |
 |---|---|
-| B8 | Manager im laufenden Spiel aufnehmen fehlt - nachbauen oder als Abweichung eintragen? |
-| B9 | 1- und 3-Jahres-Spiel fehlen - eintragen? |
-| B11 | Keine Jugend an den Saisonenden 1993-1995 (nur im selben Programmlauf) - nachbauen? |
-| E18/F8 | Verkauf stärkt im Original den falschen Verein - Fehler nachbauen? |
-| E28 | Zurückholen mit LEIHEN drittelt das Gehalt - Trick nachbauen? |
-| F7 | Schummeltasten der Einstellungen - als Abweichung eintragen? |
+| E18/F8 | Fehler des Originals, nicht nachgebaut - in ABWEICHUNGEN |
+| E28 | Trick des Originals, nicht nachgebaut - in ABWEICHUNGEN |
+| B8 | Manager im laufenden Spiel aufnehmen: nachbauen (#132) |
+| B9 | 1- und 3-Jahres-Spiel: nachbauen (#133) |
+| B11 | Keine Jugend an den Saisonenden 1993-1995: nachbauen (#134) |
+| F7 | Schummeltasten der Einstellungen: nachbauen (#135) |
+
+## Work Items
+
+| # | Inhalt |
+|---|---|
+| 121 | Tagesablauf im Server wie das Original: E1-E4, H1, H4 |
+| 122 | Stärke nach Schlusspfiff und Nachholtag, Matrix in den Vereinssatz: G4 |
+| 123 | Aufstellungsautomatik bei jedem Kaderaufbau, 513E an Europapokaltagen: E22, B1 (B2 behoben in 99fec9e) |
+| 124 | Steuer am Monatsende: C1 |
+| 125 | Kauf vom Markt: F2, E16, E19, E21, E23, E24, F1 |
+| 126 | Vertragsdialog: F3-F6, B18, B19 |
+| 127 | Zufallswürfe im Spiel: D9, D1, D6, G17, G19, C2 |
+| 128 | Saisonwechsel und Rekorde: G1-G3, B12-B16, H2, D2, E6 |
+| 129 | Neues Spiel mit mehreren Managern: B5, B6 |
+| 130 | Stadion: A1, A2, A7 |
+| 131 | Verkauf, Auswechslung, Pokalauslosung: F9/E25, E20, E17, D7, B20 |
+| 132-135 | Nachbauten B8, B9, B11, F7 |
+| 136-138 | Anzeige |
+| 139 | Doku |
 
 ## Anzeige (A) und Doku (D)
 

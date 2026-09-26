@@ -10,6 +10,8 @@ soll sich wie das Original verhalten; wo es das nicht tut, ist das ein Fehler.
 |---|---|---|---|
 | Neuauslosung der Chancen in der Konferenz (Platzverweis, Verletzung) | verrechnet die neue Chancenzahl so, dass die geschwächte Seite eher mehr Chancen bekommt | Rest = max(0, neu − gespielt) | lhuno, GitLab #87; `sim/live.ts`, Zweigbuch 05403 |
 | Elfmeterschießen im Europapokal und in der Relegation | das Schießen überschreibt den Ergebnisspeicher; Hinspieltore und Elfmeter zusammen entscheiden, der Verlierer des Schießens kann weiterkommen | der Sieger des Schießens kommt weiter | lhuno, Zweigbuch 18E46 (V2) |
+| Verkauf eines Kaderspielers an einen Rechnerverein | liest Verein und Stärkeschnitt erst nach dem Entfernen des Platzes, also vom Nachrücker (0x235DD-0x2361D): der Verkaufte landet meist bei Verein 0, gestärkt wird ein falscher Verein, Byte 22 des Nachrückers wird genullt | der Käufer bekommt den Spieler und dessen Stärke | lhuno, 26.9.2026; Audit 2 E18/F8, `sim/transfer.ts` decideSale |
+| Zurückholen vom Transfermarkt mit gewähltem LEIHEN | läuft als Leihe: ein Jahr, Leihmarke, Gehalt ein Drittel (0x224A8 mit 99) | Zurückholen behält Vertrag und Gehalt | lhuno, 26.9.2026; Audit 2 E28, `sim/transfer.ts` takeBack |
 
 ## Wegen Mehrspielerbetrieb und Browser
 
