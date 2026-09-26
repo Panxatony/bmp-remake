@@ -1932,6 +1932,11 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   // Bericht aus dem Vereinssatz, wie das Original (#122, Audit 2 G4)
   const gespielt: PlayedMatch[] = [];
   const zeitungen = (): void => {
+    // Abgeschaltete Zeitung (Schalter 13, 4cb3:060B): 0x2F243 springt bei 0x2F28F sofort ans
+    // Ende (0x30589) - kein Foto random(0,29), keine Noten (0x2F63C), keine Schlagzeile, kein
+    // Artikel. Der Rest von 0x3074A (Aufruf aus 0x4CC1) würfelt nicht und läuft auch ohne
+    // Zeitung (#127, Audit 2 G19)
+    if (!(r.options.flags[OPTION_ZEITUNG] ?? true)) return;
     g.activeManagers().forEach((mg, i) => {
       const p = gespielt.find((x) => x.home === mg.clubIndex || x.away === mg.clubIndex);
       if (!p) return;

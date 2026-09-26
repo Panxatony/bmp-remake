@@ -50,3 +50,29 @@ test("Grundzuschlag 47..53 und Monatsschwankung innerhalb der Bänder", () => {
     assert.ok(v >= 70 && v <= 93, `Bundesliga ${c}: ${v}`);
   }
 });
+
+test("KI-Torschützen: mehr als neun Kandidaten ergeben w = 10 -> 9 (0x1608B, #127, Audit 2 D1)", () => {
+  const w = (kandidaten: number) => {
+    const g = load("TEST4.MAN");
+    const club = 0;
+    for (let i = 1; i < 151; i++) {
+      const p = g.players.at(i);
+      if (p.u8(36) === club) p.setU8(36, 60);
+    }
+    for (let i = 1; i <= kandidaten; i++) g.players.at(i).setU8(36, club);
+    // Einsatz immer (0 < 94), Kandidat immer (25 + Byte 31 > 10), Tor nicht verworfen (1)
+    const calls: [number, number][] = [];
+    creditAiGoals(g, club, 1, (lo, hi) => {
+      calls.push([lo, hi]);
+      if (lo === 5 && hi === 25) return 25;
+      if (lo === 0 && hi === 4) return 1;
+      return lo === 0 && hi !== 100 ? hi : lo;
+    });
+    const k = calls.findIndex(([lo, hi]) => lo === 0 && hi === 4);
+    return calls[k + 1][1];
+  };
+  // Tabelle 4cb3:5331 [0,2,3,...,10]: w = tab[n] - 1, dann > 2 -> -1
+  assert.equal(w(9), 8);
+  assert.equal(w(10), 9);
+  assert.equal(w(20), 9);
+});

@@ -81,3 +81,21 @@ test("Zeitung: Spielbericht aus einem gespielten Spiel (Rückstand, Führung, To
   const z = composeZeitung(r, mulberryRng(9));
   assert.ok(z.headline.join(" ").length > 5);
 });
+
+test("Zeitung ausverkauft: erst die Schlagzeilengruppe, dann der Artikel (0x2FED7/0x2FEEF, #127, Audit 2 G17)", () => {
+  const calls: [number, number][] = [];
+  const basis = mulberryRng(4);
+  const rng = (lo: number, hi: number) => {
+    calls.push([lo, hi]);
+    // Die Gruppe des ausverkauften Spiels (Priorität 3) greift sicher
+    return lo === 1 && hi === 3 ? 3 : basis(lo, hi);
+  };
+  composeZeitung({ ...base(), soldOut: true }, rng);
+  // Die Gruppen davor haben Priorität 5 und 2: der erste Wurf random(1,3) ist die Ausverkauft-Gruppe
+  const k = calls.findIndex(([lo, hi]) => lo === 1 && hi === 3);
+  assert.ok(k > 0);
+  const kopf = HEADLINE_GROUPS.slice(0, 7).reduce((a, b) => a + b, 0);
+  assert.deepEqual(calls[k + 1][1] - calls[k + 1][0], HEADLINE_GROUPS[7] - 1, "Schlagzeile der Gruppe 7");
+  assert.ok(calls[k + 1][0] >= kopf, `Schlagzeile ab ${kopf}: ${calls[k + 1]}`);
+  assert.deepEqual(calls[k + 2], [0, ARTICLE_GROUPS[6] - 1], "danach der Artikel der Gruppe 6");
+});

@@ -38,7 +38,9 @@ export function creditAiGoals(g: GameState, club: number, goals: number, rng: Rn
   }
   const n = candidates.length;
   if (n <= 1) return;
-  let w = (SCORER_WEIGHT[Math.min(n, 9)] ?? 10) - 1;
+  // Mehr als neun Kandidaten: w = 10 ohne das -1 der Tabelle (0x1608B/0x16094), danach wie
+  // sonst w > 2 → w - 1 (0x16007), also 9 (#127, Audit 2 D1)
+  let w = n > 9 ? 10 : SCORER_WEIGHT[n] - 1;
   if (w > 2) w--;
   for (let goal = 0; goal < goals; goal++) {
     if (rng(0, 4) === 0) continue;

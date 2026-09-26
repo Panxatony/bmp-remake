@@ -161,7 +161,9 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
         l.setU8(1, Math.max(0, l.u8(1) - 1));
         l.setU8(10, 0);
         l.setU8(9, l.u8(9) | 1);
-        l.setU8(13, 1);
+        // Sperre random(1, 7 - 6·GelbRot) = random(1, 1) (0x1C0A7): der Wurf verbraucht wie
+        // jeder random() eine Zahl (0x8389), auch wenn nur 1 herauskommen kann (#127, Audit 2 D9)
+        l.setU8(13, rng(1, 1));
         l.setU8(21, (l.u8(21) - 10) & 0xff);
         st.yellows.delete(i);
         // Gelb-Rot verbraucht den Platzverweis des Spiels (0x0618F), danach gibt es kein
@@ -192,6 +194,19 @@ export function minuteIncidents(g: GameState, manager: number, minute: number, s
     }
   }
   return out;
+}
+
+/**
+ * Manager, der in der Verlängerung eines DFB-Pokalspiels noch Karten und Verletzungen würfelt
+ * (Merker 4238:1D14, gesetzt von 0x18F76). 0x63B1 geht die Manager in ihrer Reihenfolge durch und
+ * liefert für den ersten, der im Spiel steht, als Heim m+1, als Gast 0x81+m; 0x18F8F schreibt
+ * ohne Maske nach 4238:1D13+AL, der Merker eines Gastes landet also in 1D94.. (Bestenlisten-
+ * speicher). Nur ein Heimmanager bekommt ihn, und nur, wenn kein Manager mit kleinerer Nummer
+ * Gast ist (#127, Audit 2 D6).
+ */
+export function verlaengerungsMerker(managerHome: number | undefined, managerAway: number | undefined): number | undefined {
+  if (managerHome === undefined) return undefined;
+  return managerAway === undefined || managerHome < managerAway ? managerHome : undefined;
 }
 
 /** Karten und Verletzungen eines ganzen Spiels ohne Konferenz (Minuten 1..90). */

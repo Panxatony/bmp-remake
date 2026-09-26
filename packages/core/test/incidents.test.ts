@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, matchIncidents, minuteIncidents, newIncidentState, matchStrength, pickStarter, fitStarters, isForfeit, playMatchday, FORFEIT_FINE } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, matchIncidents, verlaengerungsMerker, minuteIncidents, newIncidentState, matchStrength, pickStarter, fitStarters, isForfeit, playMatchday, FORFEIT_FINE } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -136,4 +136,35 @@ test("Unter vier Spielern auf dem Platz keine Ereignisse mehr (0x06319, #84)", (
   }
   const st = newIncidentState();
   assert.equal(minuteIncidents(g, 0, 10, st, (lo: number) => lo).length, 0);
+});
+
+test("Gelb-Rot würfelt die Sperre random(1,1) (0x1C0A7, #127, Audit 2 D9)", () => {
+  let gelbRot = 0, wuerfe = 0;
+  for (let n = 0; n < 300 && gelbRot < 3; n++) {
+    const h = load("TEST4.MAN");
+    const basis = mulberryRng(500 + n);
+    const rng = (lo: number, hi: number) => {
+      if (lo === 1 && hi === 1) wuerfe++;
+      return basis(lo, hi);
+    };
+    for (const inc of matchIncidents(h, 0, rng)) {
+      if (inc.kind !== "yellowred") continue;
+      gelbRot++;
+      assert.equal(h.squadOf(0)[inc.place].u8(13), 1);
+    }
+  }
+  assert.ok(gelbRot > 0, "kein Gelb-Rot gefunden");
+  // Je Gelb-Rot genau ein Wurf random(1,1) - er verbraucht eine Zahl, obwohl nur 1 herauskommt
+  assert.equal(wuerfe, gelbRot);
+});
+
+test("DFB-Verlängerung: Vorfälle nur für den Heimmanager (0x63B1/0x18F8F, #127, Audit 2 D6)", () => {
+  // Nur Heimmanager
+  assert.equal(verlaengerungsMerker(2, undefined), 2);
+  // Nur Gastmanager: sein Merker landet in 4238:1D94.., nicht in 1D14..
+  assert.equal(verlaengerungsMerker(undefined, 1), undefined);
+  // Manager gegen Manager: der Heimmanager nur, wenn er in der Reihenfolge vor dem Gast kommt
+  assert.equal(verlaengerungsMerker(0, 1), 0);
+  assert.equal(verlaengerungsMerker(1, 0), undefined);
+  assert.equal(verlaengerungsMerker(undefined, undefined), undefined);
 });

@@ -391,9 +391,11 @@ export function composeZeitung(r: MatchReport, rng: Rng): Zeitung {
   group(diff < 0 && diff > -2, 5);
   group(diff < 0 && diff > -4, 5);
   group(diff === 0, 2);
+  // Ausverkauft: erst die Schlagzeilengruppe (0x2FED7), dann der Artikel (0x2FEEF)
+  // (#127, Audit 2 G17)
   if (r.soldOut) {
-    art(6);
     group(true, 3);
+    art(6);
   } else g++;
   if (r.deficit !== 0 && result !== 2) art(14);
   if (r.lead !== 0 && result !== 1 && diff > -2) art(15);
