@@ -1141,6 +1141,9 @@ function vertragsendeAufloesen(r: Room, manager: number): void {
 function zugBeenden(r: Room): void {
   r.hinweise = [];
   r.sperre513E = sperreAusgesetzt(r.game, r.game.activeManagers().length - 1);
+  // Jeder Aufbau des Hauptmenüs stellt auf (0x9D46 -> 0x22030), mit dem 513E des Managers am
+  // Zug; der letzte vor den Spielen gilt (Audit 2, B2)
+  r.game.activeManagers().forEach((_, i) => autoLineupIfEnabled(r.game, i, sperreAusgesetzt(r.game, i)));
   const stand = saisonwechselStand(r.game);
   if (stand === "zug") saisonwechselBeginnen(r);
   else if (stand === "vertraege") saisonwechselAbschliessen(r);
@@ -1337,6 +1340,8 @@ function nachTageswechsel(r: Room): void {
       // danach die Stärke mit Flag 0 in die Vereinsmatrix (0x1D7BA, #100)
       anzeigeStaerke(g, i);
     }
+    // Das erste Hauptmenü des Zugs stellt mit dem eigenen 513E neu auf (Audit 2, B2)
+    for (let i = 0; i < n; i++) autoLineupIfEnabled(g, i, sperreAusgesetzt(g, i));
   }
   const dt = dateOfSeasonDay(seasonDay(k), seasonStartYear(g));
   for (let i = 0; i < n; i++) {
