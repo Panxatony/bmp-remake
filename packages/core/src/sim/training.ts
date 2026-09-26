@@ -96,10 +96,13 @@ export function dailyTraining(g: GameState, manager: number, seasonDay: number, 
 
     // Linien Kondition, Technik, Form
     for (let line = 0; line < 3; line++) {
-      let gain = div(gainBase[line] * factor, 100);
-      gain = div(gain * l.u8(14), 50);
+      // Jedes Produkt kürzt das Original auf 16 Bit (imul, cwtd, idiv - 0xEE0C, 0xEE2B, 0xEE9A);
+      // bei extremen Einstellungen kippt das letzte ins Negative (#131, Audit 2 B20)
+      const s16 = (v: number) => (v << 16) >> 16;
+      let gain = div(s16(gainBase[line] * factor), 100);
+      gain = div(s16(gain * l.u8(14)), 50);
       const posBalls = 10 * m.u8(326 + posGroup) + 75 - rng(0, 3);
-      gain = div(gain * posBalls, 100);
+      gain = div(s16(gain * posBalls), 100);
       let value = l.u8(16 + line);
       let dir = 0;
       let target = rng(0, 4) === 4 ? 1 : 0;
