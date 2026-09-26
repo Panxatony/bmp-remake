@@ -3697,6 +3697,13 @@
     "len": 12,
     "sum": "5e4e98ea"
    }
+  ],
+  "ui.bauzeitgesamt": [
+   {
+    "off": 322121,
+    "len": 22,
+    "sum": "c1e64752"
+   }
   ]
  }
 }

@@ -38,7 +38,9 @@ export function replayDay(
   clubs: [number, number],
   pairingClubs: (r: Replay) => [number, number],
 ): number | null {
-  for (let d = dayIndex + 1; d < calendar.length; d++) {
+  // Gesucht wird nur bis Tag 89 (0x3892 cmpb $0x5a) - die Tage 93/94 wären nach dem letzten
+  // Saisontag, das Spiel bliebe ungespielt (#130, Audit 2 A7)
+  for (let d = dayIndex + 1; d < Math.min(90, calendar.length); d++) {
     if (d > 35 && d < 59) d = 59;
     const flag = calendar[d];
     if (flag !== 0 && flag !== 0x80) continue;
