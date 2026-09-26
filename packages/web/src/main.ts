@@ -3364,7 +3364,18 @@ class App {
           },
           { icon: "transfer", action: () => this.go("market") },
         ],
-        [{ icon: "training", action: () => this.go("training") }, { icon: "lager", action: () => this.go("camp") }, { icon: "beste", action: () => this.go("bestenliste") }],
+        [
+          { icon: "training", action: () => this.go("training") },
+          { icon: "lager", action: () => this.go("camp") },
+          {
+            icon: "beste",
+            action: () => {
+              // Das Original schreibt beim Öffnen die Kadertore in die Spielertabelle (0x16515, #128)
+              if (this.online) void this.post("api/bestenliste", { manager: this.manager, player: this.player }, true);
+              this.go("bestenliste");
+            },
+          },
+        ],
         // Abwerben und die medizinische Versorgung gibt es nur in der Version 2026
         // (sim/abwerben.ts, sim/medizin.ts)
         [

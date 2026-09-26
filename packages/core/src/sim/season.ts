@@ -14,7 +14,7 @@ import { CAL_OFFSET, CALENDAR_DAYS, DAY_INDEX_OFFSET, LETZTER_SAISONTAG, dayInde
 import { initialDraw, clearCupResults, europeanParticipants, titelTraegerTauschen, orderList, PLAYOFF_RESULT, ORDER_LIST, DFB_WINNER, HOLDER, CUP_OUT } from "./europa.ts";
 import { seasonEndAdvertising, generateOffers } from "./werbung.ts";
 import { texte } from "../data/texte.ts";
-import { seasonEvents, type SeasonEvent } from "./seasonEvents.ts";
+import { seasonEvents, torschuetzenKoenige, type SeasonEvent } from "./seasonEvents.ts";
 import { winPoints } from "./regeln.ts";
 
 /** Kalendervorlage (Bitfeld 34227 aus dem Spielstand ohne Nachholmarken 0x80). */
@@ -351,6 +351,9 @@ export function saisonwechselTeil1(g: GameState, rng: Rng, verlaengerung = false
   // der Tabellen (0x1E29E) - alles vor dem Auf- und Abstieg
   const managers = g.activeManagers();
   const ewigVorher = managers.map((m) => g.standings.at(m.clubIndex).i32(50));
+  // In derselben Schleife fragt das Original je Manager den Torschützenkönig ab (0x1E1AA, 0x16515
+  // mit Argument 1) - vor den Ewigkeitspunkten und dem Auf- und Abstieg (#128, Audit 2 B12)
+  const torKoenig = torschuetzenKoenige(g);
   ewigkeitspunkte(g);
   const jahre = Math.min(5, (p[SAISONZAEHLER] | (p[SAISONZAEHLER + 1] << 8)) + 1);
   // Eigenheit des Originals: der neue Fanwert landet in einer einzigen Variablen - am Ende gilt
@@ -390,7 +393,7 @@ export function saisonwechselTeil1(g: GameState, rng: Rng, verlaengerung = false
   kp(36);
   // Vertragsjahre, Alter, Rückkehr der Leihspieler und Saisonwerte der Kader laufen im
   // Ereignisbildschirm in der Reihenfolge des Originals (seasonEvents, 0x0CB62)
-  const events = seasonEvents(g, flags, rng, verlaengerung);
+  const events = seasonEvents(g, flags, rng, verlaengerung, torKoenig);
   // Werbung nach einem Aufstieg (0x0CC00, im Saisonende 0x0CB62 - also vor den Sommertagen): die
   // Verträge enden, ein laufender Trikotvertrag behält seine Einnahmen, der Hinweiskasten erklärt
   // es (0x0CC77). Stand bis #100 nach den Sommertagen: ein Vertrag mit einem Monat Rest lief dort

@@ -4,14 +4,15 @@
  * Rekordzeilen 0x2B31E) und der Zeitung (0x2AB35):
  *
  *   0..2559   Bilanz je Manager gegen jeden Verein: [(Manager·64 + Verein)·5 + k]·2 + Seite,
- *             Seite 1 = Heimspiele, 0 = Auswärtsspiele, k = 0..4 die letzten Spiele,
- *             Byte = eigene Tore·16 + Gegentore, 0xff = leer
+ *             Seite 0 = Heimspiele, 1 = Auswärtsspiele, k = 0..4 die letzten Spiele,
+ *             Byte = Gegentore·16 + eigene Tore, 0xff = leer (0x2C483, Audit 2 G8)
  *   2560      Serien je Verein (21 Bytes): 7 Zeilen (gewonnen, verloren, unentschieden,
  *             nicht gewonnen, nicht verloren, ohne Gegentor, ohne Torerfolg) × 3 Spalten
  *             (gesamt, heim, auswärts), laufende Serie
  *   3904      Serienrekorde je Manager (21 Bytes, Höchstwerte)
  *   3988      Rekorde je Verein (8 Bytes): höchster Heimsieg, höchste Heimniederlage,
  *             erzielte/kassierte Heimtore, dasselbe auswärts; Byte = Heimtore·16 + Gasttore
+ *             (die Torrekorde k = 2/7 im oberen, k = 3/6 im unteren Halbbyte)
  *   4500      Gegner der Rekorde je Verein (8 Bytes)
  */
 import type { GameState } from "../records.ts";
@@ -112,23 +113,52 @@ function bookSeries(g: GameState, club: number, cols: number[], gf: number, ga: 
   set(6, gf === 0 ? inc : zero);
 }
 
-function bookRecord(g: GameState, club: number, k: number, value: number, stored: number, opponent: number): void {
+/**
+ * Vereinsrekord setzen (0x2DBDF) mit den Argumenten des Originals: Tore a (Heim) und b (Gast),
+ * Modus, Faktoren p und q. Neuer Wert p·a - q·b, alter Wert hi·p - lo·q aus den Halbbytes;
+ * Modus 0 schreibt nur, wenn der alte Wert **echt kleiner** ist (0x2DC61 `jge`), Modus 1 nur,
+ * wenn der neue kleiner ist. Gespeichert wird (p·a)<<4 + |q|·b in 8 Bit (0x2DC70-0x2DC8E, ohne
+ * Grenze auf 15). Die Torrekorde "kassiert heim" (k = 3) und "erzielt auswärts" (k = 6) laufen
+ * mit p = 0, q = -1 und stehen daher im **unteren** Halbbyte - so in allen Spielständen des
+ * Originals (#128, Audit 2 G1). Ein leerer Rekord zählt als 0: ein Spiel ohne Tore schreibt dort
+ * weder das Byte noch den Gegner (#128, Audit 2 G2; bis dahin -1).
+ */
+function bookRecord(g: GameState, club: number, k: number, a: number, b: number, modus: 0 | 1, pf: number, q: number, opponent: number): void {
   const p = g.save.plain;
   const o = HISTORY + RECORDS + 8 * club + k;
-  const old = p[o];
-  let oldValue: number;
-  if (k === 0 || k === 4) oldValue = old === 0 ? -1 : Math.abs((old >> 4) - (old & 15));
-  else if (k === 1 || k === 5) oldValue = old === 0 ? -1 : Math.abs((old >> 4) - (old & 15));
-  else oldValue = old === 0 ? -1 : (old >> 4) || (old & 15);
-  if (value <= oldValue) return;
-  p[o] = stored & 0xff;
+  const hi = p[o] >> 4;
+  const lo = p[o] & 15;
+  const neu = pf * a - q * b;
+  const alt = hi * pf - lo * q;
+  if (modus === 0 ? alt >= neu : neu >= alt) return;
+  if (q < 0) q = 1;
+  p[o] = ((((pf * a) << 4) & 0xff) + ((q * b) & 0xff)) & 0xff;
   p[HISTORY + RECORD_OPP + 8 * club + k] = opponent & 0xff;
 }
 
 /**
- * Historie nach einem Ligaspiel fortschreiben: Serien beider Vereine, Serienrekorde der
- * Manager, Vereinsrekorde (nur bei neuem Höchstwert, Tore auf 15 begrenzt) und die Bilanz
- * der Manager gegen den Gegner (Heimspiel im ungeraden, Auswärtsspiel im geraden Byte).
+ * Serienrekorde der Manager (0x2D812 bis 0x2D8B3): nach der Buchung einer Liga für **alle**
+ * Manager, je Manager mit dem Verein aus Managerbyte 30 - jede laufende Serie über dem Rekord
+ * wird Rekord. Die Bundesliga bucht zuerst; die Manager der anderen Ligen vergleichen dann mit
+ * dem Stand ihres Vereins vor dessen eigenem Spiel. Bis #128 lief der Vergleich nur für die
+ * Manager der beiden Vereine eines Spiels (Audit 2 G3).
+ */
+export function serienrekordeBuchen(g: GameState): void {
+  const p = g.save.plain;
+  g.activeManagers().forEach((m, i) => {
+    const club = m.clubIndex;
+    if (club > 57) return;
+    const cur = seriesAt(club);
+    const rec = seriesRecordAt(i);
+    for (let k = 0; k < 21; k++) if (p[cur + k] > p[rec + k]) p[rec + k] = p[cur + k];
+  });
+}
+
+/**
+ * Historie nach einem Ligaspiel fortschreiben: Serien beider Vereine, Vereinsrekorde (nur bei
+ * neuem Höchstwert) und die Bilanz der Manager gegen den Gegner (Heimspiel im geraden,
+ * Auswärtsspiel im ungeraden Byte). Die Serienrekorde der Manager bucht `serienrekordeBuchen`
+ * nach allen Spielen der Liga.
  */
 export function bookHistory(g: GameState, home: number, away: number, hg: number, ag: number): void {
   const p = g.save.plain;
@@ -139,9 +169,6 @@ export function bookHistory(g: GameState, home: number, away: number, hg: number
   managers.forEach((m, i) => {
     const club = m.clubIndex;
     if (club !== home && club !== away) return;
-    const cur = seriesAt(club);
-    const rec = seriesRecordAt(i);
-    for (let k = 0; k < 21; k++) if (p[cur + k] > p[rec + k]) p[rec + k] = p[cur + k];
     const opp = club === home ? away : home;
     const own = club === home ? hg : ag;
     const other = club === home ? ag : hg;
@@ -158,18 +185,17 @@ export function bookHistory(g: GameState, home: number, away: number, hg: number
     // ohne Begrenzung als 8-Bit-Summe (0x2C549 bis 0x2C553): ab 16 Toren läuft es über
     p[base + 2 * k + side] = ((other << 4) + own) & 0xff;
   });
-  const h = Math.min(15, hg);
-  const a = Math.min(15, ag);
-  const stored = (h << 4) | a;
+  // Reihenfolge und Argumente wie 0x2D256 bis 0x2D2D8 und 0x2D434/0x2D681 (Verein, k, a, b,
+  // Modus, p, q, Gegner)
+  bookRecord(g, home, 2, hg, ag, 0, 1, 0, away);
+  bookRecord(g, away, 7, hg, ag, 0, 1, 0, home);
+  bookRecord(g, home, 3, hg, ag, 0, 0, -1, away);
+  bookRecord(g, away, 6, hg, ag, 0, 0, -1, home);
   if (hg > ag) {
-    bookRecord(g, home, 0, hg - ag, stored, away);
-    bookRecord(g, away, 5, hg - ag, stored, home);
+    bookRecord(g, home, 0, hg, ag, 0, 1, 1, away);
+    bookRecord(g, away, 5, hg, ag, 0, 1, 1, home);
   } else if (ag > hg) {
-    bookRecord(g, home, 1, ag - hg, stored, away);
-    bookRecord(g, away, 4, ag - hg, stored, home);
+    bookRecord(g, home, 1, hg, ag, 1, 1, 1, away);
+    bookRecord(g, away, 4, hg, ag, 1, 1, 1, home);
   }
-  bookRecord(g, home, 2, h, h << 4, away);
-  bookRecord(g, home, 3, a, a << 4, away);
-  bookRecord(g, away, 6, a, a << 4, home);
-  bookRecord(g, away, 7, h, h << 4, home);
 }
