@@ -20,6 +20,7 @@ import {
   LiveMatch,
   matrixFor,
   matchStrength,
+  matrixInVerein,
   verlegen,
   replays,
   fixtures,
@@ -48,6 +49,7 @@ import {
   type Rng,
   type MatchResult,
   type LiveChance,
+  type TeamStrength,
   texte,
 } from "../core/src/index.ts";
 
@@ -164,6 +166,8 @@ export interface LiveState {
    * ein Manager spielt (0xDA40 schaltet die übrigen ab).
    */
   halbzeitStaende: boolean[];
+  /** Schalter "Nachholspiele" (4cb3:060A): die Seite und mit ihr die Stärke zur Halbzeit */
+  nachholSeite?: boolean;
   /** Karten und Verletzungen dieser Konferenz in Reihenfolge (für Protokoll und Meldungen) */
   news: Incident[];
   /**
@@ -252,8 +256,14 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
   const managerOf = new Map<number, number>();
   managers.forEach((m, i) => managerOf.set(m.clubIndex, i));
   const entries: LiveEntry[] = [];
+  // Nach den Zügen rechnet das Original die Stärke aller Manager in Managerreihenfolge (0x1D7FF,
+  // Flag 1) und schreibt sie in den Vereinssatz; die Spiele lesen danach nur noch den Vereinssatz
+  // (#122). Bis dahin würfelte jede Paarung ihren Manager einzeln, an anderer Stelle im Strom.
+  const vorSpielen = flag !== 0 && flag !== 9;
+  if (vorSpielen) managers.forEach((_, i) => managerStaerke(g, i, rng, wechselZahl(wechselVorher, i, g)));
+  const staerke = (club: number) => (vorSpielen ? g.clubs.at(club).strengthMatrix : matrixFor(g, club, rng, (m) => wechselZahl(wechselVorher, m, g)));
   const add = (kind: LiveEntry["kind"], home: number, away: number, extra: Partial<LiveEntry>) => {
-    entries.push({ key: `${home}-${away}`, kind, home, away, match: new LiveMatch(matrixFor(g, home, rng, (m) => wechselZahl(wechselVorher, m, g)), matrixFor(g, away, rng, (m) => wechselZahl(wechselVorher, m, g)), rng, undefined, kind !== "league"), managerHome: managerOf.get(home), managerAway: managerOf.get(away), scorers: [], ...extra });
+    entries.push({ key: `${home}-${away}`, kind, home, away, match: new LiveMatch(staerke(home), staerke(away), rng, undefined, kind !== "league"), managerHome: managerOf.get(home), managerAway: managerOf.get(away), scorers: [], ...extra });
   };
   const postponed: number[][] = [[], [], []];
   for (let league = 0; league < 3; league++) {
@@ -348,6 +358,28 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
 }
 
 /**
+ * Spielstärke eines Managers mit Flag 1 (0x0F9D2): die Matrix geht dabei in den Vereinssatz
+ * (0x0FFAD) - die Zeitung und die Anzeigen lesen sie dort (#122, Audit 2 G4).
+ */
+export function managerStaerke(g: GameState, manager: number, rng: Rng, wechsel: number): TeamStrength {
+  const st = matchStrength(g, manager, rng, wechsel);
+  matrixInVerein(g, manager, st);
+  return st;
+}
+
+/** Stärke aller Manager neu (0x2B61A -> 0x2C10C), die Spiele der Konferenz bekommen sie sofort. */
+export function staerkeAllerManager(state: LiveState | undefined, g: GameState, rng: Rng, subs: LiveState["subs"] | undefined): void {
+  g.activeManagers().forEach((m, mi) => {
+    const st = managerStaerke(g, mi, rng, wechselZahl(subs, mi, g));
+    for (const e of state?.entries ?? []) {
+      if (e.forfeit !== undefined) continue;
+      if (e.home === m.clubIndex) e.match.home = st;
+      if (e.away === m.clubIndex) e.match.away = st;
+    }
+  });
+}
+
+/**
  * Übersicht an der Halbzeit (0x05C48): je Liga des Tages mit Manager und gesetztem Schalter
  * "Halbzeitstände" die Spielstärke aller Manager neu (0x2C10C). Die Ligaspiele der Manager
  * bekommen die neue Matrix; Pokalspiele zeigen an der Halbzeit keine Übersicht.
@@ -358,15 +390,10 @@ function halbzeitStaerke(state: LiveState, g: GameState, rng: Rng): void {
   for (let league = 0; league < 3; league++) {
     if (!(state.flag & FLAG_LEAGUE[league]) || !state.halbzeitStaende[league]) continue;
     if (!managers.some((m) => ligaVon(m.clubIndex) === league)) continue;
-    managers.forEach((_, mi) => {
-      const st = matchStrength(g, mi, rng, wechselZahl(state.subs, mi, g));
-      for (const e of state.entries) {
-        if (e.kind !== "league" || e.forfeit !== undefined) continue;
-        if (e.managerHome === mi) e.match.home = st;
-        if (e.managerAway === mi) e.match.away = st;
-      }
-    });
+    staerkeAllerManager(state, g, rng, state.subs);
   }
+  // Nachholtag: die Seite "NACHHOLSPIELE" (Schalter 4cb3:060A) kommt zur Halbzeit auch (0x5C1A)
+  if (state.nachholSeite && state.entries.some((e) => e.nachhol)) staerkeAllerManager(state, g, rng, state.subs);
 }
 
 /** Ein Zeitschritt; true, wenn sich etwas geändert hat. */
@@ -447,8 +474,8 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
       if (fresh.length === 0) continue;
       state.news.push(...fresh);
       if (fresh.some((i) => i.kind !== "yellow")) {
-        if (side === "home") e.match.home = matchStrength(g, manager, rng, wechselZahl(state.subs, manager, g));
-        else e.match.away = matchStrength(g, manager, rng, wechselZahl(state.subs, manager, g));
+        if (side === "home") e.match.home = managerStaerke(g, manager, rng, wechselZahl(state.subs, manager, g));
+        else e.match.away = managerStaerke(g, manager, rng, wechselZahl(state.subs, manager, g));
       }
       if (fresh.some((i) => i.kind === "red" || i.kind === "injury")) neuAuslosen = Math.max(neuAuslosen ?? -1, manager);
     }
@@ -758,7 +785,7 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
 export function refreshStrength(state: LiveState, g: GameState, manager: number, rng: Rng): void {
   const club = g.managers.at(manager).clubIndex;
   for (const e of state.entries) {
-    if (e.home === club) e.match.home = matchStrength(g, manager, rng, wechselZahl(state.subs, manager, g));
-    if (e.away === club) e.match.away = matchStrength(g, manager, rng, wechselZahl(state.subs, manager, g));
+    if (e.home === club) e.match.home = managerStaerke(g, manager, rng, wechselZahl(state.subs, manager, g));
+    if (e.away === club) e.match.away = managerStaerke(g, manager, rng, wechselZahl(state.subs, manager, g));
   }
 }

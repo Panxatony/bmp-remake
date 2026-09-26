@@ -212,7 +212,7 @@ import { ladeTexte } from "../core/src/data/texte-node.ts";
 import { smtpZugang, sendeMail } from "./mail.ts";
 import { hashPassword, verifyPassword, veraltet } from "./passwort.ts";
 import { einladungsPost, ruecksetzPost } from "./einladung.ts";
-import { startLive, tick, liveJson, results as liveResults, attendances as liveAttendances, nachspiele as liveNachspiele, incidentsOf, forfeitsOf, scorerLines, matchEvents, applySubstitutions, refreshStrength, setSceneFrames, HALFTIME, FULLTIME, type LiveState } from "./live.ts";
+import { startLive, tick, liveJson, results as liveResults, attendances as liveAttendances, nachspiele as liveNachspiele, incidentsOf, forfeitsOf, scorerLines, matchEvents, applySubstitutions, refreshStrength, staerkeAllerManager, setSceneFrames, HALFTIME, FULLTIME, type LiveState } from "./live.ts";
 
 const root = resolve(import.meta.dirname, "../..");
 const web = resolve(root, "packages/web");
@@ -1374,6 +1374,7 @@ function startLiveDay(r: Room): void {
   r.letzteWechsel = st.subs;
   st.scenesOn = r.options.scenes;
   st.halbzeitStaende = [0, 1, 2].map((l) => r.options.flags[3 * l] ?? true);
+  st.nachholSeite = r.options.flags[12] ?? true;
   if (st.entries.length === 0) {
     advanceDay(r, { results: new Map(), postponed: st.postponed });
     nachTageswechsel(r);
@@ -1914,10 +1915,14 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   if (flag !== 0) r.zeitung = new Map();
   // Nach einem Liga- oder Nachholspiel: Sportzeitung der beteiligten Manager (das Original
   // schreibt sie auch nach Nachholspielen, RIED-4TE, #99), Derby-Einsatz, 0:2-Wertung, Protokoll
-  const nachDemSpiel = (p: PlayedMatch): void => {
-    // Sportzeitung (0x2F243) für die beteiligten Manager aus dem Spielbericht (0x305DE)
+  // Sportzeitung (0x3074A -> 0x2F243): erst nach allen Buchungen und der Stärke nach dem
+  // Schlusspfiff, je Manager in Managerreihenfolge für sein Spiel des Tages. Die Stärke liest der
+  // Bericht aus dem Vereinssatz, wie das Original (#122, Audit 2 G4)
+  const gespielt: PlayedMatch[] = [];
+  const zeitungen = (): void => {
     g.activeManagers().forEach((mg, i) => {
-      if (mg.clubIndex !== p.home && mg.clubIndex !== p.away) return;
+      const p = gespielt.find((x) => x.home === mg.clubIndex || x.away === mg.clubIndex);
+      if (!p) return;
       const inc = (p.incidents ?? []).filter((x) => x.manager === i);
       // Nach einer Konferenz stehen die Torereignisse nicht im Ergebnis (sie sind live schon
       // gebucht); für die Zeitung kommen sie deshalb aus dem Konferenzstand
@@ -1935,11 +1940,13 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
         cards: inc.filter((x) => x.kind !== "injury").length,
         // Die Bewertungen des Spiels; ohne sie stünde in der Zeitung für jeden dieselbe Note
         bewertungen: new Map(p.bewertungen?.find((x) => x.manager === i)?.werte ?? []),
-        // Die Matrix, mit der die Konferenz zuletzt gespielt hat (im Original im Vereinssatz)
-        staerke: ((st) => (st ? new Map([[p.home, st[0]], [p.away, st[1]]]) : undefined))(live?.staerke?.get(`${p.home}-${p.away}`)),
       }, r.rng);
       r.zeitung.set(i, composeZeitung(report, r.rng));
     });
+  };
+  // Nach einem Liga- oder Nachholspiel: Derby-Einsatz, 0:2-Wertung, Protokoll
+  const nachDemSpiel = (p: PlayedMatch): void => {
+    gespielt.push(p);
     // Derby zweier Managervereine (Version 2026): der kleinere der beiden Einsätze wechselt
     const mgrOf = (club: number) => g.activeManagers().findIndex((mg) => mg.clubIndex === club);
     const dh = mgrOf(p.home);
@@ -1973,6 +1980,8 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   if (faellig.length) {
     const nachgeholt = playReplays(g, faellig, r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), live?.booking);
     removeReplays(g, faellig);
+    // Seite "NACHHOLSPIELE" nach der 90. (Schalter 4cb3:060A, 0x5C3D): Stärke aller Manager neu
+    if (r.options.flags[12] ?? true) staerkeAllerManager(undefined, g, r.rng, r.letzteWechsel);
     r.log.push(`Nachholspiele (${nachgeholt.length})`);
     for (const p2 of nachgeholt) {
       r.log.push(`  ${names(p2.home)} - ${names(p2.away)} ${p2.result.home}:${p2.result.away}`);
@@ -1986,6 +1995,10 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     // geschieht beides hier
     const postponed: number[] = live ? live.postponed[league] : verlegen(g, k, league, md, r.rng, (l, m2, i) => fixtures(l, m2)[i]);
     const played = playMatchday(g, league, r.rng, postponed, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), live?.booking);
+    // Seite "Ergebnisse" der Liga nach der 90. (0x5CE7, Schalter 4cb3:05FF + 3 · Liga): mit ihr
+    // die Stärke aller Manager neu - nur, wenn ein Manager in der Liga spielt (0xDA40)
+    const ligaVon = (club: number) => (club < 18 ? 0 : club < 38 ? 1 : 2);
+    if ((r.options.flags[3 * league + 1] ?? true) && g.activeManagers().some((m) => ligaVon(m.clubIndex) === league)) staerkeAllerManager(undefined, g, r.rng, r.letzteWechsel);
     r.log.push(`${["Bundesliga", "2. Liga", "Oberliga"][league]}, ${md}. Spieltag`);
     // Nachholtermine der verlegten Spiele fürs Protokoll
     if (postponed.length) {
@@ -2002,6 +2015,7 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     }
     if (postponed.length) r.log.push(`  verlegt: ${postponed.map((m) => `${names(g.pairings(league)[m][0])} - ${names(g.pairings(league)[m][1])}`).join(", ")}`);
   }
+  zeitungen();
   if (flag & 8) {
     const played = playCupDay(g, r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), nachspiel, live?.booking?.vorbereitet ?? false, live?.booking?.forfeit);
     logCupMatches(r, "DFB-Pokal", played, played.finals ?? [], live?.scorers);
@@ -2994,6 +3008,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       room.live.tempoMs = tempoMs(room.options.tempo);
       room.live.scenesOn = room.options.scenes;
       room.live.halbzeitStaende = [0, 1, 2].map((l) => room.options.flags[3 * l] ?? true);
+      room.live.nachholSeite = room.options.flags[12] ?? true;
     }
     room.version++;
     broadcast(room);
