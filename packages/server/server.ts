@@ -2708,6 +2708,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (room?.live) return json(res, 409, { error: "Die Konferenz läuft" });
     const managers = Array.isArray(body.managers) ? body.managers : [];
     if (managers.length < 1 || managers.length > 4) return json(res, 400, { error: "1 bis 4 Manager" });
+    // Zwei Manager mit demselben Verein lässt das Original nicht zu (0xB659, #129, Audit 2 B6)
+    const vereine = managers.map((m: any) => Number(m.club) | 0);
+    if (new Set(vereine).size !== vereine.length) return json(res, 400, { error: "Jeder Manager braucht einen eigenen Verein" });
     const opts = {
       managers: managers.map((m: any) => ({ name: String(m.name ?? "").trim().slice(0, 12) || "MANAGER", club: Number(m.club) | 0, portrait: Number(m.portrait) || 1 })),
       level: 5 - Math.max(1, Math.min(4, Number(body.level) || 2)),
