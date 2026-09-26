@@ -3224,6 +3224,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   if (p === "/api/market/offer") {
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
     const where = body.where === "market" ? "market" : "squad";
+    // Ein Kaderspieler, der am Saisonende aufhört, ist nicht zu verkaufen - geprüft vor dem
+    // Angebot (0x2347A, #131, Audit 2 F9/E25)
+    if (where === "squad" && room.game.lineups.at(manager * 25 + (Number(body.place) | 0)).u8(24) & 0x80) return json(res, 400, { error: texte("ui.hoertauf").join(" ") });
     const offer = saleOffer(room.game, manager, where, Number(body.place), room.rng);
     if (!offer) return json(res, 404, { error: "Kein Angebot" });
     room.sales.set(manager, offer);

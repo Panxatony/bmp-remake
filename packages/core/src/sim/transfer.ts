@@ -515,7 +515,8 @@ export function buyOffer(g: GameState, manager: number, slot: number, amount: nu
   if (owner !== MARKET_MANAGER) {
     let value = playerValue(g, MARKET_MANAGER, slot, 0, rng);
     if (loan) value = div(value, 3);
-    if (amount < div(value * 60, 100) || amount >= div(value * 140, 100)) return { ok: false, error: "Dieser Betrag liegt au\u00dferhalb des Erlaubten !" };
+    // Genau 140 % ist noch erlaubt (#131, Audit 2 E20)
+    if (amount < div(value * 60, 100) || amount > div(value * 140, 100)) return { ok: false, error: "Dieser Betrag liegt au\u00dferhalb des Erlaubten !" };
     return { ok: true, state: "pending" };
   }
   let price = l.i32(40);
