@@ -3208,6 +3208,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const result = listPlayer(room.game, manager, Number(body.place));
     if (!result.ok) return json(res, 400, { error: result.error });
     room.log.push(`${room.game.managers.at(manager).displayName}: Spieler auf den Transfermarkt gesetzt`);
+    autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager)); // 0x22030 beim Neuzeichnen (#123)
     room.version++;
     broadcast(room);
     return json(res, 200, { ok: true });
@@ -3216,6 +3217,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
     const result = takeBack(room.game, manager, Number(body.slot));
     if (!result.ok) return json(res, 400, { error: result.error });
+    autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager)); // 0x22030 beim Neuzeichnen (#123)
     room.version++;
     broadcast(room);
     return json(res, 200, { ok: true });
@@ -3238,6 +3240,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const result = decideSale(room.game, offer, Boolean(body.sell), room.rng);
     if (!result.ok) return json(res, 400, { error: result.error });
     if (body.sell) room.log.push(`${room.game.managers.at(manager).displayName}: ${offer.name} für ${offer.fee} DM an ${room.game.clubs.at(offer.club).displayName} verkauft`);
+    autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager)); // 0x22030 beim Neuzeichnen (#123)
     room.version++;
     broadcast(room);
     return json(res, 200, { ok: true });
@@ -3284,7 +3287,10 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       room.marketOffers = room.marketOffers.filter((o) => !(o.buyer === manager && o.slot === slot));
       room.marketOffers.push({ buyer: manager, owner: entry.owner, slot, playerIndex: entry.playerIndex, name: entry.name, amount, loan });
       room.log.push(`${name} bietet ${room.game.managers.at(entry.owner).displayName} ${amount} DM für ${entry.name}${loan ? " (Leihe)" : ""}`);
-    } else room.log.push(`${name}: ${entry.name} für ${amount} DM ausgeliehen`);
+    } else {
+      room.log.push(`${name}: ${entry.name} für ${amount} DM ausgeliehen`);
+      autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager)); // 0x22030 beim Neuzeichnen (#123)
+    }
     room.version++;
     broadcast(room);
     return json(res, 200, { ok: true, result });
@@ -3403,6 +3409,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       if (offer.loan) {
         const place = completeLoan(room.game, buyer, slot, offer.amount, manager, room.rng);
         if (place < 0) return json(res, 400, { error: texte("ui.keintransfer").join(" ") });
+        autoLineupIfEnabled(room.game, buyer, sperreAusgesetzt(room.game, buyer)); // 0x24114 (#123)
       } else {
         // Wie im Original folgt die Vertragsverhandlung des Käufers (0x251FF); sie läuft im Marktbildschirm des Käufers
         let free = 0;
