@@ -18,7 +18,7 @@ import type { Rng } from "./match.ts";
 import { playerValue } from "./value.ts";
 import { sortIntoSquad } from "./lineup.ts";
 import { addToSquad } from "./newgame.ts";
-import { salaryDemand } from "./contracts.ts";
+import { salaryDemand, vertragsDialog, type DialogAbsage } from "./contracts.ts";
 import { texte } from "../data/texte.ts";
 
 export const MARKET_MANAGER = 4;
@@ -365,7 +365,7 @@ export type MarketResult = { ok: true } | { ok: false; error: string };
  * eigene Spieler, keine Leihspieler, keine Spieler vor dem Karriereende. Der Platz wird
  * vollständig kopiert (Rückennummer 0), der Kaderplatz entfernt.
  */
-export function listPlayer(g: GameState, manager: number, place: number): MarketResult {
+export function listPlayer(g: GameState, manager: number, place: number, rng: Rng): MarketResult {
   const l = g.lineups.at(manager * 25 + place);
   if (l.isEmpty) return { ok: false, error: "Kein Spieler" };
   const p = g.players.at(l.playerIndex);
@@ -375,6 +375,14 @@ export function listPlayer(g: GameState, manager: number, place: number): Market
   let slot = 0;
   while (slot < MARKET_SIZE && !g.lineups.at(100 + slot).isEmpty) slot++;
   if (slot >= MARKET_SIZE) return { ok: false, error: "Der Transfermarkt ist voll" };
+  // Das Original legt den Marktplatz über 0x224A8 an (0x236F2) und würfelt dabei Byte 19, 14 und
+  // 20 - der Platz wird danach mit der Kaderkopie überschrieben (0x2373D), die Würfe bleiben
+  // (#125, Audit 2 E19)
+  rng(80, 120);
+  rng(35, 65);
+  rng(1, 13);
+  rng(1, 3);
+  rng(0, 1);
   const bytes = slotBytes(g, manager * 25 + place);
   bytes[10] = 0;
   // Nach Spielernummer einsortieren wie jeder Marktzugang (0x224A8); in den Originalständen
@@ -388,21 +396,19 @@ export function listPlayer(g: GameState, manager: number, place: number): Market
   return { ok: true };
 }
 
-/** Eigenen Spieler ohne Angebot vom Markt zurückholen (Pfad -0xa in 0x22C15). */
-export function takeBack(g: GameState, manager: number, slot: number): MarketResult {
+/**
+ * Eigenen Spieler ohne Angebot vom Markt zurückholen (Pfad -0xa in 0x22C15): wie ein Kauf über
+ * 0x224A8 (würfelt), dann kopiert 0x23FA8 den ganzen Marktplatz darüber - ohne neue Rückennummer
+ * (#125, Audit 2 E16/E19). Ohne Zahlung und ohne Sponsor.
+ */
+export function takeBack(g: GameState, manager: number, slot: number, rng: Rng): MarketResult {
   const l = g.lineups.at(100 + slot);
   if (l.isEmpty) return { ok: false, error: "Kein Spieler" };
   const p = g.players.at(l.playerIndex);
   if (p.u8(33) !== manager) return { ok: false, error: "Nicht Ihr Spieler" };
-  let place = 0;
-  while (place < 25 && !g.lineups.at(manager * 25 + place).isEmpty) place++;
-  if (place >= 25) return { ok: false, error: texte("ui.keintransfer").join(" ") };
-  const bytes = slotBytes(g, 100 + slot);
-  bytes[9] &= 0x3f;
-  setSlotBytes(g, manager * 25 + place, bytes);
-  assignNumber(g, manager, place);
-  // Der Kader bleibt nach Mannschaftsteil sortiert - wie bei jeder anderen Aufnahme auch
-  sortIntoSquad(g, manager, place);
+  const place = addToSquad(g, manager, l.playerIndex, 1, rng);
+  if (place < 0) return { ok: false, error: texte("ui.keintransfer").join(" ") };
+  setSlotBytes(g, manager * 25 + place, slotBytes(g, 100 + slot));
   removePlace(g, 100, slot, MARKET_SIZE);
   return { ok: true };
 }
@@ -478,8 +484,11 @@ export function aiAccepts(price: number, amount: number, rng: Rng): boolean {
 
 export type BuyResult =
   | { ok: false; error: string }
-  /** KI hat angenommen, Vertrag muss noch ausgehandelt werden (Kauf) */
-  | { ok: true; state: "contract"; demands: number[] }
+  /**
+   * KI hat angenommen, Vertrag muss noch ausgehandelt werden (Kauf): `platz` ist der schon
+   * gewürfelte Kaderplatz aus 0x224A8, die Forderungen stammen von ihm
+   */
+  | { ok: true; state: "contract"; demands: number[]; platz: number[] }
   /** Angebot an einen anderen Manager, der entscheiden muss */
   | { ok: true; state: "pending" }
   /** Leihe abgeschlossen */
@@ -512,20 +521,121 @@ export function buyOffer(g: GameState, manager: number, slot: number, amount: nu
     l.setU8(3, l.u8(3) | (1 << manager) | 0x80);
     return { ok: false, error: texte("ui.angebotabgelehnt").slice(0, 2).join(" ") };
   }
-  if (kaderVoll(g, manager, l.playerIndex)) {
-    cancelPurchase(g, manager, slot);
-    return { ok: false, error: texte("ui.kadervoll").join(" ") };
-  }
+  // Voller Kader: 0x224A8 meldet es und kehrt vor den Würfen zurück; 0x2411C setzt dann kein
+  // Ablehnungsbit (Audit 2 E24)
+  if (kaderVoll(g, manager, l.playerIndex)) return { ok: false, error: texte("ui.kadervoll").join(" ") };
   if (loan) {
     const place = completeLoan(g, manager, slot, amount, owner, rng);
     if (place < 0) return { ok: false, error: texte("ui.keintransfer").join(" ") };
     return { ok: true, state: "done", place };
   }
-  let free = 0;
-  while (free < 24 && !g.lineups.at(manager * 25 + free).isEmpty) free++;
-  if (free >= 24) return { ok: false, error: texte("ui.keintransfer").join(" ") };
-  const demands = [1, 2, 3, 4].map((years) => salaryDemand(g, manager, free, years, { manager: MARKET_MANAGER, place: slot }));
-  return { ok: true, state: "contract", demands };
+  const k = kaufplatz(g, manager, l.playerIndex, rng);
+  if (!k) return { ok: false, error: texte("ui.keintransfer").join(" ") };
+  return { ok: true, state: "contract", demands: k.demands, platz: k.platz };
+}
+
+/**
+ * Kaderplatz für einen Kauf (0x23E86 -> 0x224A8 mit einem Jahr): im Original steht er schon im
+ * Kader, bevor der Vertragsdialog 0x251FF auf ihm verhandelt - mit den Würfen der Aufnahme
+ * (Byte 19, 14, 20) und dem Gehalt der Aufnahme als bisherigem Gehalt. Der Server hält den
+ * Dialog über zwei Anfragen offen; damit der Spieler dazwischen nicht zugleich auf dem Markt und
+ * im Kader steht, wird der Platz gewürfelt, gemerkt und wieder herausgenommen (#125, Audit 2 F2).
+ */
+export function kaufplatz(g: GameState, manager: number, playerIndex: number, rng: Rng): { platz: number[]; demands: number[] } | undefined {
+  const p = g.players.at(playerIndex);
+  const vorher = [p.u8(34), p.u8(35), p.u8(36)];
+  const place = addToSquad(g, manager, playerIndex, 1, rng);
+  if (place < 0) return undefined;
+  const demands = [1, 2, 3, 4].map((years) => salaryDemand(g, manager, place, years, undefined, rng));
+  const platz = Array.from(slotBytes(g, manager * 25 + place));
+  removePlace(g, manager * 25, place, 25);
+  vorher.forEach((v, i) => p.setU8(34 + i, v));
+  return { platz, demands };
+}
+
+/** Den gemerkten Kaderplatz wieder einsetzen, mit den Spielerbytes 34-36 der Aufnahme (0x2274E). */
+function platzEinsetzen(g: GameState, manager: number, platz: number[]): number {
+  let slot = 0;
+  while (slot < 24 && !g.lineups.at(manager * 25 + slot).isEmpty) slot++;
+  if (slot >= 24) return -1;
+  setSlotBytes(g, manager * 25 + slot, Uint8Array.from(platz));
+  const p = g.players.at(platz[15]);
+  const club = g.managers.at(manager).clubIndex;
+  if (p.u8(36) !== club) {
+    p.setU8(34, 0);
+    p.setU8(35, 0);
+    p.setU8(36, club);
+  }
+  return sortIntoSquad(g, manager, slot);
+}
+
+/**
+ * Vertragsantwort zum Kauf (0x23ED8 -> 0x251FF, danach 0x23EE5 bzw. 0x2411C): Platz einsetzen,
+ * ein Versuch im Dialog. Bei Einigung wandern Verletzung, Karten und Byte 9 nur beim Kauf von
+ * einem Manager mit (0x23EEE, ungefiltert - Audit 2 E21), der Marktplatz geht weg, der Kaufpreis
+ * vom Konto (an den Vorbesitzer, wenn ein Manager), der Spieler gehört dem Käufer. Ohne Einigung
+ * wird der Platz entfernt (0x2412D), Spielerbyte 36 kommt zurück - 34/35 bleiben genullt -, und
+ * beim Kauf vom Rechner gibt es das Ablehnungsbit (0x24168).
+ */
+export function kaufVertrag(g: GameState, manager: number, slot: number, platz: number[], amount: number, years: number, salary: number, rng: Rng, vomManager: boolean): { ok: true; place: number } | { ok: false; absage?: DialogAbsage } {
+  const l = g.lineups.at(100 + slot);
+  if (l.isEmpty || l.playerIndex !== platz[15]) return { ok: false };
+  const p = g.players.at(l.playerIndex);
+  const club = p.u8(36);
+  const owner = p.u8(33);
+  const place = platzEinsetzen(g, manager, platz);
+  if (place < 0) return { ok: false };
+  const d = vertragsDialog(g, manager, place, years, salary, rng);
+  if (!d.einig) {
+    removePlace(g, manager * 25, place, 25);
+    p.setU8(36, club);
+    if (!vomManager) l.setU8(3, l.u8(3) | (1 << manager) | 0x80);
+    return { ok: false, absage: d.absage };
+  }
+  const market = slotBytes(g, 100 + slot);
+  const n = g.lineups.at(manager * 25 + place);
+  if (vomManager) {
+    n.setU8(9, market[9]);
+    n.setU8(23, market[23]);
+    n.setU8(13, market[13]);
+    n.setU8(0, market[0]);
+    n.setU8(1, market[1]);
+    n.setU8(2, market[2]);
+    addBalance(g, owner, amount);
+  }
+  removePlace(g, 100, slot, MARKET_SIZE);
+  addBalance(g, manager, -amount);
+  p.setU8(33, manager);
+  return { ok: true, place };
+}
+
+/**
+ * ABBRUCH im Kaufdialog (Zustand 3): kein Wurf, der Platz aus 0x224A8 geht wieder weg. Was davon
+ * bleibt: Spielerbytes 34/35 genullt, wenn der Spieler von einem anderen Verein kam, und beim Kauf
+ * vom Rechner das Ablehnungsbit (0x2411C).
+ */
+export function kaufAbbrechen(g: GameState, manager: number, slot: number, playerIndex: number, vomManager: boolean): void {
+  const p = g.players.at(playerIndex);
+  if (p.u8(36) !== g.managers.at(manager).clubIndex) {
+    p.setU8(34, 0);
+    p.setU8(35, 0);
+  }
+  let l = g.lineups.at(100 + slot);
+  for (let i = 0; i < MARKET_SIZE && l.playerIndex !== playerIndex; i++) l = g.lineups.at(100 + i);
+  if (!vomManager && !l.isEmpty && l.playerIndex === playerIndex) l.setU8(3, l.u8(3) | (1 << manager) | 0x80);
+}
+
+/**
+ * Zusage eines Managers zum Verkauf seines Marktspielers (0x23DE8 ff.): Kondition, Technik und
+ * Frische des Spielers kommen vom Marktplatz, bevor 0x224A8 sie in den neuen Platz übernimmt.
+ */
+export function managerZusage(g: GameState, slot: number): void {
+  const l = g.lineups.at(100 + slot);
+  if (l.isEmpty) return;
+  const p = g.players.at(l.playerIndex);
+  p.setU8(28, l.u8(16));
+  p.setU8(29, l.u8(17));
+  p.setU8(30, l.u8(18));
 }
 
 /** Vertragsverhandlung nach einem abgelehnten Kauf (0x2411C): Ablehnungsbit setzen. */
@@ -590,9 +700,8 @@ export function completeLoan(g: GameState, manager: number, slot: number, amount
   if (place < 0) return -1;
   const idx = manager * 25 + place;
   const salary = g.lineups.at(idx).i32(40);
-  const bytes = market.slice();
-  bytes[9] &= 0x3f;
-  setSlotBytes(g, idx, bytes);
+  // 0x23FA8 kopiert den ganzen Marktplatz, Byte 9 ungefiltert (Audit 2 E21)
+  setSlotBytes(g, idx, market.slice());
   const n = g.lineups.at(idx);
   n.setU8(11, 1);
   n.setU8(12, (club | LOAN_FLAG) & 0xff);
@@ -600,7 +709,7 @@ export function completeLoan(g: GameState, manager: number, slot: number, amount
   n.setU8(3, 0);
   n.setU8(4, 0);
   n.setU8(5, 0);
-  assignNumber(g, manager, place);
+  // Eine Rückennummer vergibt 0x224A8 nicht; die kopierte des Marktplatzes ist 0 (Audit 2 E16)
   p.setU8(33, owner);
   removePlace(g, 100, slot, MARKET_SIZE);
   addBalance(g, manager, -amount);

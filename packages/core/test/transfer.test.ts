@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { SaveFile, GameState, mulberryRng, playerValue, marketEntries, listPlayer, takeBack, saleOffer, decideSale, buyOffer, completePurchase, completeLoan, cancelPurchase, aiAccepts, kaderZahl, kaderVoll, TABLES, refreshMarket, dailyTransfers, listedCount, OFFER_SQUAD, OFFER_MARKET, MARKET_MANAGER, texte } from "../src/index.ts";
+import { SaveFile, GameState, mulberryRng, playerValue, marketEntries, listPlayer, takeBack, saleOffer, decideSale, buyOffer, completePurchase, completeLoan, cancelPurchase, kaufVertrag, kaufAbbrechen, aiAccepts, kaderZahl, kaderVoll, TABLES, refreshMarket, dailyTransfers, listedCount, OFFER_SQUAD, OFFER_MARKET, MARKET_MANAGER, texte } from "../src/index.ts";
 
 const BMP_DIR = process.env.BMP_DIR ?? resolve(import.meta.dirname, "../../../../bmp");
 const load = (name: string) => new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, name)))));
@@ -45,13 +45,18 @@ test("Transfermarkt: KI-Entscheidung, Kauf mit Vertrag, Ablehnungsbit, Leihe", (
   if (r.ok && r.state === "contract") {
     assert.equal(r.demands.length, 4);
     assert.ok(r.demands[0] > 0);
-    const place = completePurchase(g, 0, 0, 600000, 2, r.demands[1], rng);
-    assert.ok(place >= 0);
+    // Der Kaderplatz ist schon gewürfelt, steht aber noch nicht im Kader (#125)
+    assert.equal(g.squadOf(0).length, squadBefore);
+    const k = kaufVertrag(g, 0, 0, r.platz, 600000, 2, r.demands[1], rng, false);
+    assert.ok(k.ok, JSON.stringify(k));
+    const place = k.ok ? k.place : -1;
     const l = g.lineups.at(place);
     assert.equal(l.playerIndex, first.playerIndex);
     assert.equal(l.contractYears, 2);
     assert.equal(l.i32(40), r.demands[1]);
-    assert.ok(l.number >= 12);
+    // Keine Rückennummer (0x224A8 schreibt Byte 10 nicht, Audit 2 E16), Byte 24 aus dem Dialog
+    assert.equal(l.number, 0);
+    assert.ok(l.u8(24) >= 10 && l.u8(24) <= 18);
     assert.equal(g.players.at(first.playerIndex).u8(33), 0);
     assert.equal(g.players.at(first.playerIndex).u8(36), m.clubIndex);
     assert.equal(m.balance, 3000000 - 600000);
@@ -59,9 +64,14 @@ test("Transfermarkt: KI-Entscheidung, Kauf mit Vertrag, Ablehnungsbit, Leihe", (
     assert.equal(marketEntries(g).length, 4);
     assert.equal(marketEntries(g)[0].name, "BOGDAN");
   }
-  // Abgebrochene Verhandlung setzt das Ablehnungsbit
-  cancelPurchase(g, 0, 0);
+  // Abgebrochene Verhandlung (ABBRUCH) setzt beim Kauf vom Rechner das Ablehnungsbit, der Kader
+  // bleibt wie er war
+  const vorAbbruch = g.squadOf(0).length;
+  const r2 = buyOffer(g, 0, 0, 900000, false, rng);
+  assert.ok(r2.ok && r2.state === "contract", JSON.stringify(r2));
+  kaufAbbrechen(g, 0, 0, g.lineups.at(100).playerIndex, false);
   assert.equal(g.lineups.at(100).u8(3) & 1, 1);
+  assert.equal(g.squadOf(0).length, vorAbbruch);
   g.lineups.at(100).setU8(3, 0);
   // Leihe: Drittel des Preises, Vertrag 1 Jahr, Byte 12 = Verein | 0x80, Besitzer bleibt der Markt
   const e = marketEntries(g)[0];
@@ -74,7 +84,7 @@ test("Transfermarkt: KI-Entscheidung, Kauf mit Vertrag, Ablehnungsbit, Leihe", (
     assert.equal(l.u8(12), (e.club | 0x80) & 0xff);
     assert.equal(g.players.at(e.playerIndex).u8(33), MARKET_MANAGER);
     assert.equal(m.balance, bal - Math.trunc(e.price / 3) - 50000);
-    assert.ok(!listPlayer(g, 0, loan.place).ok, "Leihspieler nicht auf den Markt");
+    assert.ok(!listPlayer(g, 0, loan.place, rng).ok, "Leihspieler nicht auf den Markt");
   }
 });
 
@@ -85,7 +95,7 @@ test("Transfermarkt: eigene Spieler anbieten, zurückholen, verkaufen; Markterne
   const squad = g.squadOf(0);
   const last = squad.length - 1;
   const idx = squad[last].playerIndex;
-  assert.ok(listPlayer(g, 0, last).ok);
+  assert.ok(listPlayer(g, 0, last, rng).ok);
   assert.equal(listedCount(g, 0), 1);
   assert.equal(g.squadOf(0).length, squad.length - 1);
   const mine = marketEntries(g).find((e) => e.playerIndex === idx)!;
@@ -93,12 +103,12 @@ test("Transfermarkt: eigene Spieler anbieten, zurückholen, verkaufen; Markterne
   assert.ok(mine.price > 0);
   assert.ok(!buyOffer(g, 0, mine.slot, 100000, false, rng).ok);
   // zurückholen
-  assert.ok(takeBack(g, 0, mine.slot).ok);
+  assert.ok(takeBack(g, 0, mine.slot, rng).ok);
   assert.equal(g.squadOf(0).length, squad.length);
   assert.equal(listedCount(g, 0), 0);
   // drei auf dem Markt sind die Grenze
-  for (let i = 0; i < 3; i++) assert.ok(listPlayer(g, 0, g.squadOf(0).length - 1).ok);
-  assert.equal(listPlayer(g, 0, 0).ok, false);
+  for (let i = 0; i < 3; i++) assert.ok(listPlayer(g, 0, g.squadOf(0).length - 1, rng).ok);
+  assert.equal(listPlayer(g, 0, 0, rng).ok, false);
   // Verkauf eines Kaderspielers mit KI-Angebot
   const l0 = g.lineups.at(0);
   l0.setU8(9, l0.u8(9) | OFFER_SQUAD);

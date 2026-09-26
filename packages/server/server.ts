@@ -191,6 +191,11 @@ import {
   buyOffer,
   cancelPurchase,
   completePurchase,
+  kaufplatz,
+  kaufVertrag,
+  kaufAbbrechen,
+  managerZusage,
+  dialogAbsageText,
   completeLoan,
   kaderVoll,
   refreshMarket,
@@ -612,7 +617,11 @@ interface Room {
   /** Transfermarkt: offener Verkaufsdialog je Manager (Angebot beim Anklicken gewürfelt) */
   sales: Map<number, SaleOffer>;
   /** Transfermarkt: angenommener Kauf, Vertrag noch auszuhandeln */
-  purchases: Map<number, { slot: number; playerIndex: number; name: string; amount: number; demands: number[] }>;
+  /**
+   * Offene Kaufverhandlungen: `platz` ist der schon gewürfelte Kaderplatz aus 0x224A8 (#125),
+   * `vomManager` der Kauf nach der Zusage eines anderen Managers (0x23DE8, Merker -0x78)
+   */
+  purchases: Map<number, { slot: number; playerIndex: number; name: string; amount: number; demands: number[]; platz: number[]; vomManager: boolean }>;
   /** Offene Sponsor-Zuschüsse nach einem Kauf (0x0272D) je Manager */
   subsidies: Map<number, number>;
   /** Transfermarkt: Angebote an andere Manager ("Nehmen Sie das Angebot ... an?") */
@@ -1142,6 +1151,9 @@ function vertragsendeAufloesen(r: Room, manager: number): void {
 
 function zugBeenden(r: Room): void {
   r.hinweise = [];
+  // Offene Kaufverhandlungen enden mit dem Zug wie ABBRUCH (#125)
+  for (const [m, pu] of r.purchases) kaufAbbrechen(r.game, m, pu.slot, pu.playerIndex, pu.vomManager);
+  r.purchases.clear();
   r.sperre513E = sperreAusgesetzt(r.game, r.game.activeManagers().length - 1);
   // Jeder Aufbau des Hauptmenüs stellt auf (0x9D46 -> 0x22030), mit dem 513E des Managers am
   // Zug; der letzte vor den Spielen gilt (Audit 2, B2)
@@ -1679,7 +1691,7 @@ function stateJson(r: Room, user: string) {
       entries: marketEntries(r.game),
       listed: r.game.activeManagers().map((_, i) => listedCountOf(r, i)),
       sales: [...r.sales.values()],
-      purchases: [...r.purchases.entries()].map(([manager, pu]) => ({ manager, ...pu })),
+      purchases: [...r.purchases.entries()].map(([manager, pu]) => ({ manager, slot: pu.slot, playerIndex: pu.playerIndex, name: pu.name, amount: pu.amount, demands: pu.demands })),
       subsidies: [...r.subsidies.entries()].map(([manager, amount]) => ({ manager, amount })),
       offers: r.marketOffers,
       // Bietgefecht (Version 2026): die Gebote sind offen, alle sehen Bieter und Betrag (#105)
@@ -3205,7 +3217,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     // den Aufschlag ohne Risiko bzw. bekäme die Sperre als verkürzbare Verletzung (AUDIT-2026 A13)
     const angebot = room.game.lineups.at(manager * 25 + (Number(body.place) | 0));
     if (!angebot.isEmpty && (isDoped(angebot) || isDopeBanned(angebot))) return json(res, 400, { error: "Erst die Kur absetzen bzw. die Sperre abwarten" });
-    const result = listPlayer(room.game, manager, Number(body.place));
+    const result = listPlayer(room.game, manager, Number(body.place), room.rng);
     if (!result.ok) return json(res, 400, { error: result.error });
     room.log.push(`${room.game.managers.at(manager).displayName}: Spieler auf den Transfermarkt gesetzt`);
     autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager)); // 0x22030 beim Neuzeichnen (#123)
@@ -3215,7 +3227,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   }
   if (p === "/api/market/takeback") {
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
-    const result = takeBack(room.game, manager, Number(body.slot));
+    const result = takeBack(room.game, manager, Number(body.slot), room.rng);
     if (!result.ok) return json(res, 400, { error: result.error });
     autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager)); // 0x22030 beim Neuzeichnen (#123)
     room.version++;
@@ -3254,6 +3266,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const entry = marketEntries(room.game).find((e) => e.slot === slot);
     if (!entry) return json(res, 404, { error: "Kein Spieler" });
     if (isBlocked(room.game, manager)) return json(res, 400, { error: "Kaufsperre: Ihr Konto stand am Monatsende zu tief im Minus" });
+    // Im Original läuft ein Kauf ohne Unterbrechung durch; hier bleibt die Verhandlung offen, und
+    // so lange steht der Spieler keinem anderen zur Verfügung
+    if ([...room.purchases.values()].some((pu) => pu.playerIndex === entry.playerIndex)) return json(res, 409, { error: "Über diesen Spieler wird gerade verhandelt" });
     // Bietgefecht (Version 2026): Gebote auf Spieler ohne Manager laufen bis zum Tageswechsel
     if (is2026(room.game) && entry.owner === MARKET_MANAGER) {
       if (!(amount > 0)) return json(res, 400, { error: "Ihr Angebot?" });
@@ -3282,60 +3297,64 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       broadcast(room);
       return json(res, 400, { error: result.error });
     }
-    if (result.state === "contract") room.purchases.set(manager, { slot, playerIndex: entry.playerIndex, name: entry.name, amount, demands: result.demands });
+    if (result.state === "contract") room.purchases.set(manager, { slot, playerIndex: entry.playerIndex, name: entry.name, amount, demands: result.demands, platz: result.platz, vomManager: false });
     else if (result.state === "pending") {
       room.marketOffers = room.marketOffers.filter((o) => !(o.buyer === manager && o.slot === slot));
       room.marketOffers.push({ buyer: manager, owner: entry.owner, slot, playerIndex: entry.playerIndex, name: entry.name, amount, loan });
       room.log.push(`${name} bietet ${room.game.managers.at(entry.owner).displayName} ${amount} DM für ${entry.name}${loan ? " (Leihe)" : ""}`);
     } else {
       room.log.push(`${name}: ${entry.name} für ${amount} DM ausgeliehen`);
+      // Leihe vom Rechner: Sponsor-Zuschuss wie beim Kauf (0x240E1 -> 0x272D, Audit 2 E23)
+      const subsidy = sponsorSubsidy(amount, room.rng);
+      if (subsidy > 0) room.subsidies.set(manager, subsidy);
       autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager)); // 0x22030 beim Neuzeichnen (#123)
     }
     room.version++;
     broadcast(room);
-    return json(res, 200, { ok: true, result });
+    return json(res, 200, { ok: true, result: result.state === "contract" ? { ok: true, state: result.state, demands: result.demands } : result });
   }
   if (p === "/api/market/contract") {
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
     const pu = room.purchases.get(manager);
     if (!pu) return json(res, 404, { error: "Kein Kauf offen" });
-    const entry = marketEntries(room.game).find((e) => e.slot === pu.slot && e.playerIndex === pu.playerIndex);
+    // Der Markt ist nach Spielernummer geordnet: setzt ein anderer inzwischen einen Spieler
+    // darauf, verschiebt sich der Platz
+    const entry = marketEntries(room.game).find((e) => e.playerIndex === pu.playerIndex);
     if (!entry) {
       room.purchases.delete(manager);
       return json(res, 409, { error: "Der Spieler ist nicht mehr da" });
     }
-    const years = Math.trunc(Number(body.years));
-    if (body.accept && body.salary !== undefined) {
-      // Eigenes Angebot (0x249E0 mit den Daten des Marktplatzes); bei Ablehnung bleibt der Kauf offen
-      const salary = Math.trunc(Number(body.salary));
-      if (!(years >= 1) || !(salary >= 0)) return json(res, 400, { error: "Angabe ungültig" });
-      if (years > MAX_CONTRACT_YEARS) return json(res, 200, { ok: false, message: tooLongText() });
-      if (!contractCheck(room.game, manager, 0, years, salary, room.rng, { manager: MARKET_MANAGER, place: pu.slot })) {
-        // Wie ABBRUCH: der Spieler bleibt auf dem Markt, das Ablehnungsbit wird gesetzt
-        room.purchases.delete(manager);
-        cancelPurchase(room.game, manager, pu.slot);
-        room.log.push(`${room.game.managers.at(manager).displayName}: ${pu.name} lehnt ${salary} DM für ${years} Jahre ab`);
-        room.version++;
-        broadcast(room);
-        return json(res, 200, { ok: false, message: `${pu.name} ${texte("ui.keinInteresse").join(" ")}` });
-      }
-      pu.demands[years - 1] = salary;
-    }
+    pu.slot = entry.slot;
     room.purchases.delete(manager);
-    if (!body.accept || !(years >= 1 && years <= 4)) {
-      cancelPurchase(room.game, manager, pu.slot);
+    if (!body.accept) {
+      // ABBRUCH (Zustand 3): ohne Wurf
+      kaufAbbrechen(room.game, manager, pu.slot, pu.playerIndex, pu.vomManager);
       room.version++;
       broadcast(room);
       return json(res, 200, { ok: true, cancelled: true });
     }
-    const salary = pu.demands[years - 1];
-    const place = completePurchase(room.game, manager, pu.slot, pu.amount, years, salary, room.rng);
-    if (place < 0) return json(res, 400, { error: texte("ui.keintransfer").join(" ") });
-    autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager)); // 0x22FBA
+    // Ein Versuch im Vertragsdialog 0x251FF: die gewählte Forderung wie ein eigenes Angebot geht
+    // durch die Verhandlung 0x249E0 (#125, Audit 2 F2)
+    const years = Math.trunc(Number(body.years)) || 0;
+    const salary = body.salary !== undefined ? Math.trunc(Number(body.salary)) : pu.demands[years - 1] ?? 0;
+    if (!(years >= 1) || !(salary >= 0)) return json(res, 400, { error: "Angabe ungültig" });
+    const erg = kaufVertrag(room.game, manager, pu.slot, pu.platz, pu.amount, years, salary, room.rng, pu.vomManager);
+    if (!erg.ok) {
+      const wer = room.game.managers.at(manager).displayName;
+      room.log.push(`${wer}: keine Einigung mit ${pu.name} (${years} Jahre, ${salary} DM)`);
+      room.version++;
+      broadcast(room);
+      // Die Absage steht im Original im Hinweiskasten (0x3091:0E3A)
+      return json(res, 400, { error: erg.absage ? dialogAbsageText(erg.absage, pu.name).join(" ") : texte("ui.keintransfer").join(" ") });
+    }
+    autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager)); // 0x24114
     room.log.push(`${room.game.managers.at(manager).displayName}: ${pu.name} für ${pu.amount} DM gekauft (${years} Jahre, ${salary} DM)`);
-    // Sponsor-Zuschuss (0x0272D): mit 1/7 ein Angebot über random(20,65) % des Preises
-    const subsidy = sponsorSubsidy(pu.amount, room.rng);
-    if (subsidy > 0) room.subsidies.set(manager, subsidy);
+    // Sponsor-Zuschuss (0x0272D) nur beim Kauf vom Rechner (0x240E1, Audit 2 E23): mit 1/7 ein
+    // Angebot über random(20,65) % des Preises
+    if (!pu.vomManager) {
+      const subsidy = sponsorSubsidy(pu.amount, room.rng);
+      if (subsidy > 0) room.subsidies.set(manager, subsidy);
+    }
     room.version++;
     broadcast(room);
     return json(res, 200, { ok: true });
@@ -3399,24 +3418,25 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     } else {
       if (room.game.managers.at(buyer).balance < offer.amount) return json(res, 400, { error: "Der Käufer hat nicht genug Geld" });
       if (kaderVoll(room.game, buyer, offer.playerIndex)) {
-        cancelPurchase(room.game, buyer, slot);
+        // Voller Kader: 0x224A8 meldet es, ein Ablehnungsbit gibt es nicht (Audit 2 E24)
         pushMessage(room, buyer, texte("ui.kadervoll"));
         flushMessages(room);
         room.version++;
         broadcast(room);
         return json(res, 400, { error: texte("ui.kadervoll").join(" ") });
       }
+      // Nach dem Ja des Besitzers: Kondition, Technik und Frische vom Marktplatz (0x23DE8)
+      managerZusage(room.game, slot);
       if (offer.loan) {
         const place = completeLoan(room.game, buyer, slot, offer.amount, manager, room.rng);
         if (place < 0) return json(res, 400, { error: texte("ui.keintransfer").join(" ") });
         autoLineupIfEnabled(room.game, buyer, sperreAusgesetzt(room.game, buyer)); // 0x24114 (#123)
       } else {
-        // Wie im Original folgt die Vertragsverhandlung des Käufers (0x251FF); sie läuft im Marktbildschirm des Käufers
-        let free = 0;
-        while (free < 24 && !room.game.lineups.at(buyer * 25 + free).isEmpty) free++;
-        if (free >= 24) return json(res, 400, { error: texte("ui.keintransfer").join(" ") });
-        const demands = [1, 2, 3, 4].map((years) => salaryDemand(room.game, buyer, free, years, { manager: MARKET_MANAGER, place: slot }));
-        room.purchases.set(buyer, { slot, playerIndex: offer.playerIndex, name: offer.name, amount: offer.amount, demands });
+        // Wie im Original folgt die Vertragsverhandlung des Käufers (0x251FF) auf dem neuen
+        // Kaderplatz aus 0x224A8; sie läuft im Marktbildschirm des Käufers
+        const k = kaufplatz(room.game, buyer, offer.playerIndex, room.rng);
+        if (!k) return json(res, 400, { error: texte("ui.keintransfer").join(" ") });
+        room.purchases.set(buyer, { slot, playerIndex: offer.playerIndex, name: offer.name, amount: offer.amount, demands: k.demands, platz: k.platz, vomManager: true });
       }
       pushMessage(room, buyer, [owner, "nimmt Ihr Angebot für", offer.name, offer.loan ? "an." : "an - Vertrag aushandeln!"]);
       flushMessages(room);
