@@ -17,7 +17,7 @@ import { composeZeitung, reportFromMatch, type Zeitung } from "./zeitung.ts";
 import { bookEvents } from "./matchday.ts";
 import { bookShootoutShot, bookDefence } from "./goals.ts";
 import { sommertagSperren } from "./training.ts";
-import { minuteIncidents, newIncidentState, type IncidentState } from "./incidents.ts";
+import { minuteIncidents, newIncidentState, verlaengerungsMerker, type IncidentState } from "./incidents.ts";
 import { matchStrength, matrixInVerein, anzeigeStaerke } from "./matchday.ts";
 import { kaderVorbereitung } from "./matchday.ts";
 import { attendance, bookAttendance, bookGate } from "./attendance.ts";
@@ -320,7 +320,8 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
     seiten.sort((a, b) => a[0] - b[0]);
     return { ...pa, match, seiten, schuetzen: [] as { minute: number; side: "home" | "away"; name: string }[] };
   });
-  let vorfaelleInVerlaengerung = new Set<unknown>();
+  // Manager mit Vorfällen in der Verlängerung, je Spiel (siehe unten)
+  let vorfaelleInVerlaengerung = new Map<unknown, number>();
   const halbzeit = (von: number, bis: number) => {
     for (let minute = von; minute <= bis; minute++) {
       for (const s of spiele) {
@@ -332,8 +333,9 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
         for (const [mi, st, seite] of s.seiten) {
           // In der Verlängerung nur für Manager, deren Spiel im DFB-Pokal offen ist: 0x18E46
           // löscht den Merker "spielt heute" (4238:1D14) aller Manager und setzt ihn nur im
-          // DFB-Zweig wieder; im Europapokal und in der Relegation gibt es keine Vorfälle mehr
-          if (minute > 90 && !vorfaelleInVerlaengerung.has(s)) continue;
+          // DFB-Zweig wieder; im Europapokal und in der Relegation gibt es keine Vorfälle mehr.
+          // Auch dort nur für den Heimmanager (#127, Audit 2 D6)
+          if (minute > 90 && vorfaelleInVerlaengerung.get(s) !== mi) continue;
           const fresh = minuteIncidents(g, mi, minute, st, rng, kp);
           if (fresh.length === 0) continue;
           if (fresh.some((x) => x.kind !== "yellow")) s.match[seite] = matchStrength(g, mi, rng);
@@ -363,7 +365,13 @@ function pokaltag(g: GameState, rng: Rng, kp: (punkt: number) => void, cups: num
   halbzeit(1, 45);
   halbzeit(46, 90);
   const verlaengert = spiele.filter(offen);
-  vorfaelleInVerlaengerung = new Set(verlaengert.filter((s) => s.cup === 0));
+  // Den Merker setzt 0x18F76 über 0x63B1 nur für den Heimmanager (#127, Audit 2 D6)
+  vorfaelleInVerlaengerung = new Map();
+  for (const s of verlaengert) {
+    if (s.cup !== 0) continue;
+    const mi = verlaengerungsMerker(s.seiten.find((x) => x[2] === "home")?.[0], s.seiten.find((x) => x[2] === "away")?.[0]);
+    if (mi !== undefined) vorfaelleInVerlaengerung.set(s, mi);
+  }
   if (verlaengert.length > 0) {
     for (const s of spiele) {
       s.match.marke = verlaengert.includes(s) ? 10 : 0;
@@ -531,7 +539,11 @@ function ligaBuchung(g: GameState, rng: Rng, kp: (punkt: number) => void, paare:
 /** Sammelt die Zeitungen eines Laufs für Vergleiche mit dem Bildschirm des Originals. */
 let zeitungSammler: Zeitung[] | undefined;
 
-/** Sportzeitung (0x3074A): je Manager, der gespielt hat, erst die Noten, dann die Seite (0x2F243). */
+/**
+ * Sportzeitung (0x3074A): je Manager, der gespielt hat, die Seite (0x2F243) mit Foto, Noten,
+ * Schlagzeile und Artikeln. Der Vergleichslauf spielt mit eingeschalteter Zeitung; ausgeschaltet
+ * (Schalter 13) würfelt 0x2F243 nicht (0x2F28F), das prüft der Server (#127, Audit 2 G19).
+ */
 function zeitungen(g: GameState, rng: Rng, kp: (punkt: number) => void, spiele: Ligaspiel[], zuschauer: Map<number, number>): void {
   const managers = g.activeManagers();
   managers.forEach((m, mi) => {

@@ -67,7 +67,7 @@ export { marketEntries, listedCount, listPlayer, takeBack, saleOffer, decideSale
 export { squadHelp, tendencyWords, liveTexts, shootoutTexts, clubStrength, strengthTable, strengthModes, matchdayView, matchdayDate, leagueScorers, playerScorers, squadScorers, cupView, cupRoundName, nextCupDate, roundNames, statistics, allTimeTable, allTimeBalance, type StrengthRow, type MatchdayRow, type ScorerRow, type CupPairRow, type Statistics, type AllTimeBalance } from "./sim/display.ts";
 export { HISTORY, seriesRows, recordRows, seriesCurrent, seriesRecord, clubRecords, resultsAgainst, bookHistory, type ClubRecord } from "./sim/history.ts";
 
-export { minuteIncidents, matchIncidents, newIncidentState, pickStarter, fitStarters, isForfeit, bookForfeit, FORFEIT_FINE, FOULS_PER_MATCH, type Incident, type IncidentState } from "./sim/incidents.ts";
+export { minuteIncidents, matchIncidents, verlaengerungsMerker, newIncidentState, pickStarter, fitStarters, isForfeit, bookForfeit, FORFEIT_FINE, FOULS_PER_MATCH, type Incident, type IncidentState } from "./sim/incidents.ts";
 export { creditAiGoals, bookBaseBonus, driftClubs } from "./sim/ai.ts";
 export { poolTargets, seasonPlayerPool, distributePlayers, pickPoolClub } from "./sim/pool.ts";
 export { placementPoints, highscoreEntry, decodeHighscore, encodeHighscore, insertHighscore, highscoreFile, HIGHSCORE_MAX, type HighscoreEntry } from "./sim/highscore.ts";

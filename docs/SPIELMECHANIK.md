@@ -407,6 +407,12 @@ Managerbeteiligung beginnt die gewürfelte Seite, fünf Schützen je Seite, Abbr
 sonst abwechselnd). **Getroffen wird bei random(0,2) ungleich 0**, also in zwei von drei
 Fällen: 0x6999 wirft die Zahl, 0x69A3 macht aus der 2 eine 1, und 0x6A04 zählt jede 1 als
 Tor (bis GitLab #72 stand hier die Gegenprobe - nur die 2 -, das war ein Drittel).
+Karten und Verletzungen gibt es in der Verlängerung nur im DFB-Pokal und nur für den
+**Heimmanager**: 0x18E46 löscht den Merker 4238:1D14 aller Manager und setzt ihn über 0x63B1
+neu, das für den ersten Manager in Managerreihenfolge, der im Spiel steht, als Heim m+1, als
+Gast 0x81+m liefert; 0x18F8F schreibt ohne Maske nach 1D13+AL, der Merker eines Gastes landet
+also in 1D94.. (Bestenlistenspeicher). Ist ein Manager mit kleinerer Nummer Gast, würfelt
+keiner (#127, Audit 2 D6).
 Mit Managerbeteiligung zeigt das Original das Schießen auf einer eigenen Tafel (0x6733): die
 Tafel in Schwarz-Rot-Gold wie vor dem Anpfiff, darauf "Elfmeterschiessen" bei y=50, der
 Heimverein bei 100, "gegen" (beige) bei 128 und der Gast bei 156; die Tafel wartet auf einen
@@ -1199,7 +1205,8 @@ L = Level (Spielstand 34062): Rote Karte höchstens einmal je Spiel bei random(0
 Kaderplatz, nur Starter (Nummer 1..11) ohne Sperre oder Verletzung; mit d = Technik -
 Kondition wird der Spieler bei d > 0 angenommen, wenn d > random(0,3), sonst mit 1/11.
 Rote Karte: Kaderplatz Byte 0 + 1 (Gelb-Rot: Byte 2 + 1 und Byte 1 - 1), Nummer 0, Flag-Bit 0,
-Sperre Byte 13 = random(1,7) Spiele (Gelb-Rot: 1), Bewertung Byte 21 - 10, danach Stärke
+Sperre Byte 13 = random(1,7) Spiele (Gelb-Rot: random(1,1), 0x1C0A7 - der Wurf verbraucht
+eine Zahl, #127), Bewertung Byte 21 - 10, danach Stärke
 neu (0x0F9D2). Gelbe Karte: Byte 1 + 1; die zweite Gelbe im selben Spiel ist Gelb-Rot. Eine
 Sperre aus gelben Karten kennt das Original nicht (Byte 1 wird nur angezeigt). Verletzung
 wie im Training (0x17B0F): Form - random(12,19), Art random(0,17), Dauer nach Art plus
@@ -1221,7 +1228,7 @@ Am Ende jedes Spieltags (0x160A2) werden die Tore der KI-Vereine auf ihre Spiele
 (0x15F14): jeder Spieler des Vereins (Spielerbyte 36) bekommt mit 94 % einen Einsatz (Byte
 35); Kandidaten für Tore sind Spieler mit random(5,25) + Positionswert (Byte 31) >
 random(10,99). Je Tor mit 4/5 ein Kandidat: mit w/(w+1) (w = Tabelle 4cb3:5331[n] - 1,
-ab 3 noch - 1) sofort einer der n Kandidaten (Byte 34 + 1), sonst neuer Versuch, solange
+bei mehr als neun Kandidaten 10 ohne das - 1 (0x16094, #127); ab 3 noch - 1, also höchstens 9) sofort einer der n Kandidaten (Byte 34 + 1), sonst neuer Versuch, solange
 random(0,1) + 2 < n. Vereine der Manager sind ausgenommen (ihre Tore werden live gebucht).
 Bei 0 Toren passiert nichts, auch keine Einsätze.
 
@@ -1434,7 +1441,9 @@ Elfmeter (0x05186): bei einer Elfmeterszene (Szenendateien 2..5 mit Kennung E) s
 ## Sportzeitung (0x2F243, Platzhalter 0x2ED04/0x2F15A, Gruppenwahl 0x3058F, Artikel 0x2EFAB, Spielbericht 0x305DE; sim/zeitung.ts)
 
 Nach dem Spieltag zeigt das Original je Manager (Option "Zeitung") eine Seite "Sportnachrichten"
-(Kopf 44.VGA, Foto PIC 200 + random(0,29)): zweizeilige Schlagzeile, Artikelspalte, darunter
+(Kopf 44.VGA, Foto PIC 200 + random(0,29)). Ist die Option aus (Schalter 13, 4cb3:060B), springt
+0x2F243 bei 0x2F28F sofort ans Ende: kein Foto, keine Noten, keine Schlagzeile, kein Artikel,
+also auch kein Wurf; das übrige 0x3074A läuft weiter und würfelt nicht (#127). Die Seite: zweizeilige Schlagzeile, Artikelspalte, darunter
 Aufstellung "Verein: Name(Nr), …", "TORE: 1:0 Name (12.MIN), …" (Torschützen nur der eigenen
 Mannschaft) sowie "GELBE KARTEN:" / "ROTE KARTEN:" (KEINE). Grundlage ist der Spielbericht
 4238:90CA (154 Bytes je Manager), den die Live-Schleife je Chance über 0x305DE füllt: Bytes 4/5
@@ -1457,7 +1466,8 @@ Chancen überwiegen, Kurve mit Gewichten 3,4,5,7,9,10,9,7,5,4,3 je Ereignis; bei
 Münzwurf). Flags in 4238:579C..57A0.
 
 Schlagzeile: die 23 Gruppen werden der Reihe nach geprüft (Tordifferenz > 3 / = 1 / 1..3 /
-< -3 / = -1 / -3..-1 / 0 mit Priorität 5,5,5,5,5,5,2; ausverkauft 3; Rückstand aufgeholt und
+< -3 / = -1 / -3..-1 / 0 mit Priorität 5,5,5,5,5,5,2; ausverkauft 3 (0x2FED7, gewürfelt vor
+dem Artikel der Gruppe 6, #127); Rückstand aufgeholt und
 gewonnen 5; Führung verspielt und verloren 5; Rückstand ≥ 2 bei Remis 4; Führung ≥ 2 bei Remis 4;
 bester Spieler bei Sieg 4; über 7 Chancen und ausgeglichen 3; unter 4 Chancen und ausgeglichen
 3; schwächster Spieler bei Niederlage 4; Verlauf eigen und verloren 4; Verlauf Gegner und
@@ -1472,7 +1482,7 @@ mit 1/2 bei über 2 Karten Gruppe 3, bei 0 Karten Gruppe 4; bester Spieler bei S
 schwächster bei Niederlage 11; Gruppe 5 (Managerzitat) immer; später Treffer nach der 80.
 Minute bei knappem Stand 18; über 3 vergebene eigene Chancen bei Differenz < 2 Gruppe 12; frühe
 Chance vor der 8. Minute 16, frühes Tor 17; unter 2 vergebene Chancen bei Sieg 13; Niederlage
-19; Sieg 7; ausverkauft 6; Rückstand ohne Niederlage 14; Führung ohne Sieg 15; Verlauf eigen
+19; Sieg 7; ausverkauft 6 (0x2FEEF, nach der Schlagzeilengruppe); Rückstand ohne Niederlage 14; Führung ohne Sieg 15; Verlauf eigen
 und Sieg 8; Verlauf Gegner und Niederlage 9. Die Spalte endet, wenn der Platz voll ist.
 
 Die Seite nutzt eine eigene 16-stufige Graupalette (Index bitverkehrt: 0, 130, 65, 195, 32,

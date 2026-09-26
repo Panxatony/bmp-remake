@@ -51,6 +51,7 @@ import {
   type LiveChance,
   type TeamStrength,
   texte,
+  verlaengerungsMerker,
 } from "../core/src/index.ts";
 
 /** Standzeit der Ankündigung vor dem Anpfiff: 50 Ticks des Originals (18,2 Hz) */
@@ -466,10 +467,12 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
     // Die Manager kommen wie in 0x05FE5 in ihrer Reihenfolge dran, nicht Heim vor Gast
     const seiten = ([[e.managerHome, e.incidentHome, "home"], [e.managerAway, e.incidentAway, "away"]] as const).slice().sort((a, b) => (a[0] ?? 99) - (b[0] ?? 99));
     // In der Verlängerung würfelt nur ein offenes Spiel im DFB-Pokal noch Karten und
-    // Verletzungen (0x18E46 setzt den Merker 4238:1D14 nur dort neu, Zweigbuch 18E46)
-    const vorfaelle = e.match.minute <= 90 || (e.kind === "cup" && e.cup === 0);
+    // Verletzungen (0x18E46 setzt den Merker 4238:1D14 nur dort neu, Zweigbuch 18E46) - und nur
+    // für den Heimmanager, wenn kein Manager mit kleinerer Nummer Gast ist (0x63B1/0x18F8F,
+    // #127, Audit 2 D6)
+    const merker = e.kind === "cup" && e.cup === 0 ? verlaengerungsMerker(e.managerHome, e.managerAway) : undefined;
     for (const [manager, st, side] of seiten) {
-      if (manager === undefined || !st || !vorfaelle) continue;
+      if (manager === undefined || !st || (e.match.minute > 90 && manager !== merker)) continue;
       const fresh = minuteIncidents(g, manager, e.match.minute, st, rng);
       if (fresh.length === 0) continue;
       state.news.push(...fresh);
