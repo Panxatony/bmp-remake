@@ -360,14 +360,20 @@ Manager mit); am Monatsende (Tag = Monatslänge aus 4cb3:07B8) gilt: Jugendkonto
 Spielstand), Fanwert (u16 476) unter 95 steigt um random(1,3), wenn random(0,22) <
 Werbeausgaben/2500. Der Server läuft alle übersprungenen Kalendertage einzeln durch.
 
-Reihenfolge der Würfe in 0x11D0D (bytegenauer Vergleich, GitLab #99): Bau (0x020E1, ohne
-Würfel), Öffnungszeiten der acht Lager (random(20,70) für jedes Lager, das dabei auf 0 kommt -
+Reihenfolge der Würfe in 0x11D0D (bytegenauer Vergleich, GitLab #99): Bau (0x020E1; jede Fertigstellung geht
+als Meldung durch 0x30AA0 und würfelt random(0,3) für das Rückdatieren), Öffnungszeiten der acht Lager (random(20,70) für jedes Lager, das dabei auf 0 kommt -
 auch für eines, das schon auf 0 stand), erst dann der Bankzins mit random(0,60) = 0. Am
 Monatsletzten mit Monat % 4 = 0 (0-basiert: Ende Januar, Mai, September) setzt 0x11E3D die
 Marke 4cb3:5256; das nächste Hauptmenü speichert dann als AUTOSAVE (0x9744 -> 0x32AAE). Jedes
 Speichern würfelt im Spielstrom mit: eine Kennung aus zwei random(0, 0x8FFF) und zwei
-Schlüsselbytes random(0,255). Der Server speichert selbst und bildet das nicht nach; im
-Vergleichslauf `originaltag` steht es drin.
+Schlüsselbytes random(0,255). Der Server speichert selbst, würfelt die vier Werte aber beim
+nächsten Zug mit (`autosaveMarke`, #121), wie der Vergleichslauf `originaltag`.
+
+Tagesbeginn im Server (`tagesbeginn`, #121): erst die Finanzen des Ankunftstags (0x1D757), dann
+die Schwankung aller Vereine (0x1D77C), dann Aufstellung und Zug. Nach den Spielen laufen die
+Finanzen nur für die Tage **vor** dem nächsten Ankunftstag (0x1DADC), nach dem letzten Spieltag
+für 323 bis 325, ohne Schwankung und Markterneuerung (0x1E03D). Das System sichert der Server
+nach der Stärkerechnung an jedem Tag mit Kalenderbyte (0x1D817).
 
 ## Pokale: DFB-Pokal und Europapokale (Auslosung 0x18600/0x18FC2, Rundenabschluss 0x192FC, Entscheid 0x19208, Verlängerung 0x18E46; sim/europa.ts, sim/cup.ts)
 

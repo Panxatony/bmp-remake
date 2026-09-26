@@ -674,6 +674,8 @@ interface Room {
    * Laden steht dort 0 wie im Original, das den Wert nicht speichert
    */
   sperre513E?: boolean;
+  /** Marke der automatischen Speicherung (4cb3:5256), bis zum nächsten Hauptmenü */
+  autosaveMarke?: boolean;
   /**
    * Abgelaufene Verträge, über die noch verhandelt wird (0x0DB40 mit Dialog 0x251FF). Das
    * Original hält den Saisonwechsel dafür an und fragt Spieler für Spieler; im
@@ -1323,6 +1325,7 @@ function nachTageswechsel(r: Room): void {
   const g = r.game;
   const k = dayIndex(g);
   const flag = calendarFlag(g, k);
+  if (seasonDay(k) <= LETZTER_SAISONTAG) tagesbeginn(r);
   if ((flag === 0 || flag === 9) && seasonDay(k) <= 322 && !r.ceremony) {
     const bisher = r.lastDay;
     startLiveDay(r);
@@ -1345,8 +1348,15 @@ function nachTageswechsel(r: Room): void {
   }
   const dt = dateOfSeasonDay(seasonDay(k), seasonStartYear(g));
   for (let i = 0; i < n; i++) {
-    if (r.rng(0, n + 3) !== 0) continue;
-    refreshMarket(g, r.rng);
+    const erneuern = r.rng(0, n + 3) === 0;
+    if (erneuern) refreshMarket(g, r.rng);
+    // Das Hauptmenü dieses Managers speichert, wenn die Marke steht: viermal gewürfelt
+    // (0x9744 -> 0x32AAE: Kennung aus zwei random(0, 0x8FFF), zwei Schlüsselbytes)
+    if (r.autosaveMarke) {
+      for (const hi of [0x8fff, 0x8fff, 255, 255]) r.rng(0, hi);
+      r.autosaveMarke = false;
+    }
+    if (!erneuern) continue;
     r.log.push(`${dt.day}.${dt.month0 + 1}. Transfermarkt erneuert: ${marketEntries(g).filter((e) => e.owner === MARKET_MANAGER).map((e) => e.name).join(", ") || "leer"}`);
   }
 }
@@ -1356,6 +1366,10 @@ function startLiveDay(r: Room): void {
   const k = dayIndex(r.game);
   const flag = calendarFlag(r.game, k);
   const st = startLive(r.game, r.rng, k, flag, tempoMs(r.options.tempo), r.letzteWechsel);
+  // Nach der Spielstärke (0x1D7FF) sichert das Original an jedem Tag mit Kalenderbyte das
+  // System je Manager und schaltet auf manuell (0x1D817) - vor den Spielen, auch an Pokal-,
+  // Europapokal- und Relegationstagen; der nächste Spieltag stellt es zurück (#121, Audit 2 E4)
+  if (flag !== 0 && flag !== 9) r.game.activeManagers().forEach((_, i) => backupSystem(r.game, i));
   // Ab jetzt zählt das laufende Spiel (0x1D838 setzt nach der Stärkerechnung zurück)
   r.letzteWechsel = st.subs;
   st.scenesOn = r.options.scenes;
@@ -1742,6 +1756,37 @@ function logCupMatches(r: Room, title: string, matches: CupMatch[], finals: CupF
  * Bau, Finanzen, Kalendermeldungen, Weihnachten, Scherztage, Monatsende. Auch der Saisonwechsel
  * bucht so seinen Übergangstag und die Tage bis zum 28. Juli (#99).
  */
+/** Finanztag (0x11D0D) mit der Titelseite der Winterpause (0x1D99D, #120). */
+function finanzTagMitWinter(r: Room, d: number, startYear: number): void {
+  finanzTag(r, dateOfSeasonDay(d, startYear), d);
+  // An den Saisontagen 131 bis 206 zeigt das Original die Titelseite "WINTERPAUSE" - einmal,
+  // danach steht sie schon da
+  if (d >= 131 && d <= 206 && r.winterJahr !== startYear) {
+    r.winterJahr = startYear;
+    r.game.activeManagers().forEach((_, i) => {
+      if (!isAi(r.game, i)) r.sonderseiten.push({ manager: i, art: "winter", tag: 0, monat: 0 });
+    });
+  }
+}
+
+/**
+ * Tagesbeginn 0x1D6F6: die Finanzen des Tages je Manager (0x1D757) und die Schwankung aller
+ * Vereine (0x1D77C) - an jedem Kalendereintrag, vor Aufstellung, Zug und Spielen. Bis #121 lief
+ * die Schwankung erst beim Buchen nach den Spielen: die Rechnervereine spielten mit dem Stand
+ * vom Vortag, und die Finanzen des Ankunftstags kamen vor dessen Tagesroutine (Audit 2 E1/E2).
+ * Am letzten Tag des Januar, Mai und September setzt die Finanzroutine die Marke der
+ * automatischen Speicherung (0x11E3D -> 4cb3:5256); das nächste Hauptmenü würfelt dann (H4).
+ */
+function tagesbeginn(r: Room): void {
+  const g = r.game;
+  const d = seasonDay(dayIndex(g));
+  const startYear = seasonStartYear(g);
+  finanzTagMitWinter(r, d, startYear);
+  const dt = dateOfSeasonDay(d, startYear);
+  if (dt.day === DAYS_IN_MONTH[dt.month0] && dt.month0 % 4 === 0) r.autosaveMarke = true;
+  driftClubs(g, 1, r.rng);
+}
+
 function finanzTag(r: Room, dt: { day: number; month0: number; year: number }, saisontag = 0): void {
   const g = r.game;
   g.activeManagers().forEach((m, i) => {
@@ -1751,8 +1796,7 @@ function finanzTag(r: Room, dt: { day: number; month0: number; year: number }, s
     // Zinstabelle der Bank neu (0x11DA2 -> 0x112AA) und zählt die Öffnungszeiten der
     // Trainingslager weiter (0x11D2D). Beides hing bei uns am Monatsende bzw. lief nur
     // einmal je Tag (GitLab #34). Erst die Lager, dann die Bank (0x11D2D vor 0x11DA2, #99).
-    advanceCampOpen(r.campOpen, r.rng);
-    if (r.rng(0, 60) === 0) driftInterest(g, r.rng);
+    // Zuerst der Bau (0x11D1E), dann Lager und Bank (#121, Audit 2 H1)
     for (const kind of dailyConstruction(g, i)) {
       // Der Betreff steht im Original je Bauwerk fest (0x4EAEA); Flutlicht, Anzeigetafel und
       // Komfort tragen ihr Stichwort in einer zweiten Zeile (0x4FD40)
@@ -1760,8 +1804,13 @@ function finanzTag(r: Room, dt: { day: number; month0: number; year: number }, s
       const zusatz = kind === 4 ? bau[7] : kind === 5 ? bau[8] : kind === 7 ? bau[9] : "";
       const text = `${bau[kind - 1]}${zusatz ? " " + zusatz : ""} ${texte("ui.ausbaufertig")[0]}`;
       r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: ${text}`);
-      pushMessage(r, i, wrap(text), dt);
+      // Die Meldung geht durch 0x30AA0 (0x022E2), die sie um random(0,3) Tage zurückdatiert
+      const zurueck = r.rng(0, 3);
+      const startJahr = dt.year - (dateOfSeasonDay(saisontag, dt.year).year - dt.year);
+      pushMessage(r, i, wrap(text), saisontag > 0 ? dateOfSeasonDay(Math.max(1, saisontag - zurueck), startJahr) : dt);
     }
+    advanceCampOpen(r.campOpen, r.rng);
+    if (r.rng(0, 60) === 0) driftInterest(g, r.rng);
     // Krawall und Komfort gehören zur Tagesroutine und laufen einmal am Ankunftstag (#99)
     for (const ev of dailyFinance(g, i, dt, r.rng, r.balanceSums[i], false)) {
       r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: ${ev.text}`);
@@ -1844,24 +1893,12 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   const k = dayIndex(g);
   const flag = calendarFlag(g, k);
   const logStart = r.log.length;
-  // Tagesbeginn des Originals (0x1D77C): die Vereinsmatrix aller Vereine schwankt an **jedem**
-  // Kalendertag, nicht erst am Monatsende - der Aufruf steht dort ohne Bedingung hinter der
-  // täglichen Finanzroutine, in der die Monatsabrechnung nur ein Teil ist (GitLab #35).
-  driftClubs(g, 1, r.rng);
   // Abwerbeversuche gelten je Spieltag (Version 2026)
   r.poachTried.clear();
   // Das Bietgefecht lief bis zum Tageswechsel: es wird als Erstes entschieden, noch vor der
   // Markterneuerung und den Transfers der KI-Vereine - sonst ist der umkämpfte Spieler weg,
   // bevor jemand den Zuschlag bekommt.
   resolveAuctions(r);
-  // Vor den Spielen sichert das Original das System je Manager und schaltet auf manuell
-  // (0x1D817) - einmal am Tag, der nächste Spieltag stellt es zurück (nachTageswechsel)
-  let gesichert = false;
-  const systemeSichern = () => {
-    if (gesichert) return;
-    gesichert = true;
-    g.activeManagers().forEach((_, i) => backupSystem(g, i));
-  };
   const sim = (home: number, away: number, hs: Parameters<typeof simulateMatch>[0], as: Parameters<typeof simulateMatch>[1], rng: Rng) => live?.results.get(`${home}-${away}`) ?? simulateMatch(hs, as, rng);
   // Verlängerung und Elfmeterschießen hat die Konferenz schon gezeigt: gebucht wird genau das,
   // sonst würde hier ein zweites Mal gewürfelt (GitLab #72)
@@ -1934,7 +1971,6 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   // Spieltags, danach ist der Termin abgetragen
   const faellig = replays(g).filter((e) => e.dayIndex === k);
   if (faellig.length) {
-    systemeSichern();
     const nachgeholt = playReplays(g, faellig, r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), live?.booking);
     removeReplays(g, faellig);
     r.log.push(`Nachholspiele (${nachgeholt.length})`);
@@ -1949,8 +1985,6 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     // Die Konferenz hat schon verlegt und die Nachholtermine eingetragen (0x3563); ohne sie
     // geschieht beides hier
     const postponed: number[] = live ? live.postponed[league] : verlegen(g, k, league, md, r.rng, (l, m2, i) => fixtures(l, m2)[i]);
-    // Vor dem Spieltag sichert das Original das System je Manager (0x1D817)
-    systemeSichern();
     const played = playMatchday(g, league, r.rng, postponed, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), live?.booking);
     r.log.push(`${["Bundesliga", "2. Liga", "Oberliga"][league]}, ${md}. Spieltag`);
     // Nachholtermine der verlegten Spiele fürs Protokoll
@@ -2003,25 +2037,14 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
       if (!l.isEmpty && l.u8(13) !== 0 && l.u8(10) !== 0) l.setU8(10, 0);
     }
   });
-  // Tägliche Finanzroutine für jeden übersprungenen Kalendertag (Original läuft Tag für Tag)
-  const toDay = saisonEnde ? fromDay + 1 : seasonDay(dayIndex(g));
+  // Tägliche Finanzroutine für die Tage bis vor den Ankunftstag (0x1DADC); der Ankunftstag
+  // bekommt seine Finanzen erst am nächsten Tagesbeginn (0x1D757, `tagesbeginn`). Nach dem
+  // letzten Spieltag läuft die Schleife über 323 bis 325 (Abbruch bei 326 = 4 + 7·46) - ohne
+  // Schwankung und ohne Markterneuerung (#121, Audit 2 E2/E3)
+  const bisTag = saisonEnde ? LETZTER_SAISONTAG + 4 : seasonDay(dayIndex(g));
   const startYear = seasonStartYear(g);
-  for (let d = fromDay + 1; d <= toDay; d++) {
-    finanzTag(r, dateOfSeasonDay(d, startYear), d);
-    // Winterpause (0x1D99D): an den Saisontagen 131 bis 206 zeigt das Original die Titelseite
-    // "WINTERPAUSE" - einmal, danach steht sie schon da (#120)
-    if (d >= 131 && d <= 206 && r.winterJahr !== startYear) {
-      r.winterJahr = startYear;
-      r.game.activeManagers().forEach((_, i) => {
-        if (!isAi(r.game, i)) r.sonderseiten.push({ manager: i, art: "winter", tag: 0, monat: 0 });
-      });
-    }
-  }
-  if (saisonEnde) {
-    driftClubs(g, 1, r.rng);
-    if (r.rng(0, g.activeManagers().length + 3) === 0) refreshMarket(g, r.rng);
-    r.log.push("Saisonende: noch ein Zug, dann beginnt die neue Saison");
-  }
+  for (let d = fromDay + 1; d < bisTag; d++) finanzTagMitWinter(r, d, startYear);
+  if (saisonEnde) r.log.push("Saisonende: noch ein Zug, dann beginnt die neue Saison");
   // Tagesroutine 0x0DF0D: Vertragsangebote, Training, Frische und Verletzungen aller
   // Managerkader. Das Original ruft sie erst nach den Spielen auf, wenn der Saisontag den
   // nächsten Kalendertag erreicht hat (0x1DA87 zählt hoch, 0x1DBFE trainiert) - also für den
@@ -2037,6 +2060,8 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     // kein Training, keine Automatik-Aufstellung. Bis GitLab #83 (F6) entfiel bei uns nur das
     // Training.
     const mitTagesroutine = seasonDay(kNeu) <= 321;
+    // Über Saisontag 322 hinaus: System zurück, aufstellen, Stärke mit Flag 0 (0x1DC79)
+    if (saisonEnde) tagesendeAufstellen(g, seasonDay(kNeu));
     g.activeManagers().forEach((m, i) => {
       const before = g.squadOf(i).map((l) => l.u8(9));
       if (mitTagesroutine) {
@@ -2665,6 +2690,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const neu = roomFromSave(meta, save);
     // Der erste Tagesbeginn des Originals stellt auf und schreibt die Stärke mit Flag 0 in die
     // Vereinsmatrix der Managervereine (0x1D7BA, #100)
+    tagesbeginn(neu);
     neu.game.activeManagers().forEach((_, i) => anzeigeStaerke(neu.game, i));
     // Auslosung des DFB-Pokals als Zeremonie für alle (0x17C26), sobald alle Plätze besetzt sind
     neu.ceremony = { cup: 0, phase: "vote", ready: false, votes: {}, startedAt: null, skipped: false, seen: [] };
