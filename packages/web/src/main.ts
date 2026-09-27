@@ -4,7 +4,7 @@
  * Tabelle, Finanzen, Stadion und Meldungen und schreibt den geänderten
  * Spielstand als *.MAN zurück.
  */
-import { SaveFile, GameState, replays, fixtures, vereinsInfo, restprogramm, restStartRueck, infoX, INFO_Y, INFO_BREITE, INFO_HOEHE, type InfoBefehl, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, restWochen, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
+import { SaveFile, GameState, spielart, endjahr, replays, fixtures, vereinsInfo, restprogramm, restStartRueck, infoX, INFO_Y, INFO_BREITE, INFO_HOEHE, type InfoBefehl, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, restWochen, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
 import { Assets, Sounds, COLORS, W, H, bevel, panel, button, hline, drawIcon, drawIconOver, toGame, upperGame, cp437ToGame, dm, type Font } from "./gfx.ts";
 import { Scenes, SCENE_FRAME_MS, VIEW, type SceneData } from "./scene.ts";
 
@@ -44,7 +44,7 @@ const leagueOfClub = (club: number): number => (club < 18 ? 0 : club < 38 ? 1 : 
 const LEAGUE_CAPS = ["BUNDESLIGA", "ZWEITE LIGA", "AM.-OBERLIGA"];
 const LEAGUE_GROUPS: [number, number][] = [[0, 0], [0, 1], [0, 2], [1, 1], [1, 2], [2, 2]];
 
-type Screen = "start" | "lobby" | "verwaltung" | "zutritt" | "menu" | "squad" | "table" | "stadium" | "messages" | "seat" | "results" | "werbung" | "verlauf" | "live" | "start-online" | "newgame" | "training" | "camp" | "bank" | "market" | "spiele" | "staerken" | "bestenliste" | "pokal" | "statistik" | "ewige" | "optionen" | "zeitung" | "highscore" | "auslosung" | "abwerben" | "medizin" | "toreditor" | "jugend" | "extra2026";
+type Screen = "ende" | "start" | "lobby" | "verwaltung" | "zutritt" | "menu" | "squad" | "table" | "stadium" | "messages" | "seat" | "results" | "werbung" | "verlauf" | "live" | "start-online" | "newgame" | "training" | "camp" | "bank" | "market" | "spiele" | "staerken" | "bestenliste" | "pokal" | "statistik" | "ewige" | "optionen" | "zeitung" | "highscore" | "auslosung" | "abwerben" | "medizin" | "toreditor" | "jugend" | "extra2026";
 
 interface ServerManager {
   index: number;
@@ -225,6 +225,8 @@ interface RoomInfo {
 
 interface ServerState {
   version: number;
+  /** Ein 1-/3-Jahres-Spiel ist zu Ende (#133) */
+  spielende?: boolean;
   build?: number;
   user?: string;
   /** Der Benutzer sitzt in keiner Runde: die Lobby ist dran */
@@ -463,7 +465,7 @@ class App {
   scenes = new Scenes();
   animating = false;
   /** Neues Spiel: Vereinsliste vom Server, Logo-Leiste, Manager-Plätze */
-  setup = { clubs: [] as { index: number; name: string; logo: number; league: number }[], strip: 0, selected: 0, slots: [0, 1, 2, 3].map((i) => ({ name: "", club: -1, portrait: i + 1 })), level: 2, regeln: 0, aufnahme: 0 };
+  setup = { clubs: [] as { index: number; name: string; logo: number; league: number }[], strip: 0, selected: 0, slots: [0, 1, 2, 3].map((i) => ({ name: "", club: -1, portrait: i + 1 })), level: 2, regeln: 0, aufnahme: 0, spielart: 0 };
 
   constructor() {
     this.canvas = document.getElementById("screen") as HTMLCanvasElement;
@@ -704,7 +706,7 @@ class App {
       return;
     }
     const starten = () =>
-      void this.post("api/newgame", { managers, level: this.setup.level, rules: this.setup.regeln, runde: this.rundenName }).then(() => {
+      void this.post("api/newgame", { managers, level: this.setup.level, rules: this.setup.regeln, spielart: this.setup.spielart, runde: this.rundenName }).then(() => {
         void this.fetchRooms();
         if (this.server.version > 0) this.go("seat");
         this.render();
@@ -1225,7 +1227,17 @@ class App {
     this.hit(292, 42, 24, 58, () => (st.strip = Math.min(maxStrip, st.strip + perPage)));
     const sel = st.clubs[st.selected];
     s.drawCenter(ctx, cp437ToGame(sel ? `${sel.name}  (${["1.LIGA", "2.LIGA", "3.LIGA"][sel.league]})` : ""), 160, 90, COLORS.white);
-    s.drawCenter(ctx, `SEITE ${Math.floor(st.strip / perPage) + 1}/${Math.ceil(st.clubs.length / perPage)}  -  WAPPEN ANKLICKEN, DANN AUF DAS VEREINSFELD EINES MANAGERS`, 160, 101, COLORS.textDim);
+    if (st.aufnahme > 0) s.drawCenter(ctx, `SEITE ${Math.floor(st.strip / perPage) + 1}/${Math.ceil(st.clubs.length / perPage)}  -  WAPPEN ANKLICKEN, DANN AUF DAS VEREINSFELD EINES MANAGERS`, 160, 101, COLORS.textDim);
+    else {
+      s.draw(ctx, `SEITE ${Math.floor(st.strip / perPage) + 1}/${Math.ceil(st.clubs.length / perPage)}`, 8, 101, COLORS.textDim);
+      // Spielart (0xBADC-0xBC04, #133): Endlosspiel, 1-Jahres-Spiel, 3-Jahres-Spiel
+      const arten = texte("ui.spielarten");
+      [0, 1, 3].forEach((art, i) => {
+        const x = 70 + i * 82;
+        s.draw(ctx, toGame(`${st.spielart === art ? "[X]" : "[ ]"} ${arten[i].toUpperCase()}`), x, 101, st.spielart === art ? COLORS.white : COLORS.textDim);
+        this.hit(x, 99, 80, 9, () => (st.spielart = art));
+      });
+    }
     // vier Manager-Plätze: Verein oben, Porträt unten, Name darunter
     st.slots.forEach((sl, i) => {
       const x = 20 + i * 75;
@@ -1306,6 +1318,9 @@ class App {
     if (st.build) this.buildId = st.build;
     this.server = st;
     this.hinweisQuittiert = -1;
+    // Spielende (0x1E8B0/0x1E8B9): erst die Bestenliste, dann "ENDE" - danach nur noch neues Spiel
+    // oder Laden (#133)
+    if (st.spielende && this.screen !== "highscore" && this.screen !== "ende" && !["lobby", "verwaltung", "zutritt", "start-online", "newgame", "start"].includes(this.screen)) this.go("highscore");
     this.onLive(st.live ?? null);
     // Die eigene Runde ist weg (gelöscht oder verlassen): zurück in die Lobby
     if (st.lobby && this.online && !["lobby", "verwaltung", "zutritt", "start-online", "newgame"].includes(this.screen)) {
@@ -2546,7 +2561,7 @@ class App {
       s.drawRight(ctx, String(e.points), 242, y, INK, false);
       s.draw(ctx, `(${e.titles[0]}/${e.titles[1]}/${e.titles[2]})`, 243, y, INK, false);
     });
-    this.hit(0, 0, W, H, () => this.go("menu"));
+    this.hit(0, 0, W, H, () => this.go(this.server.spielende ? "ende" : "menu"));
   }
 
   /**
@@ -3132,6 +3147,13 @@ class App {
         break;
     }
     if (this.screen === "live") this.drawTicker();
+    if (this.screen === "ende") {
+      // "ENDE" bei y 115 mittig auf leerem Bildschirm (0x1A58C); ein Klick führt zum Start
+      this.ctx.fillStyle = "#000";
+      this.ctx.fillRect(0, 0, W, H);
+      this.assets.font.drawCenter(this.ctx, "ENDE", 160, 111, COLORS.white);
+      this.hit(0, 0, W, H, () => this.go(this.online ? "start-online" : "start"));
+    }
     if (this.screen === "menu" && this.drawSonderseite()) return;
     if (this.vereinsInfo && (this.screen === "table" || this.screen === "spiele" || this.screen === "staerken" || this.screen === "results")) this.drawVereinsInfo();
     else this.vereinsInfo = null;
@@ -3384,7 +3406,10 @@ class App {
     const grids: Record<NonNullable<typeof this.submenu>, Cell[][]> = {
       buero: [
         [{ icon: "statistik", action: () => this.go("statistik") }, { icon: "ewige", action: () => this.go("ewige") }, { icon: "verlauf", action: () => this.go("verlauf") }],
-        [{ icon: "stadion", action: () => this.go("stadium") }, { icon: "bank", action: () => this.go("bank") }, { icon: "werbung", action: () => this.go("werbung") }],
+        [{ icon: "stadion", action: () => this.go("stadium") }, { icon: "bank", action: () => this.go("bank") }, { icon: "werbung", action: () => {
+          // Im 1-Jahres-Spiel ist die Werbung fest, der Knopf nimmt keinen Klick an (0xA370, #133)
+          if (!(this.game && spielart(this.game) === 1)) this.go("werbung");
+        } }],
         // Jugendarbeit gibt es nur in der Version 2026 (sim/jugend.ts)
         [this.game && is2026(this.game) && this.online ? { bild: "jugend", action: () => void this.jugendOeffnen() } : null, null, null],
       ],
@@ -6518,7 +6543,12 @@ class App {
     // Im Original bei (175,110) und (245,110), das gewählte rot (0x22DD6)
     this.knopf("LEIHEN", 175, 110, this.marketMode === "leihen");
     this.knopf("KAUFEN", 245, 110, this.marketMode === "kaufen");
-    this.hit(175, 110, 57, 13, () => (this.marketMode = "leihen"));
+    // Im 1-Jahres-Spiel bleibt es bei KAUFEN (0x230C0-0x230ED, #133)
+    const einJahr = g !== undefined && spielart(g) === 1;
+    if (einJahr && this.marketMode === "leihen") this.marketMode = "kaufen";
+    this.hit(175, 110, 57, 13, () => {
+      if (!einJahr) this.marketMode = "leihen";
+    });
     this.hit(245, 110, 57, 13, () => (this.marketMode = "kaufen"));
     // Angebot und Kontostand
     panel(ctx, 161, 131, 156, 50);
@@ -7210,7 +7240,10 @@ class App {
     const level = 5 - g.save.plain[34062];
     const INK = "#a2a2c3";
     panel(ctx, 13, 13, 294, 169);
-    s.draw(ctx, toGame(`V2.0 - ENDE:  NIE. (LEVEL ${level})`), 16, 19, "#717192", false);
+    // "V2.0 - ENDE: " + Endjahr (unter 2000) oder " NIE." + " (LEVEL n)" (0x265A2-0x265D1, #133)
+    const ende = texte("ui.spielende");
+    const jahr = endjahr(g);
+    s.draw(ctx, toGame(`${ende[0]}${jahr < 2000 ? jahr : ende[1]}${ende[2]}${level})`), 16, 19, "#717192", false);
     // Regelwerk des Spielstands: nur wenn es nicht das Original ist, steht es rechts daneben
     if (is2026(g)) s.drawRight(ctx, ruleName(g), 303, 19, "#b20020", false);
     hline(ctx, 16, 17, 289, INK);

@@ -176,6 +176,9 @@ import {
   decodeHighscore,
   encodeHighscore,
   highscoreFile,
+  insertHighscoreEnde,
+  spielart,
+  endjahr,
   type HighscoreEntry,
   setSystem,
   systemOf,
@@ -232,7 +235,7 @@ const usersFile = process.env.BMP_USERS ?? join(savesDir, "users.json");
 
 /** Highscore-Datei des Startjahrs lesen (0x34474: HIGH.00/01/02 im Spielstandordner). */
 function loadHighscore(g: GameState): HighscoreEntry[] {
-  const file = join(savesDir, highscoreFile(seasonStartYear(g)));
+  const file = join(savesDir, highscoreFile(g));
   if (!existsSync(file)) return [];
   try {
     return decodeHighscore(new Uint8Array(readFileSync(file)));
@@ -778,6 +781,8 @@ interface RoomMeta {
   file: string;
   privat: boolean;
   gaeste: string[];
+  /** Ein 1-/3-Jahres-Spiel ist zu Ende (#133): keine Züge mehr, nur neues Spiel oder Laden */
+  spielende?: boolean;
 }
 
 /**
@@ -818,7 +823,7 @@ function saveRounds(): void {
   try {
     const data = {
       next: nextRoomId,
-      runden: [...rooms.values()].map((r) => ({ id: r.id, name: r.name, creator: r.creator, created: r.created, file: r.file, privat: r.privat, gaeste: r.gaeste })),
+      runden: [...rooms.values()].map((r) => ({ id: r.id, name: r.name, creator: r.creator, created: r.created, file: r.file, privat: r.privat, gaeste: r.gaeste, ...(r.spielende ? { spielende: true } : {}) })),
     };
     writeFileSync(roundsIndex, JSON.stringify(data, null, 2) + "\n");
   } catch (err) {
@@ -1196,6 +1201,12 @@ function saisonwechselBeginnen(r: Room): void {
   // Der Vereinsname wird gleich festgehalten: die neue Saison würfelt die Vereine innerhalb
   // der Ligen neu durch, der Index zeigt danach auf einen anderen Verein
   if (champ.manager >= 0) r.abschluss.push({ manager: champ.manager, kind: 0, verein: g.clubs.at(champ.club).displayName });
+  // Spielende (0x1E6E1): im 1-/3-Jahres-Spiel ist das Kalenderjahr am Saisonende die
+  // Endjahr-Kennung - nach 1992/93 bzw. 1994/95 (#133)
+  if (spielart(g) !== 0 && endjahr(g) === seasonStartYear(g) + 1) {
+    spielBeenden(r, logStart);
+    return;
+  }
   // Highscore (0x1E871 -> 0x34CDA je Manager, 0x34616): Einträge einordnen und Datei schreiben
   let list = loadHighscore(g);
   g.activeManagers().forEach((_, i) => {
@@ -1205,7 +1216,7 @@ function saisonwechselBeginnen(r: Room): void {
   });
   r.highscore = list;
   try {
-    writeFileSync(join(savesDir, highscoreFile(seasonStartYear(g))), encodeHighscore(list));
+    writeFileSync(join(savesDir, highscoreFile(g)), encodeHighscore(list));
   } catch (err) {
     r.log.push(`Highscore-Datei nicht geschrieben: ${String(err)}`);
   }
@@ -1315,6 +1326,38 @@ function saisonwechselAbschliessen(r: Room, logStart = r.log.length): void {
   void persist(r);
   nachTageswechsel(r);
   broadcast(r);
+}
+
+/**
+ * Spielende eines 1-/3-Jahres-Spiels (0x1E6FC-0x1E8C9): je Manager ein Eintrag ohne +300 in die
+ * Bestenliste der Spielart, dann Bestenliste und "ENDE". Das Original beendet danach das Programm
+ * (0x87FC), ohne zu speichern; hier nimmt die Runde keine Züge mehr an - weiter geht es nur mit
+ * einem neuen Spiel oder einem geladenen Stand (#133).
+ */
+function spielBeenden(r: Room, logStart: number): void {
+  const g = r.game;
+  let list = loadHighscore(g);
+  g.activeManagers().forEach((_, i) => {
+    const e = highscoreEntry(g, i, false);
+    list = insertHighscoreEnde(list, e);
+    r.log.push(`Highscore: ${e.name} (${e.club}) ${e.points} Punkte`);
+  });
+  r.highscore = list;
+  try {
+    writeFileSync(join(savesDir, highscoreFile(g)), encodeHighscore(list));
+  } catch (err) {
+    r.log.push(`Highscore-Datei nicht geschrieben: ${String(err)}`);
+  }
+  r.spielende = true;
+  saveRounds();
+  r.log.push(`Spielende: ${spielart(g)}-Jahres-Spiel abgeschlossen`);
+  flushMessages(r);
+  r.lastDay = r.log.slice(logStart);
+  r.done.clear();
+  r.version++;
+  void persist(r);
+  broadcast(r);
+  broadcastLobby();
 }
 
 /** Meldungen des Saisonwechsels, außer den Vertragsgesprächen. */
@@ -1704,6 +1747,8 @@ function stateJson(r: Room, user: string) {
     // Bilanz färbt damit den Ring um den ersten Kranz (0x283F0)
     merkbits: r.msgFlags.slice(),
     ceremony: r.ceremony ?? null,
+    // Spielende eines 1-/3-Jahres-Spiels (#133)
+    spielende: r.spielende ?? false,
     market: {
       entries: marketEntries(r.game),
       listed: r.game.activeManagers().map((_, i) => listedCountOf(r, i)),
@@ -2731,6 +2776,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       managers: managers.map((m: any) => ({ name: String(m.name ?? "").trim().slice(0, 12) || "MANAGER", club: Number(m.club) | 0, portrait: Number(m.portrait) || 1 })),
       level: 5 - Math.max(1, Math.min(4, Number(body.level) || 2)),
       rules: Number(body.rules) === 1 ? 1 : 0,
+      // Spielart (#133): 0 Endlosspiel, 1 1-Jahres-Spiel, 3 3-Jahres-Spiel
+      spielart: ([0, 1, 3].includes(Number(body.spielart)) ? Number(body.spielart) : 0) as 0 | 1 | 3,
     };
     const meta = rundenZiel(user, room, String(body.runde ?? ""), "NEU.MAN");
     if ("error" in meta) return json(res, meta.code, { error: meta.error });
@@ -2926,6 +2973,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   }
   if (p === "/api/done" || p === "/api/undone") {
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    if (room.spielende) return json(res, 409, { error: "Das Spiel ist zu Ende" });
     if (room.live) return json(res, 409, { error: "Die Konferenz läuft" });
     if (p === "/api/done") {
       // Wer nicht verlängert hat, macht dem Spieler kein Angebot - er geht (0x0DB40)
@@ -3296,7 +3344,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (room.purchases.has(manager)) return json(res, 409, { error: "Erst den Vertrag aushandeln" });
     const slot = Number(body.slot);
     const amount = Math.trunc(Number(body.amount));
-    const loan = Boolean(body.loan);
+    // Im 1-Jahres-Spiel gibt es kein Umschalten auf LEIHEN (0x230C0-0x230ED, #133)
+    const loan = Boolean(body.loan) && spielart(room.game) !== 1;
     const entry = marketEntries(room.game).find((e) => e.slot === slot);
     if (!entry) return json(res, 404, { error: "Kein Spieler" });
     if (isBlocked(room.game, manager)) return json(res, 400, { error: "Kaufsperre: Ihr Konto stand am Monatsende zu tief im Minus" });
@@ -3818,6 +3867,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   }
   if (p === "/api/werbebudget") {
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    // Im 1-Jahres-Spiel ist der Werbebildschirm nicht erreichbar (0xA370-0xA38F, #133)
+    if (spielart(room.game) === 1) return json(res, 409, { error: "Im 1-Jahres-Spiel ist die Werbung fest" });
     // Werbeausgaben je Klick um 2500 DM (0x29455); über 50.000 springt es auf 2.500 zurück
     const step = Number(body.up) === 0 ? -2500 : 2500;
     const off = ADV_OFFSET + manager * 36 + 4 * 8;
@@ -3833,6 +3884,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   }
   if (p === "/api/werbung") {
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    // Im 1-Jahres-Spiel ist der Werbebildschirm nicht erreichbar (0xA370-0xA38F, #133)
+    if (spielart(room.game) === 1) return json(res, 409, { error: "Im 1-Jahres-Spiel ist die Werbung fest" });
     const sponsor = Number(body.sponsor);
     const result = body.kind === "board" ? signBoard(room.game, manager, Number(body.slot), sponsor) : signShirt(room.game, manager, sponsor);
     if (!result.ok) return json(res, 400, { error: result.error });

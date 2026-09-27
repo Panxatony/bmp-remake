@@ -3704,6 +3704,40 @@
     "len": 22,
     "sum": "c1e64752"
    }
+  ],
+  "ui.spielarten": [
+   {
+    "off": 324879,
+    "len": 11,
+    "sum": "008ad978"
+   },
+   {
+    "off": 324891,
+    "len": 14,
+    "sum": "65615bc0"
+   },
+   {
+    "off": 324906,
+    "len": 14,
+    "sum": "5ed0d00f"
+   }
+  ],
+  "ui.spielende": [
+   {
+    "off": 324842,
+    "len": 13,
+    "sum": "bfdbe05a"
+   },
+   {
+    "off": 322801,
+    "len": 5,
+    "sum": "eccdb5bd"
+   },
+   {
+    "off": 324856,
+    "len": 8,
+    "sum": "b85246ab"
+   }
   ]
  }
 }
