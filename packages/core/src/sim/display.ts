@@ -116,11 +116,11 @@ export interface ScorerRow {
 
 /**
  * "Die Besten der Liga" (0x16515) aus der Spielertabelle (Byte 34 Tore, Byte 35 Einsätze,
- * Byte 36 Verein): nach Toren, dann Toren je Spiel absteigend. Aufgeführt wird, wer
- * **mindestens zwei Tore** hat - in DOSBox nachgezählt: die Bundesliga zeigte alle elf Spieler
+ * Byte 36 Verein): nach Toren absteigend, bei Gleichstand nach Einsätzen aufsteigend (siehe
+ * unten, 0x165F4-0x1660D). Aufgeführt wird, wer **mindestens zwei Tore** hat (0x16845) - in DOSBox nachgezählt: die Bundesliga zeigte alle elf Spieler
  * mit zwei und mehr Toren und keinen einzigen mit einem (GitLab #55).
  *
- * Bei gleichen Toren und gleichem Schnitt steht die Reihenfolge des Originals nicht fest; es
+ * Bei gleichen Toren und gleichen Einsätzen steht die Reihenfolge des Originals nicht fest; es
  * sortiert instabil (zwei Messungen ergaben verschiedene Reihenfolgen gleichwertiger Spieler).
  */
 /**

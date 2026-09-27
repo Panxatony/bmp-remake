@@ -29,11 +29,11 @@ export function contractScore(g: GameState, manager: number, place: number): num
  * nach Saisontag 321 ·(152 - Alter)/100, mindestens das bisherige Gehalt (0x25D98 vergleicht mit
  * Byte 40 desselben Kaderplatzes).
  *
- * Weil q nur 1 oder 2 wird, liegt die Forderung bei rund 5 % der Gehaltsbasis - der Mindestwert
- * gewinnt also praktisch immer. Beim Kauf ist das im Original die Gehaltsbasis: der Spieler wird
- * erst in den Kader aufgenommen (0x23E86 -> 0x224A8 schreibt sie nach Byte 40) und erst danach
- * verhandelt (0x23ED8 ruft 0x251FF mit dem neuen Kaderplatz). Deshalb steht bei allen vier
- * Laufzeiten dieselbe Forderung, und schwache Marktspieler kosten fast kein Gehalt: die
+ * Mit t = 0..400 liegt q bei 97..150, die Forderung also bei 101..154 % der Gehaltsbasis (am
+ * ersten Spieltag 114/128/140/154 % für ein bis vier Jahre, in DOSBox nachgemessen). Der
+ * Mindestwert ist beim Kauf im Original die Gehaltsbasis: der Spieler wird erst in den Kader
+ * aufgenommen (0x23E86 -> 0x224A8 schreibt sie nach Byte 40) und erst danach verhandelt (0x23ED8
+ * ruft 0x251FF mit dem neuen Kaderplatz). Schwache Marktspieler kosten so fast kein Gehalt: die
  * Gehaltsbasis wächst mit der dritten Potenz von (Kondition + Technik)/2, der Ablösewert dagegen
  * linear mit Faktor 10.000.
  *
@@ -66,8 +66,8 @@ export function salaryDemand(g: GameState, manager: number, place: number, years
  * nach Saisontag 321 zusätzlich ·random(132-Alter, 152-Alter)/100; Schwellen ab 100.000 DM
  * werden immer abgelehnt; angenommen wird ein Angebot über der Schwelle ("Ihr Angebot wurde
  * angenommen !", sonst "… ist nicht an Ihrem Angebot interessiert."). Der Dialog selbst lehnt
- * mehr als 4 Saisons ab ("Wer wird sich denn SO lange verpflichten ?"). Da q nur 1 oder 2 ist,
- * liegt die Schwelle bei längerer Laufzeit zwischen -5 % und +6 % des Marktwerts.
+ * mehr als 4 Saisons ab ("Wer wird sich denn SO lange verpflichten ?"). Mit t = 0..400 liegt q
+ * bei 88..140, die Schwelle also bei rund 82 bis 144 % des Marktwerts (Audit 2 F20).
  * `source` nennt den Marktplatz beim Kauf (Manager 4); bisheriges Gehalt ist dann die Gehaltsbasis.
  */
 export function contractCheck(g: GameState, manager: number, place: number, years: number, salary: number, rng: Rng, source?: { manager: number; place: number }): boolean {

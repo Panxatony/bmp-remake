@@ -693,8 +693,13 @@ Ablauf: Tabellenreihenfolge 28244 und Plätze = Identität; Historieblock 28435 
 Bilanzen gegen jeden Verein (4 x 640 Bytes) auf 0xFF; Porträt 29 = Platz + 1 (die Schleife
 0x8DBB, die Byte 306..310 = 30 schreibt, läuft bei 07AB = 0 nicht); Ligaplätze mischen (0x3AC5); Europapokalteilnehmer und Auslosung der Europapokale.
 Im Startbildschirm wählt jeder Manager Name, Porträt (1..4) und Wunschverein aus der Logoleiste,
-dazu Spiel-Level (Anzeige 1..4, gespeichert 5 - Anzeige in 34062) und Startjahr; das Standardspiel
-speichert 22251 in 34063 und 1992 in 27976 (Saison 1993/94, Kalender 29. Juli 1993).
+dazu Spiel-Level (Anzeige 1..4, gespeichert 5 - Anzeige in 34062) und die Spielart: Radiogruppe
+Endlosspiel / 1-Jahres-Spiel / 3-Jahres-Spiel (Bits 0..2) und Schalter "Histor. Start" (Bit 3;
+Texte 4cb3:4A36+4i, 0x0BBE3-0x0BC04). 34063 (4238:513C) ist die Endjahr-Kennung: 22222 (0x56CE,
+endlos), 1964 (1-Jahres-Spiel) bzw. 1966 (3-Jahres-Spiel); ohne historischen Start kommen 29 dazu
+(0x0BD59: 22251, 1993, 1995) und 27976 (4cb3:07E0) wird 1992 (0x0BD63), mit historischem Start
+bleibt dort 1963 aus dem Abbild. Das Standardspiel (Endlosspiel ohne historischen Start) speichert
+22251 in 34063 und 1992 in 27976 (Saison 1993/94, Kalender 29. Juli 1993).
 
 Spielerpool (0x3260C): Plätze 1..150 mit Gruppen Torhüter 1..19, Abwehr 20..63, Mittelfeld
 64..105, Angriff 106..150 (4cb3:07A6). Jeder Platz: Alter random(18,33), t = random(30,89) (unter
@@ -717,7 +722,8 @@ Nummer der Leistenstellung (0..63) bekommt die Werte des letzten Kaderplatzes (*
 docs/abgleich/neuesspiel.md); Gehälter neu; Trainingsbälle 321.. = 5,4,6,5,6 und 326.. = 1,3,3,3; Liga 2;
 Eintritt 2·8 - 3·Liga = 10 DM; Stehplätze 4000·(5 - Liga) = 12000, Sitze 3000·(2 - Liga) = 0,
 Überdacht 3500·(2 - Liga) = 0, Komfort 390 = 4, 398 = 3; Einsatzregler 305 = 16; Fanwert 50 -
-20·Liga = 10; Trainer (0x09623) = L·(random(15,20) + 40) + ((L·(110 - Fans)) & 0xFE)·500 mit
+20·Liga = 10; Trainer (0x09623) = L·(random(15,20) + 40) + ((L·(110 - Fans)) & 0xFFFE)·500 (`and $0xfe,%al` nach dem
+16-Bit-`mul` bei 0x09681 löscht nur Bit 0 des Produkts) mit
 L = 2 - Liga, danach mal random(10·(L+10), 25·(L+4))/100; Fernsehgeld 1000·(30·L + Fans);
 Sponsorenangebote; Kontostand 1.500.000 DM (Level 4 gespeichert: 1.900.000), Zuschauerminimum
 99999. (Bytes 267..304 = 10, 306..310 = 30 und Verlauf 62 + 4i = 0xFF setzt nur die Aufnahme in
@@ -729,8 +735,12 @@ noch auf 0, also bekommen nur vereinslose Spieler einen Verein), DFB-Pokal-Auslo
 Managervereinen, Transfermarkt mit derselben Erneuerung wie im Tagesablauf (0x245A8). Der erste
 Tagesbeginn stellt auf und schreibt die Stärke mit Flag 0 in die Matrix der Managervereine.
 Abweichungen: Standardaufstellung (Nummern 1..11 nach Gruppen) wird vergeben, die zehn
-KI-Wochenläufe (0x10067) und die Vereinszuordnung der Marktspieler (0x1643B) sind inzwischen umgesetzt (sim/ai.ts, sim/pool.ts); historische
-Startjahre (1964/1966 mit Zuschlägen) sind nicht angeboten.
+KI-Wochenläufe (0x10067) und die Vereinszuordnung der Marktspieler (0x1643B) sind inzwischen umgesetzt (sim/ai.ts, sim/pool.ts). Das
+Remake bietet nur das Endlosspiel ohne historischen Start an; der historische Start (1963/64) ist
+weggelassen, 1- und 3-Jahres-Spiel sind in Arbeit (#133, Audit 2 B9). Im Original beginnen diese
+beiden in der Bundesliga (0x0C5DC-0x0C60E), das 1-Jahres-Spiel mit einem zufälligen Bundesligisten,
+der im UEFA-Pokal steht (0x0BFDD-0x0C0A6), mit höheren Werbewerten (0x0C548, Abschnitt "Werbung"),
+Stadionwerten 350 +5.000 und 358 +10.000 (0x0C338) und +12 auf die Kaderwerte (0x0C6A8).
 
 Europapokal im neuen Spiel: Teilnehmer und Auslosung stehen vor dem Startbildschirm (0x92EA bis
 0x930E), also vor dem Tausch der Managervereine in die Oberliga; der Tausch lässt die Listen stehen
@@ -851,8 +861,9 @@ Farben des Bildschirms (1.PAL): Überschriften und Angaben #a2a2c3, Tabellentext
 NACH AUSBAU #616182, gedämpfte Stufen #717192, Hintergrund der Kästen #000071. Die Rückfrage (0x0000) füllt den Kasten (151,27) bis (288,95): "AUSBAU UM n AUF " (37),
 Menge und Bezeichner (46), "KOSTEN: ... DM" (55), "BAUZEIT: CIRKA" (64), "... WOCHEN" (73,
 Tage/7 + 1) sowie "NA KLAR !" (158,81) und "ACH NEE..." (227,81), beide 57 breit und in der
-kleinen Schrift. Die Bauzeit würfelt das Original schon vor der Rückfrage; im Remake würfelt sie
-der Server, der Kasten nennt deshalb den Mittelwert. Die Statusstufen stehen im
+kleinen Schrift. Die Bauzeit würfelt das Original schon vor der Rückfrage, bei jedem Aufruf neu;
+das Remake ebenso: der Server würfelt sie beim Öffnen des Kastens (`/api/stadium/bauzeit`), der
+Kasten nennt diese Zahl, und der Bau übernimmt sie (#55, #130). Die Statusstufen stehen im
 Original ab 1 (1 UNGENUEGEND bis 6 SEHR GUT), die Größen ab 0 (IS NICH, KLEIN, MITTEL, GROSS).
 Der Eintrittspreis steht in Byte 266; i16 348 ist eine Kopie, die erst beim Ändern entsteht.
 
@@ -1135,8 +1146,9 @@ Aufruf, also beim Öffnen aus dem Menü (0xA6ED, Server `/api/bestenliste`) und 
 Saisonende (0x1E1AA); wer von einem Rechnerverein kam, behält danach nur die Tore seit dem
 Wechsel (#128, Audit 2 D2) - und sortiert dann alle Spieler 1..150 absteigend nach
 Toren, bei Gleichstand nach weniger Einsätzen; gezeigt werden Spieler mit mindestens zwei Toren.
-LIGA zeigt davon die Spieler der eigenen Liga (Byte 36 Verein) mit mindestens 0,4 Toren je Spiel
-(TEST4: Gaber, Schlünz, Breitenreiter, Eckel wie im Original), SPIELER alle. Darstellung:
+LIGA zeigt davon die Spieler der eigenen Liga (Verein aus Byte 36 im Vereinsbereich
+4cb3:2272/2273 der Liga aus Managerbyte 312; eine Grenze für Tore je Spiel gibt es nicht, nur die
+zwei Tore bei 0x16845) (TEST4: Gaber, Schlünz, Breitenreiter, Eckel wie im Original), SPIELER alle. Darstellung:
 Kasten (35,8) bis (285,189), Überschrift "Die Besten der Liga" bzw. "... der Spieler" mittig
 zwischen 35 und 285 (unterste Zeile 16, Farbe 1 mit Schatten 7), Kopfzeilen bei x 38 und x 210
 (Zeile 24), darunter ein Strich bei y 26 von 36 bis 284; Einträge bei y = 34 + 7·i mit den
@@ -1424,8 +1436,12 @@ Zeigerdaten, die ein gemustertes Kästchen ergaben -, sondern im Platz von # (0x
 
 Beim Öffnen des Hauptmenüs (0x971F) prüft 0x143ED je Manager: am 13. Juni nach der letzten Runde
 die Relegationsmeldung ("Ihre Mannschaft bestreitet das Relegationsspiel. Viel Glück.", Byte 265
-= 15 in der Bundesliga bzw. 2 in der 2. Liga) - im Original durch die Konstante 4cb3:226A = 1
-abgeschaltet, im Remake nicht umgesetzt; nach dem 13. Juni nichts mehr; am 2. Dezember "Achtung !
+= 15 in der Bundesliga bzw. 2 in der 2. Liga), wenn 4cb3:225A[Liga] = Spieltage + 1 ist. Die
+Meldung ist im Original aktiv: 0x1442A überspringt sie nur bei 4cb3:226A = 0, und dort steht 1
+(Audit 2 C5). Nach ihr springt das Original ans Ende (0x144EB), die Meldungen "gesichert" und
+"verspielt" kommen erst beim nächsten Hauptmenü. Das Remake zeigt sie (messages.ts
+`relegationMessage`), prüft die Spieltagsbedingung nicht und zeigt die anderen Meldungen am selben
+Tag mit; nach dem 13. Juni nichts mehr; am 2. Dezember "Achtung !
 Dies ist der letzte Spieltag vor der Winterpause."; dann für die Zielplätze Meisterschaft (1.),
 UEFA-Cup-Platz (Bundesliga 5.) bzw. Aufstieg (2. Liga 2., Oberliga 4.) und Klassenerhalt
 (Bundesliga 15., sonst 16.): "gesichert", wenn keine Mannschaft unterhalb des Zielplatzes mit
@@ -1479,7 +1495,7 @@ Seite) und Chancen (0x3B, 0x4F), 0xC/0xD bester/schwächster Feldspieler (Kaderb
 über 25 bzw. unter -15).
 
 Vorlagen: 69 Schlagzeilen (DGROUP 0x4F90, 23 Gruppen 4cb3:9322: 4,2,3,4,2,3,1,2,4,3,2,2,7,4,5,
-3,3,3,3,3,2,2,2) und 110 Artikelsätze (DGROUP 0x90D2, Gruppen 4cb3:9350: 8,5,4,8,5,7,4,7,8,10,
+3,3,3,3,3,2,2,2) und 109 Artikelsätze (DGROUP 0x90D2, Gruppen 4cb3:9350: 8,5,4,8,5,7,4,7,8,10,
 4,4,7,6,6,5,1,1,2,7). Platzhalter: %0:%1 Endstand, %2:%3 Stand beim größten Rückstand, %4:%5
 Stand bei der größten Führung, %9 Zuschauer, %a eigener Verein, %b Gegner, %c/%d bester/
 schwächster Spieler, %t Manager, %e Zeilenumbruch, %x<s><n>A#B#…#% Auswahl mit s = 0 Zufall
@@ -1504,9 +1520,9 @@ Texten vertauscht; das Remake übernimmt das.
 Artikel (Liste 4238:2E7E in dieser Reihenfolge): Gruppe 0 immer; 1 (Heim) oder 2 (Auswärts);
 mit 1/2 bei über 2 Karten Gruppe 3, bei 0 Karten Gruppe 4; bester Spieler bei Sieg 10;
 schwächster bei Niederlage 11; Gruppe 5 (Managerzitat) immer; später Treffer nach der 80.
-Minute bei knappem Stand 18; über 3 vergebene eigene Chancen bei Differenz < 2 Gruppe 12; frühe
-Chance vor der 8. Minute 16, frühes Tor 17; unter 2 vergebene Chancen bei Sieg 13; Niederlage
-19; Sieg 7; ausverkauft 6 (0x2FEEF, nach der Schlagzeilengruppe); Rückstand ohne Niederlage 14; Führung ohne Sieg 15; Verlauf eigen
+Minute bei knappem Stand 18; über 3 vergebene eigene Chancen bei Differenz < 2 Gruppe 12; frühes
+Gegentor vor der 8. Minute 16, frühes eigenes Tor 17 (0x2F4D2/0x2F5C0); unter 2 vergebene Chancen bei Sieg 13; Niederlage
+19; Sieg 7; ausverkauft 6 (0x2FEEF, nach der Schlagzeilengruppe); Rückstand ohne Niederlage 14; Führung ohne Sieg bei Tordifferenz über -2 15 (0x2FF4E-0x2FF61); Verlauf eigen
 und Sieg 8; Verlauf Gegner und Niederlage 9. Die Spalte endet, wenn der Platz voll ist.
 
 Die Seite nutzt eine eigene 16-stufige Graupalette (Index bitverkehrt: 0, 130, 65, 195, 32,
@@ -1535,15 +1551,24 @@ Wurf für Wurf gegen das Original geprüft (GitLab #99, Spielberichte per Speich
 
 ## Highscore (0x34616, Punkte 0x34CDA/0x34B14, Datei 0x34474; sim/highscore.ts)
 
-Beim Saisonwechsel (0x1E871) wird je Manager ein Eintrag gebildet und in die Datei HIGH.0x
-eingeordnet (Startjahr 1964/1993: HIGH.00, 1966/1995: HIGH.01, sonst HIGH.02; 20 Einträge zu 58
-Bytes: 0..25 Managername, 26..48 Vereinsname, 49 Meisterschaften, 50 DFB-Pokale, 51
+Am gewöhnlichen Saisonende läuft 0x1E8D6: je Manager 0x34616(2), das einen Eintrag bildet und in
+die Bestenliste einordnet. Nur beim Spielende eines 1- oder 3-Jahres-Spiels (4238:513C = Jahr
+4238:A7A0, Vergleich 0x1E6E1; sonst Sprung 0x1E6F9 nach 0x1E8CA) läuft stattdessen der Zweig bis
+0x1E871 mit der Schlusswertung (Punkte 0x34CDA mit Argument 1, also ohne +300) und danach
+0x34474(1) und 0x34616(0). Der Dateiname (0x34474, 0x3449D-0x344E0) ist "HIGH." + Spielart-Ziffer
++ Level-Ziffer: Spielart 1 bei Endjahr-Kennung 1964/1993 (1-Jahres-Spiel), 3 bei 1966/1995
+(3-Jahres-Spiel), sonst 0 (Endlosspiel); Level-Ziffer '5' - 4cb3:4A28 (gespeichertes Level), also
+das angezeigte Level 1..4. Das Endlosspiel hat damit je Level eine eigene Liste HIGH.01..HIGH.04;
+die HIGH.02 aller Originalstände gehört zu Level 2 (gespeichert 3). Das Remake wählt die Datei
+bisher nur nach dem Startjahr (HIGH.00/01/02, highscore.ts `highscoreFile`, Audit 2 H7). 20
+Einträge zu 58 Bytes: 0..25 Managername, 26..48 Vereinsname, 49 Meisterschaften, 50 DFB-Pokale, 51
 Europapokale, 52..53 Punkte). Platzierungspunkte (0x34B14): (57 - Tabellenplatz - Ligabasis)/2,
 nicht unter 0, + 2·Runde je laufendem Pokal (Runden 1..6); je Saison im Verlauf (Byte 62 + 4i):
 (58 - Rang)/2 + 2·(Ligabyte & 7) bzw. +20 bei Bit 7, bei Ligabyte-Bits über 3 zusätzlich 25
 (Europabyte Bit 7) oder 3·(Europabyte & 7); Summe durch (Saisons + 1), mal 10. Punkte (0x34CDA)
 = Platzierungspunkte + (Marktwerte des Kaders + 135000·Stadionwert - Kredite + Kontostand)/80000
-+ 40·Meisterschaften + 20·DFB-Pokale + 60·Europapokale - 500 (+300 beim Spielende), mindestens 1.
++ 40·Meisterschaften + 20·DFB-Pokale + 60·Europapokale - 500, mindestens 1; +300, wenn 0x34474 die
+Spielart 0 (Endlosspiel) liefert (0x34E4D-0x34E53, Argument 0x34CDA = Rückgabe von 0x34474).
 Einordnung: gleicher Name und Verein wird bei höheren Punkten ersetzt, sonst Aufnahme, solange
 Platz ist oder der letzte Eintrag unterboten wird; Liste absteigend. Anzeige über die Diskette
 ("PUNKTE:" und "(X/X/X)" = Titel). Das Remake liest und schreibt die Datei im Spielstandordner;
@@ -1862,10 +1887,10 @@ Der Werbeblock beginnt nicht bei 0: die Werte stehen als vorbelegte Daten im Dat
 BMMAIN.EXE (4cb3:066C) und lauten je Manager Trikot 50.000, jede der sechs Banden 6.000,
 Fernsehgeld 0 und Werbeausgaben 5.000. Deshalb hat ein Verein ohne jeden Bandenvertrag
 36.000 DM Bandeneinnahmen, und nach dem ersten Vertrag stehen dort fünf mal 6.000 plus der
-neue Betrag. Ein neues Spiel überschreibt davon nur das Fernsehgeld (0x09623). Beim Start in
-den Jahren 1964 bzw. 1993 setzt das Original zusätzlich Trikot 180.000, jede Bande 45.000 und
-Werbeausgaben 30.000 (0x0C548); bei der aktuellen Saison (Kennung 22222 bzw. 22251, siehe
-0x0BD1B) bleibt es bei den Vorgaben.
+neue Betrag. Ein neues Spiel überschreibt davon nur das Fernsehgeld (0x09623). Im
+1-Jahres-Spiel (Endjahr-Kennung 4238:513C = 1964 mit bzw. 1993 ohne historischen Start, 0x0C536)
+setzt das Original zusätzlich Trikot 180.000, jede Bande 45.000 und Werbeausgaben 30.000
+(0x0C548); im Endlos- und im 3-Jahres-Spiel bleibt es bei den Vorgaben.
 
 Die Werbeausgaben ändert ein Klick um 2500 DM (0x29455 addiert 2500 bzw. -5000 + 2500);
 übersteigt der Wert 50.000, springt er auf 2.500 zurück, unter 2.500 auf 50.000. Der Wert steht
@@ -2147,9 +2172,9 @@ liegt also über der Schwelle), nach Saisontag 321 zusätzlich ·random(132-Alte
 Schwellen ab 100.000 DM werden immer abgelehnt, sonst wird ein Angebot über der Schwelle
 angenommen ("Ihr Angebot wurde angenommen !", sonst "… ist nicht an Ihrem Angebot
 interessiert."; bei Verlängerungen erscheint vorab "So dumm ist … leider nicht...", wenn
-mehr Jahre bei weniger Gehalt als gefordert geboten werden). Da q nur 1 oder 2 ist, liegt die
-Schwelle bei längerer Laufzeit zwischen -5 % und +6 % des Marktwerts (Flags 5): auch kleine
-Angebote werden dort oft angenommen. Nach einer Ablehnung erlischt das Angebot, Byte 24 =
+mehr Jahre bei weniger Gehalt als gefordert geboten werden). Mit t = (Jahre-1)·100 + prog =
+0..400 liegt q bei 88..140, die Schwelle also bei rund 82 % (ein Jahr, Saisonende) bis 144 % (vier
+Jahre, erster Spieltag) des Marktwerts (Flags 5); die Forderung liegt mit +122 bei 101..154 %. Nach einer Ablehnung erlischt das Angebot, Byte 24 =
 random(10,18) (0x2616F). Beim Kauf gelten die Daten des Marktplatzes, bisheriges Gehalt ist die
 Gehaltsbasis; eine Ablehnung wirkt wie ABBRUCH (Ablehnungsbit, Spieler bleibt auf dem Markt).
 Im Remake: Schaltflächen EIGENES ANGEBOT (Kaufdialog) und ANGEB. (Verlängerungsangebote).

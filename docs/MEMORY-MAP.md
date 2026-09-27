@@ -19,7 +19,7 @@ Spielstand (siehe `bmp/SPIELSTAND-FORMAT.md`).
 | 49 | 1 | 4238:304a | | aktueller Manager (Index) |
 | 50 | 1 | 4238:5358 | | |
 | 51 | 8 | 4cb3:079e | | |
-| 59 | 2280 | 4238:6ddc | 20? | kleine Zählwerte, Zweck offen |
+| 59 | 2280 | 4238:6ddc | 20 | Ergebnistabelle der Saison: [Liga 0..2][Spieltag 0..37][Spiel 0..9][Heim, Gast], 0xFF = offen (records.ts `results`) |
 | 2339 | 1 | 4cb3:07ab | | Anzahl Manager |
 | 2340 | 5 | 4cb3:07ac | | DFB-Pokalsieger + 1, Titelverteidiger Landesmeister/Pokalsieger/UEFA + 1, DFB-Finalist + 1 (0 = keiner) |
 | 2345 | 3112 | 4238:2242 | 778 | Managertabelle, 4 Einträge |
@@ -28,11 +28,11 @@ Spielstand (siehe `bmp/SPIELSTAND-FORMAT.md`).
 | 12357 | 3456 | 4238:0ecc | 54 | Tabellenstände, 64 Einträge |
 | 15813 | 5587 | 4238:57dd | 37 | Spielertabelle, 151 Einträge |
 | 21400 | 6500 | 4238:774a | 52 | Aufstellungen/Spielzustand, 125 Einträge (5 x 25) |
-| 27900 | 60 | 4238:4b5e | | Tabellenreihenfolge: 18 Bundesliga, 20 + 20 Zweite Liga |
-| 27960 | 4 | 4238:2eba | | Spieltag |
-| 27964 | 4 | 4238:2e8e | | Zähler |
+| 27900 | 60 | 4238:4b5e | | Paarungen des aktuellen Spieltags: je Liga 10 Paare [Heim, Gast] ab 4B5E + (10·Liga + k)·2, Bundesliga 9 (0x2B4F3 schreibt, 0x2D143 liest; records.ts `pairings`) |
+| 27960 | 4 | 4238:2eba | | Tag im Monat (0x143ED vergleicht mit 13; records.ts `day`) |
+| 27964 | 4 | 4238:2e8e | | Monat, 0-basiert (0x143ED: 5 = Juni; records.ts `monthIndex`) |
 | 27968 | 4 | 4238:a7a0 | | Jahr |
-| 27972 | 4 | 4cb3:07dc | | Tag im Jahr |
+| 27972 | 4 | 4cb3:07dc | | Saisontag (0x19275 vergleicht mit 315) |
 | 27976 | 2 | 4cb3:07e0 | | Jahr (16 Bit) |
 | 27978 | 10 | 4238:56fe | | Liste der deutschen Europapokalteilnehmer (0x18B12) |
 | 27988 | 18 | 4238:57aa | | deutsche Startplätze je Europapokal, 3 x 6, 0x80 = frei |

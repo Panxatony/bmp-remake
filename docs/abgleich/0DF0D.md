@@ -43,8 +43,11 @@ Je Kaderplatz, in dieser Reihenfolge:
    Remake macht daraus ein Verlängerungsangebot mit Dialog. **F7.**
 3. Sperre oder Verletzung: Nummer 0 (0x0E580) - macht bei uns der Server (0x1DA23, #34).
 4. Mit 1/4 fallen Angebotsbits über 0x1F und die Meldung weg (0x0E591) - `dailyTransfers`.
-5. Byte 24 über 99: mit 1/6 zurück auf `random(9,17)`, sonst herunterzählen (0x0E5DC) -
-   `contractCooldown` (#80).
+5. Byte 24 über 99 ohne Bit 7: Wurf `random(0,5)` (0x0E5F1); bei 0 und nur, wenn ein
+   Meldungszeiger steht (0x0E5FC), zurück auf `random(9,17)` und die Meldung weg (0x30954);
+   sonst bleibt der Wert stehen. Heruntergezählt wird nur 1..99 (0x0E63E-0x0E64C), über 99 nie
+   (0x0E5FA `jne 0xe650`) - `contractCooldown`/`vertragszaehler` (#80; die Bedingung mit dem
+   Zeiger baut das Remake bewusst nicht nach, siehe dort; berichtigt nach Audit 2 B23).
 6. **Geliehene Spieler (Byte 12 != 0) hören hier auf** (0x0E650). Das Remake lässt sie auch
    Angebote machen. **F4.**
 7. **Verlängerungsangebot** (0x0E83E): S = (Ko+Te+Fo)/3, L = min(8, |25-Alter|),

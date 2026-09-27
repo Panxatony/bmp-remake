@@ -24,7 +24,13 @@ export interface HighscoreEntry {
   points: number;
 }
 
-/** Dateiname nach Startjahr (0x34474): 1964/1993 HIGH.00, 1966/1995 HIGH.01, sonst HIGH.02. */
+/**
+ * Dateiname der Bestenliste. Das Original (0x34474, 0x3449D-0x344E0) bildet "HIGH." + Spielart-Ziffer
+ * + Level-Ziffer: Spielart 1 bei Endjahr-Kennung 4238:513C = 1964/1993 (1-Jahres-Spiel), 3 bei
+ * 1966/1995 (3-Jahres-Spiel), sonst 0 (Endlosspiel); Level-Ziffer '5' - 4cb3:4A28 (gespeichertes
+ * Level), also das angezeigte Level. Das Remake wählt bisher nur nach dem Jahr und nimmt sonst
+ * immer HIGH.02, die Liste von Level 2 im Endlosspiel (Audit 2 H7, offen).
+ */
 export function highscoreFile(startYear: number): string {
   if (startYear === 1964 || startYear === 1993) return "HIGH.00";
   if (startYear === 1966 || startYear === 1995) return "HIGH.01";
@@ -71,9 +77,9 @@ export function placementPoints(g: GameState, manager: number): number {
  * 135000·Stadionwert - Kredite + Kontostand)/80000 + 40·Meisterschaften + 20·DFB-Pokale +
  * 60·Europapokale - 500, mindestens 1.
  *
- * Und dazu **+300**, wenn die Bestenliste die gewöhnliche ist (0x34E4D). Das Original gibt den
- * Punktestand nur in den historischen Anfangsjahren ohne diesen Zuschlag; sonst kommt er immer
- * dazu. Ohne ihn frisst der Abzug von 500 alles auf, und jeder Manager landete bei einem Punkt
+ * Und dazu **+300**, wenn 0x34474 die Spielart 0 (Endlosspiel) liefert (0x34E4D). Ohne den
+ * Zuschlag rechnet das Original nur im 1- und 3-Jahres-Spiel (Spielart 1/3, und die
+ * Schlusswertung beim Spielende 0x1E894 mit Argument 1). Ohne ihn frisst der Abzug von 500 alles auf, und jeder Manager landete bei einem Punkt
  * (GitLab #61). Bei P4.MAN kommt damit für NORMI genau die 232 heraus, die in HIGH.02 steht.
  */
 export function highscoreEntry(g: GameState, manager: number, bonus = highscoreFile(seasonStartYear(g)) === "HIGH.02"): HighscoreEntry {

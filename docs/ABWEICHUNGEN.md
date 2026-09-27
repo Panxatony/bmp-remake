@@ -27,7 +27,6 @@ soll sich wie das Original verhalten; wo es das nicht tut, ist das ein Fehler.
 | Ende nach der eingestellten Saisonzahl | "ENDE" | entfällt |
 | Aufhören | Rückfrage 0x0A7DD | nach derselben Rückfrage führt der Rechner den Verein weiter, die Runde läuft für die anderen weiter |
 | Preis des Trainingslagers | einmal je Programmlauf für den ziehenden Manager | für den, der den Bildschirm öffnet |
-| Bauzeit in der Rückfrage | vor der Rückfrage gewürfelt, der Kasten nennt sie | der Server würfelt beim Bau, der Kasten nennt den Mittelwert |
 | Anzeigeoptionen, Zinsleitwert, Öffnungszeiten der Lager | nur im Speicher, nach dem Laden auf der Vorgabe | im Raumzustand des Servers; Zinsleitwert aus Byte 35 |
 | Heim- und Auswärtstabelle ansehen | schreibt die Reihenfolgeliste und die Plätze um; beim Verlassen wird ab der Heimreihenfolge neu sortiert, bei völligem Gleichstand bleibt die Gesamtreihenfolge dauerhaft anders | nur Anzeige, der Spielstand bleibt unberührt (restroutinen.md, R13) |
 | Lebensdauer der Meldungen | verfallen nach drei Tagen (Zähler 4238:1D34) | bleiben bis "Gelesen", je Manager die 20 neuesten (so viele fasst die Tabelle des Originals) |
@@ -37,9 +36,8 @@ soll sich wie das Original verhalten; wo es das nicht tut, ist das ein Fehler.
 
 | Was | Anmerkung |
 |---|---|
-| Historische Startjahre 1964/1966 | nicht angeboten; damit steht die Bank immer auf vier Ersatzspielern (4238:56EE = 15) |
+| Historischer Start (Schalter "Histor. Start" im Startbildschirm, Bit 3 bei 0x0BBE3) | das Original beginnt dann in der Saison 1963/64 (4cb3:07E0 = 1963 aus dem Abbild, sonst 1992 bei 0x0BD63); das Remake beginnt immer 1993/94 (Audit 2 B9) |
 | Wappenleiste im Startbildschirm | die Kaderwerte, die das Original über ihre Stellung in einen fremden Spieler schreibt, landen im unbenutzten Spieler 0 (docs/abgleich/neuesspiel.md) |
-| Relegationsmeldung am 13. Juni | im Original über 4cb3:226A abgeschaltet |
 | Credits (Klick im Startbildschirm, 0x0F749) | nicht nachgebaut |
 | Stärkeliste der Zielvereine 0x0F58B | rechnet das Original aus, benutzt sie aber nicht |
 
@@ -48,3 +46,4 @@ soll sich wie das Original verhalten; wo es das nicht tut, ist das ein Fehler.
 | Was | Warum | Zweigbuch |
 |---|---|---|
 | Kleine Bank: die 13 auf einen nicht gesetzten Platz | im Standardspiel nie erreicht | 22030 |
+| 1-Jahres-Spiel und 3-Jahres-Spiel (Spielarten im Startbildschirm neben dem Endlosspiel, 0x0AD44; Endjahr-Kennung 4238:513C) | in Arbeit, #133; bis dahin bietet das Remake nur das Endlosspiel an (Audit 2 B9) | neuesspiel |
