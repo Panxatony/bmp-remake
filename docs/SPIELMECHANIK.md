@@ -699,7 +699,10 @@ Texte 4cb3:4A36+4i, 0x0BBE3-0x0BC04). 34063 (4238:513C) ist die Endjahr-Kennung:
 endlos), 1964 (1-Jahres-Spiel) bzw. 1966 (3-Jahres-Spiel); ohne historischen Start kommen 29 dazu
 (0x0BD59: 22251, 1993, 1995) und 27976 (4cb3:07E0) wird 1992 (0x0BD63), mit historischem Start
 bleibt dort 1963 aus dem Abbild. Das Standardspiel (Endlosspiel ohne historischen Start) speichert
-22251 in 34063 und 1992 in 27976 (Saison 1993/94, Kalender 29. Juli 1993).
+22251 in 34063 und 1992 in 27976 (Saison 1992/93, Kalender 29. Juli 1992). Das 1- und das
+3-Jahres-Spiel beginnen in der Bundesliga, mit eigenen Start- und Stadionwerten, und enden nach
+1992/93 bzw. 1994/95 mit Bestenliste und "ENDE" (0x1E6E1); Bestenliste HIGH.<Spielart><Level>,
++300 nur im Endlosspiel. Einzelheiten im Zweigbuch docs/abgleich/spielarten.md (#133).
 
 Spielerpool (0x3260C): Plätze 1..150 mit Gruppen Torhüter 1..19, Abwehr 20..63, Mittelfeld
 64..105, Angriff 106..150 (4cb3:07A6). Jeder Platz: Alter random(18,33), t = random(30,89) (unter

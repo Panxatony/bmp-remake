@@ -203,6 +203,21 @@ export function nextRoundDraw(g: GameState, cup: number, rng: Rng): boolean {
 }
 
 /**
+ * Steht der Verein in einem der Europapokale (0xA9B3)? `maske` Bit k-1 für Wettbewerb k (1
+ * Landesmeister, 2 Pokalsieger, 4 UEFA-Pokal); gesucht auf den 2·n Plätzen der Tabelle mit n aus
+ * 4cb3:07D6 zur Runde des Landesmeister-Pokals (4238:0009).
+ */
+export function imEuropapokal(g: GameState, club: number, maske: number): boolean {
+  const p = g.save.plain;
+  const plaetze = 2 * (ROUND_PAIRS[p[CUP_ROUND + 1]] ?? 0);
+  for (let k = 1; k <= 3; k++) {
+    if (!(maske & (1 << (k - 1)))) continue;
+    for (let i = 0; i < plaetze; i++) if (p[area(k) + i] === club) return true;
+  }
+  return false;
+}
+
+/**
  * Auslosung im DFB-Pokal mit Zeremonie (0x19111-0x191B6): vor dem gewöhnlichen Durchlauf läuft
  * 0x18DA7 noch einmal mit der alten Runde (4238:0008 zurückgezählt). Wirksam ist das nur im
  * Halbfinale - die alte Runde 3 liegt unter der Grenze 4, die neue nicht -, dort bekommt ein

@@ -10,7 +10,7 @@ import { LEAGUES } from "./fixtures.ts";
 import { playerValue } from "./value.ts";
 import { stadiumValue } from "./werbung.ts";
 import { loanTotal } from "./finance.ts";
-import { seasonStartYear } from "./calendar.ts";
+import { spielart } from "./newgame.ts";
 
 const div = (a: number, b: number): number => Math.trunc(a / b);
 
@@ -31,10 +31,9 @@ export interface HighscoreEntry {
  * Level), also das angezeigte Level. Das Remake wählt bisher nur nach dem Jahr und nimmt sonst
  * immer HIGH.02, die Liste von Level 2 im Endlosspiel (Audit 2 H7, offen).
  */
-export function highscoreFile(startYear: number): string {
-  if (startYear === 1964 || startYear === 1993) return "HIGH.00";
-  if (startYear === 1966 || startYear === 1995) return "HIGH.01";
-  return "HIGH.02";
+export function highscoreFile(g: GameState): string {
+  // Spielart-Ziffer 0/1/3 (0x344AF-0x344DB) und angezeigtes Level '5' - 4A28 (0x3449D) (#133)
+  return `HIGH.${spielart(g)}${5 - g.save.plain[34062]}`;
 }
 
 /**
@@ -82,7 +81,7 @@ export function placementPoints(g: GameState, manager: number): number {
  * Schlusswertung beim Spielende 0x1E894 mit Argument 1). Ohne ihn frisst der Abzug von 500 alles auf, und jeder Manager landete bei einem Punkt
  * (GitLab #61). Bei P4.MAN kommt damit für NORMI genau die 232 heraus, die in HIGH.02 steht.
  */
-export function highscoreEntry(g: GameState, manager: number, bonus = highscoreFile(seasonStartYear(g)) === "HIGH.02"): HighscoreEntry {
+export function highscoreEntry(g: GameState, manager: number, bonus = spielart(g) === 0): HighscoreEntry {
   const m = g.managers.at(manager);
   let points = placementPoints(g, manager);
   let wealth = 0;
@@ -147,6 +146,21 @@ export function insertHighscore(list: HighscoreEntry[], e: HighscoreEntry): High
     const last = out.length - 1;
     if (out[last].points < e.points) out[last] = e;
   }
+  out.sort((a, b) => b.points - a.points);
+  return out.slice(0, HIGHSCORE_MAX);
+}
+
+/**
+ * Einordnen beim Spielende (0x1E73C-0x1E8A4): derselbe Manager mit demselben Verein ersetzt seinen
+ * Eintrag ohne Punktevergleich; sonst kommt er nur an die letzte Stelle, wenn er mehr Punkte hat
+ * (eine leere Stelle zählt 0). Danach absteigend sortiert (#133).
+ */
+export function insertHighscoreEnde(list: HighscoreEntry[], e: HighscoreEntry): HighscoreEntry[] {
+  const out = list.slice();
+  const same = out.findIndex((x) => x.name === e.name && x.club === e.club);
+  if (same >= 0) out[same] = e;
+  else if (out.length < HIGHSCORE_MAX) out.push(e);
+  else if (out[out.length - 1].points < e.points) out[out.length - 1] = e;
   out.sort((a, b) => b.points - a.points);
   return out.slice(0, HIGHSCORE_MAX);
 }

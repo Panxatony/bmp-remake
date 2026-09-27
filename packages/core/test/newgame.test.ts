@@ -193,3 +193,37 @@ test("Manager im laufenden Spiel aufnehmen (0xAD44, Zweig 0xBDBF, #132)", async 
   assert.equal(m.u8(312), 2);
   assert.ok(m.balance >= 1500000);
 });
+
+test("Spielarten (#133): 1-/3-Jahres-Spiel beginnen in der Bundesliga mit ihren Startwerten", async () => {
+  const { spielart, endjahr, imEuropapokal } = await import("../src/index.ts");
+  const tpl = SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))).plain;
+  const mana = parseMana(new Uint8Array(readFileSync(join(BMP_DIR, "MANA.DAT"))));
+  const neu = (art: 0 | 1 | 3) => new GameState(SaveFile.decode(createGame(tpl, mana, { managers: [{ name: "Lars", club: 45, portrait: 1 }], level: 3, spielart: art }, mulberryRng(7)).encode()));
+  const endlos = neu(0);
+  assert.equal(spielart(endlos), 0);
+  assert.equal(endjahr(endlos), 22251);
+  assert.ok(endlos.managers.at(0).clubIndex >= 38);
+  const drei = neu(3);
+  const m3 = drei.managers.at(0);
+  assert.equal(endjahr(drei), 1995);
+  assert.ok(m3.clubIndex < 18, "Bundesliga");
+  assert.equal(m3.u8(312), 0);
+  assert.equal(m3.u8(266), 16);
+  assert.equal(m3.i32(350), 6000);
+  assert.equal(m3.i32(358), 20000);
+  assert.equal(m3.i32(382), 1);
+  assert.equal(m3.i32(374), 2);
+  assert.ok(!imEuropapokal(drei, m3.clubIndex, 7), "kein Europapokalverein");
+  const eins = neu(1);
+  const m1 = eins.managers.at(0);
+  assert.equal(endjahr(eins), 1993);
+  assert.ok(m1.clubIndex < 18);
+  assert.equal(m1.u8(309), 1);
+  assert.ok(imEuropapokal(eins, m1.clubIndex, 4), "UEFA-Pokal-Platz übernommen");
+  assert.equal(m1.u8(266), 18);
+  assert.equal(m1.i32(350), 11000);
+  assert.equal(m1.i32(358), 30000);
+  assert.deepEqual([m1.i32(390), m1.i32(398), m1.i32(382), m1.i32(374)], [5, 4, 3, 3]);
+  // Kaderbasis: Level 3 -> 3/2 + 27 + 41 + 12 = 81, Werte random(81, 86)
+  for (const l of eins.squadOf(0)) assert.ok(l.u8(16) >= 81 && l.u8(16) <= 86, `Kondition ${l.u8(16)}`);
+});

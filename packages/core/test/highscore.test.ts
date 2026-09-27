@@ -26,9 +26,19 @@ test("Highscore: Datei HIGH.02 lesen und byteidentisch zurückschreiben, Einordn
   assert.equal(list.length, 20);
   assert.equal(list[0].points, 200);
   assert.ok(list.every((e, i) => i === 0 || list[i - 1].points >= e.points));
-  assert.equal(highscoreFile(1993), "HIGH.00");
-  assert.equal(highscoreFile(1995), "HIGH.01");
-  assert.equal(highscoreFile(1997), "HIGH.02");
+  // Dateiname aus Spielart (4238:513C) und angezeigtem Level (0x3449D-0x344DB, #133)
+  const g = load("TEST4.MAN");
+  const setze = (jahr: number, level: number) => {
+    g.save.plain[34063] = jahr & 0xff;
+    g.save.plain[34064] = jahr >> 8;
+    g.save.plain[34062] = level;
+  };
+  setze(22251, 3);
+  assert.equal(highscoreFile(g), "HIGH.02");
+  setze(1993, 3);
+  assert.equal(highscoreFile(g), "HIGH.12");
+  setze(1995, 1);
+  assert.equal(highscoreFile(g), "HIGH.34");
 });
 
 test("Highscore: Platzierungspunkte und Eintrag aus TEST4", () => {

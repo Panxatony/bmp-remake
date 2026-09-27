@@ -13,7 +13,7 @@ import type { Rng } from "./match.ts";
 import type { ManaData } from "../data/mana.ts";
 import { swapClubs, shuffleLeagues, CALENDAR_TEMPLATE } from "./season.ts";
 import { writePairings, anzeigeStaerke } from "./matchday.ts";
-import { initialDraw, clearCupResults, europeanParticipants, ORDER_LIST, EU_LIST, EU_SLOTS, DFB_WINNER, PLAYOFF_FIRST_LEG, PLAYOFF_RESULT, CUP_TABLE, CUP_ROUND, LEG_FLAG, CUP_RESULTS, FIRST_LEG } from "./europa.ts";
+import { initialDraw, imEuropapokal, clearCupResults, europeanParticipants, ORDER_LIST, EU_LIST, EU_SLOTS, DFB_WINNER, PLAYOFF_FIRST_LEG, PLAYOFF_RESULT, CUP_TABLE, CUP_ROUND, LEG_FLAG, CUP_RESULTS, FIRST_LEG } from "./europa.ts";
 import { generateOffers, SHIRT_OFFSET, ADV_OFFSET } from "./werbung.ts";
 import { playerValue } from "./value.ts";
 import { driftClubs } from "./ai.ts";
@@ -46,6 +46,8 @@ export interface NewGameOptions {
    * Spielertabelle (s. u.). Das Remake hat keine Leiste: Vorgabe 0, also Spieler 0.
    */
   leiste?: number;
+  /** Spielart (#133): 0 Endlosspiel, 1 1-Jahres-Spiel, 3 3-Jahres-Spiel; Vorgabe 0 */
+  spielart?: Spielart;
   /** Kontrollpunkte des bytegenauen Vergleichs (kontrollpunkte.py 44..68, #100) */
   kp?: (punkt: number, stand: Uint8Array) => void;
 }
@@ -58,6 +60,25 @@ const GROUP_SIZE = [19, 44, 42, 45];
 const NAME_RANGE = [0, 2, 8, 15, 20];
 const HISTORY = 28435;
 const YEAR_MARK = 22251;
+
+/**
+ * Spielart aus der Endjahr-Kennung 4238:513C (Save 34063, 0xBD17-0xBD63): das Kalenderjahr am Ende
+ * der letzten Saison - 1993 (1-Jahres-Spiel), 1995 (3-Jahres-Spiel), mit historischem Start 1964
+ * bzw. 1966; alles andere ist das Endlosspiel (22251, 22222). Alle Leser des Originals vergleichen
+ * mit diesen festen Jahren (#133).
+ */
+export type Spielart = 0 | 1 | 3;
+export const ENDJAHR = 34063;
+export const SPIELART_ENDJAHR: Record<Spielart, number> = { 0: YEAR_MARK, 1: 1993, 3: 1995 };
+export function endjahr(g: GameState): number {
+  return g.save.plain[ENDJAHR] | (g.save.plain[ENDJAHR + 1] << 8);
+}
+export function spielart(g: GameState): Spielart {
+  const j = endjahr(g);
+  if (j === 1993 || j === 1964) return 1;
+  if (j === 1995 || j === 1966) return 3;
+  return 0;
+}
 
 /** Zeichenkette Byte für Byte; Namen aus MANA.DAT stehen schon im Zeichensatz des Spiels (0xDC in "LÜTTICH") */
 function writeStr(p: Uint8Array, off: number, len: number, s: string): void {
@@ -214,7 +235,9 @@ function buildPlayerPool(g: GameState, mana: ManaData, rng: Rng): void {
     const grp = idx < 20 ? 0 : idx < 64 ? 1 : idx < 106 ? 2 : 3;
     const r = randomName(g, mana, grp, rng);
     writeStr(g.save.plain, TABLES.players.offset + idx * 37, 26, r.name);
-    g.players.at(idx).setU8(36, 0xff);
+    // Vereinslos nur bei Endjahr über 2000 (0x329C5): im 1-/3-Jahres-Spiel behalten sie den
+    // Bundesligaverein aus 0x324DE, und die Vereinsverteilung lässt sie aus (#133)
+    g.players.at(idx).setU8(36, endjahr(g) > 2000 ? 0xff : r.club);
   }
   for (let idx = 1; idx < 151; idx++) {
     const pos = idx <= 20 ? 0 : idx <= 63 ? 25 + rng(0, 16) : idx <= 105 ? 50 + rng(0, 16) : 75 + rng(0, 16);
@@ -285,8 +308,9 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
   p[34062] = Math.max(1, Math.min(4, opt.level));
   p[RULES_OFFSET] = opt.rules === RULES_2026 ? RULES_2026 : RULES_ORIGINAL;
   p.fill(0, POACH_COUNT_OFFSET, POACH_COUNT_OFFSET + 16); // Abwerbezähler der Version 2026
-  p[34063] = YEAR_MARK & 0xff;
-  p[34064] = YEAR_MARK >> 8;
+  const kennung = SPIELART_ENDJAHR[opt.spielart ?? 0] ?? YEAR_MARK;
+  p[ENDJAHR] = kennung & 0xff;
+  p[ENDJAHR + 1] = kennung >> 8;
   p[SCALARS.managerCount] = opt.managers.length;
   // Vereine (0x299DC)
   kp(44);
@@ -350,7 +374,7 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
   // Managerschleife (0x0AD44 ab 0xBDB8)
   const level = p[34062];
   const managers = g.activeManagers();
-  managers.forEach((_, mi) => managerSchleife(g, mi, level, opt.leiste ?? 0, rng, kp));
+  managers.forEach((_, mi) => managerSchleife(g, mi, level, opt.leiste ?? 0, rng, kp, false));
   // Spieltage, Pokale, Markt, Kalender, Datum
   for (let l = 0; l < 3; l++) {
     p[SCALARS.nextMatchday + l] = 1;
@@ -368,8 +392,9 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
   kp(56);
   initialDraw(g, 0, rng);
   for (let cup = 1; cup < 4; cup++) kp(57);
+  // Das 1-Jahres-Spiel behält die UEFA-Pokal-Runde aus der Managerschleife (Byte 309 = 1, #133)
   managers.forEach((m) => {
-    for (let cup = 1; cup < 4; cup++) m.setU8(306 + cup, 0);
+    for (let cup = 1; cup < 4; cup++) if (!(cup === 3 && spielart(g) === 1)) m.setU8(306 + cup, 0);
   });
   kp(58);
   // Transfermarkt: dieselbe Erneuerung 0x245A8 wie im Tagesablauf (bis #100 eine eigene Füllung
@@ -400,27 +425,57 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
  * Fernsehgeld, Werbeangebote, Kontostand, Aufstellung. Neues Spiel und Aufnahme (#132) gehen
  * beide hier durch.
  */
-function managerSchleife(g: GameState, mi: number, level: number, leiste: number, rng: Rng, kp: (k: number) => void): void {
+function managerSchleife(g: GameState, mi: number, level: number, leiste: number, rng: Rng, kp: (k: number) => void, aufnahme: boolean): void {
   const p = g.save.plain;
   const o = TABLES.managers.offset + 778 * mi;
   const managers = g.activeManagers();
-  const club = managers[mi].clubIndex;
-  const cls = club < 18 ? 1 : club < 38 ? 2 : 4;
-  // Stehen bleibt nur ein Oberligist bis Verein 57 (4cb3:2277, 0xC6D9); Verein 58 wird getauscht
-  if (!(cls === 4 && club <= 57)) {
-    let y: number;
-    do y = rng(38, 57);
-    while (managers.slice(0, mi).some((x) => x.clubIndex === y));
-    kp(50);
-    swapClubs(g, club, y, false);
+  const art = spielart(g);
+  const e1 = art === 1 ? 1 : 0;
+  // Liga (0xC5D7-0xC60E): 1-/3-Jahres-Spiel in der Bundesliga, sonst Oberliga. Bei der Aufnahme
+  // hängt es am ungespeicherten Merker 4238:56F4; das Remake verhält sich wie nach dem Laden
+  // (56F4 = 0, wie bei den Jugendspielern, #134): Aufgenommene beginnen in der Oberliga
+  const league = art !== 0 && !aufnahme ? 0 : 2;
+  // Werbetabelle 4cb3:066C im 1-Jahres-Spiel (0xC532-0xC5A7): Trikot 180.000, sechs Banden je
+  // 45.000, Werbeausgaben 30.000
+  if (e1) {
+    writeI32(p, ADV_OFFSET + mi * 36, 180000);
+    for (let i = 1; i <= 6; i++) writeI32(p, ADV_OFFSET + mi * 36 + 4 * i, 45000);
+    writeI32(p, ADV_OFFSET + mi * 36 + 32, 30000);
+  }
+  const tausch = (von: number, nach: number) => {
+    swapClubs(g, von, nach, false);
     // 0xAB84 tauscht die beiden Tabellensätze gleich wieder zurück (0xBFB9): die Tabelle bleibt
     const t = TABLES.standings;
-    const a = g.save.plain.slice(t.offset + club * t.record, t.offset + (club + 1) * t.record);
-    g.save.plain.copyWithin(t.offset + club * t.record, t.offset + y * t.record, t.offset + (y + 1) * t.record);
-    g.save.plain.set(a, t.offset + y * t.record);
+    const a = g.save.plain.slice(t.offset + von * t.record, t.offset + (von + 1) * t.record);
+    g.save.plain.copyWithin(t.offset + von * t.record, t.offset + nach * t.record, t.offset + (nach + 1) * t.record);
+    g.save.plain.set(a, t.offset + nach * t.record);
+  };
+  const club = managers[mi].clubIndex;
+  const cls = club < 18 ? 1 : club < 38 ? 2 : 4;
+  // Tausch des Wunschvereins (0xC6AC-0xC731, 0xBF3C-0xBFBC): in der Oberliga bleibt ein
+  // Oberligist bis Verein 57 (4cb3:2277); in der Bundesliga wird immer getauscht. Das Ziel liegt
+  // in der Liga (226E/225E: 0..17 bzw. 38..57), gehört keinem früheren Manager und steht in
+  // keinem Europapokal (0xA9B3 mit Maske 7) (#133)
+  if (league === 0 || !(cls === 4 && club <= 57)) {
+    const [von, bis] = league === 0 ? [0, 17] : [38, 57];
+    let y: number;
+    do y = rng(von, bis);
+    while (managers.slice(0, mi).some((x) => x.clubIndex === y) || imEuropapokal(g, y, 7));
+    kp(50);
+    tausch(club, y);
   }
-  const league = 2;
-  const b = div(level, 2) + 27;
+  // 1-Jahres-Spiel, nur beim neuen Spiel (0xBFBE-0xC0A6): Byte 309 = 1 (UEFA-Pokal, Runde 1),
+  // dann übernimmt der Verein den Platz eines UEFA-Pokal-Teilnehmers (0xA9B3 mit Maske 4)
+  if (e1 && !aufnahme) {
+    p[o + 309] = 1;
+    const jetzt = g.managers.at(mi).clubIndex;
+    let y: number;
+    do y = rng(0, 17);
+    while (managers.some((x) => x.clubIndex === y) || !imEuropapokal(g, y, 4));
+    tausch(jetzt, y);
+  }
+  // Kaderbasis (0xC672-0xC6A8): Level/2 + 27, in der Bundesliga + 41, im 1-Jahres-Spiel + 12
+  const b = div(level, 2) + 27 + (league === 0 ? 41 : 0) + (e1 ? 12 : 0);
   // Kaderwerte (0xC0A8 bis 0xC1AE): je Wert random(b, b+5) und immer auch random(40,60) - die
   // Form nimmt den zweiten. Die Spielertabelle (Bytes 28, 29, 30) schreibt das Original über
   // -0x4 - das ist aber die Stellung der Wappenleiste aus dem Startbildschirm, nicht der Spieler
@@ -457,12 +512,20 @@ function managerSchleife(g: GameState, mi: number, level: number, leiste: number
   [5, 4, 6, 5, 6].forEach((v, i) => (p[o + 321 + i] = v));
   [1, 3, 3, 3].forEach((v, i) => (p[o + 326 + i] = v));
   p[o + 312] = league;
-  p[o + 266] = 2 * 8 - 3 * league;
-  writeI32(p, o + 358, 4000 * (5 - league));
-  writeI32(p, o + 350, 3000 * (2 - league));
+  // Eintritt 2·(8 + e1) - 3·Liga (0xC270); Stadion (0xC2B6-0xC4AF): Steh- und Sitzplätze nach Liga,
+  // im 1-Jahres-Spiel +10.000/+5.000, Zustand und Komfort +1; bei Endjahr unter 2000 dazu
+  // Anzeigetafel 3 - 2·e3 und Flutlicht 3 - e3 (e3 im 3-Jahres-Spiel) (#133)
+  p[o + 266] = 2 * (8 + e1) - 3 * league;
+  writeI32(p, o + 358, 4000 * (5 - league) + (e1 ? 10000 : 0));
+  writeI32(p, o + 350, 3000 * (2 - league) + (e1 ? 5000 : 0));
   writeI32(p, o + 366, 3500 * (2 - league));
-  writeI32(p, o + 390, 4);
-  writeI32(p, o + 398, 3);
+  writeI32(p, o + 390, 4 + e1);
+  writeI32(p, o + 398, 3 + e1);
+  if (endjahr(g) < 2000) {
+    const e3 = spielart(g) === 3 ? 1 : 0;
+    writeI32(p, o + 382, 3 - 2 * e3);
+    writeI32(p, o + 374, 3 - e3);
+  }
   p[o + 305] = 16;
   const fans = (50 - 20 * league) & 0xffff;
   p[o + 476] = fans & 0xff;
@@ -530,7 +593,7 @@ export function managerAufnehmen(g: GameState, neue: NewGameManager[], rng: Rng,
   }
   const level = p[34062];
   for (const mi of plaetze) {
-    managerSchleife(g, mi, level, leiste, rng, () => {});
+    managerSchleife(g, mi, level, leiste, rng, () => {}, true);
     anzeigeStaerke(g, mi);
   }
   return plaetze;
