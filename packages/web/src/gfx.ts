@@ -278,6 +278,7 @@ export class Assets {
     for (let i = 80; i <= 147; i++) names.push(i + ".VGA");
     names.push("44.VGA"); // Zeitungskopf
     names.push("41.VGA"); // Bild der Scherztage (0x1CF86, #120)
+    names.push("42.VGA"); // Bild der Weihnachtsseite (0x1CF86 mit Index 0, Audit 2 E5)
     // Pokale des Abschlussbilds: Meisterschale, DfB-Pokal, Landesmeister, Pokalsieger, UEFA
     for (let i = 50; i <= 54; i++) names.push(i + ".VGA");
     names.push("47.VGA"); // Auslosungstafel

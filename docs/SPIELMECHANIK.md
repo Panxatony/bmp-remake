@@ -932,7 +932,7 @@ Spalte 100, AUS hell ab 124, AN gedrückt ab 148, AUS gedrückt ab 172.
 Darunter der Geschwindigkeitsregler (0x26376): die Leiste 100x19 aus derselben Grafik bei
 (190,155), die Bahn davon x 202..277 wird mit Farbe 5 freigeräumt, der Knopf ist 6x7 bei
 (202 + Wert, 161) - Füllung 18, links und oben 17 mit Farbe 16 in der Ecke, rechts und unten 19.
-Der Wert steht im Original in DGROUP 0x63A und reicht von 0 bis 75 (Vorgabe 40).
+Der Wert steht im Original in DGROUP 0x63A und reicht von 0 bis 70 (Vorgabe 40; der Regler begrenzt x auf 202..272, 0x26D1B).
 
 Die Schalter stehen **nicht im Spielstand**: in vierzig .MAN-Dateien gibt es kein Fenster von
 fünfzehn Bytes, das nur Nullen und Einsen enthält und dabei mindestens zehn Einsen hat, und
@@ -1341,6 +1341,9 @@ Farbe 29, Datum und acht Briefzeilen in Farbe 11, "Oh happy day !!!" in Farbe 19
 Schweigeminute (1080 Timerticks); wer vorher klickt, bekommt "Das war keine Minute ! Schämen Sie
 Sich !" und nach 150 Ticks ist es vorbei. Seit #120 zeigt das Remake sie jedem Spieler-Manager
 nach dem Tageswechsel (`scherztagWurf` liefert den Index; der Wurf random(0,3) wie bisher).
+Weihnachten zeigt denselben Rahmen mit Bild 42, "Frohe Weihnachten !" in Farbe 19, die fünf
+Briefzeilen und in kleiner Schrift die Beträge mit Tausenderpunkten; die Seite steht bis zum
+Klick. Das Remake zeigt sie seit Audit 2 (E5) ebenfalls als Sonderseite statt als Meldung.
 
 ## Automatische Aufstellung (0x22030, Spielerwahl 0x22305, Feldpositionen 0x0F125; sim/lineup.ts)
 

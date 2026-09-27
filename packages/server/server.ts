@@ -67,7 +67,6 @@ import {
   acceptSubsidy,
   christmasPresents,
   scherztagWurf,
-  christmasLines,
   playCupDay,
   playEuropaDay,
   playPlayoffDay,
@@ -683,7 +682,7 @@ interface Room {
   /** Zusagen der Geldgeber mit Laufzeit und Zins, die der Borger noch annehmen muss (#107) */
   loanOffers: { borrower: number; lender: number; amount: number; months: number; rate: number }[];
   /** Sonderseiten des Tagesablaufs je Spieler-Manager: Winterpause, Scherztage (#120) */
-  sonderseiten: { manager: number; art: "winter" | "scherz1" | "scherz2"; tag: number; monat: number; saisontag?: number }[];
+  sonderseiten: { manager: number; art: "winter" | "scherz1" | "scherz2" | "weihnacht" | "saisonende"; tag: number; monat: number; saisontag?: number; betrag?: number }[];
   /** Saison, deren Winterpause schon angezeigt wurde */
   winterJahr?: number;
   /**
@@ -1221,6 +1220,10 @@ function saisonwechselBeginnen(r: Room): void {
     r.log.push(`Highscore-Datei nicht geschrieben: ${String(err)}`);
   }
   r.msgFlags = [];
+  // Titelseite "SAISONENDE" vor den Ewigkeitspunkten (0x1EB17 ruft 0x32F2 ohne Bedingung, Audit 2 E7)
+  g.activeManagers().forEach((_, i) => {
+    if (!isAi(g, i)) r.sonderseiten.push({ manager: i, art: "saisonende", tag: 0, monat: 0 });
+  });
   const { events } = saisonwechselTeil1(g, r.rng, true);
   // Anzeigeoptionen je Liga wie im Original an die neuen Ligen der Manager anpassen (0x0DA40)
   const managerJeLiga = [0, 0, 0];
@@ -1897,7 +1900,7 @@ function finanzTag(r: Room, dt: { day: number; month0: number; year: number }, s
       // Fanerhöhung (0x11F76) schreibt keine Meldung, und Einnahmen und Ausgaben stehen im
       // Finanzbildschirm, nicht in der Meldungsliste. Sie bleiben deshalb im Verlauf.
       if (ev.kind === "repaid") hinweis(wrap(ev.text));
-      else if (ev.kind === "riot" || ev.kind === "komfort") pushMessage(r, i, wrap(ev.text), dt);
+      else if (ev.kind === "riot" || ev.kind === "komfort") pushMessage(r, i, ev.zeilen ?? wrap(ev.text), dt);
       // Jugendförderung (Version 2026, #4) läuft mit der Monatsabrechnung
       if (ev.kind !== "month") continue;
       // Förderung nur für Spieler-Manager: ein Rechner-Manager holt nie jemanden herauf (#112)
@@ -1928,10 +1931,10 @@ function finanzTag(r: Room, dt: { day: number; month0: number; year: number }, s
   if (dt.day === 24 && dt.month0 === 11) {
     const x = christmasPresents(g, r.rng);
     if (x) {
+      // Das Original zeigt dafür eine eigene Seite mit Bild 42 (0x1CF86 mit Index 0), keine
+      // Meldung; sie steht bis zum Klick (Audit 2 E5)
       g.activeManagers().forEach((m, i) => {
-        const lines = [T("quell.server", 6)];
-        if (x.base > 0) lines.push(...christmasLines(), `BUNDESLIGA: ${x.base} DM, 2.LIGA: ${Math.trunc(x.base / 2)} DM,`, `AMATEUR-OBERLIGA: ${Math.trunc(x.base / 3)} DM (INCL. MWST.)`);
-        pushMessage(r, i, lines, dt);
+        if (!isAi(g, i)) r.sonderseiten.push({ manager: i, art: "weihnacht", tag: dt.day, monat: dt.month0, saisontag, betrag: x.base });
         r.log.push(`${dt.day}.${dt.month0 + 1}. ${m.displayName}: Frohe Weihnachten${x.base > 0 ? `, Weihnachtspakete ${x.amounts[i]} DM` : ""}`);
       });
     }
@@ -2172,7 +2175,7 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
         for (const e of t.reihe) {
           if (e.art === "stadion") {
             r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${e.ev.text}`);
-            pushMessage(r, i, wrap(e.ev.text), datum(e.ev.zurueck));
+            pushMessage(r, i, e.ev.zeilen ?? wrap(e.ev.text), datum(e.ev.zurueck));
           } else if (e.art === "transfer") {
             r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${e.ev.lines.join(" ")}`);
             pushMessage(r, i, e.ev.lines, datum(e.ev.zurueck));

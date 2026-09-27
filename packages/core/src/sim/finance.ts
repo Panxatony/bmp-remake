@@ -139,7 +139,12 @@ export interface FinanceEvent {
   kind: "riot" | "interest" | "repaid" | "month" | "fans" | "komfort";
   text: string;
   amount?: number;
+  /** Feste Zeilen der Meldung, wie das Original sie an 0x0239E gibt (Randale, Komfort) */
+  zeilen?: string[];
 }
+
+/** Betrag mit Tausenderpunkten wie 0x7D31 mit 4cb3:07B2 = 0. */
+const mitPunkten = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 
 /**
  * Tägliche Finanzroutine je Manager (0x11D0D und Krawall aus 0x0DF0D): Krawallschaden,
@@ -250,7 +255,9 @@ export function stadionTag(g: GameState, manager: number, rng: Rng, teil: "alles
     damage = div(damage, 1000) * 1000;
     writeI32(g, manager, 496, m.i32(496) - damage);
     m.setU8(318, m.u8(318) & ~1);
-    const riot: FinanceEvent = { kind: "riot", text: `${texte("ui.randale").join(" ")}${damage} DM an.`, amount: damage };
+    // Drei feste Zeilen (0x0E21A-0x0E3A5), der Betrag mit Tausenderpunkten (0x0E375, Audit 2 B21)
+    const r = texte("ui.randale");
+    const riot: FinanceEvent = { kind: "riot", text: `${r.join(" ")}${damage} DM an.`, amount: damage, zeilen: [r[0], r[1], `${r[2]}${mitPunkten(damage)} DM an.`] };
     events.push(riot);
     // Danach leidet das Stadion (0x0E3BC bis 0x0E41F): Komfortnote 390 sinkt um eins, solange
     // sie über 1 liegt - mit einem Drittel, und wer nach dem Schaden noch mehr als 2 Mio. DM
@@ -277,7 +284,7 @@ export function stadionTag(g: GameState, manager: number, rng: Rng, teil: "alles
   const wurf = teil !== "krawall" ? rng(0, 442 - 52 * komfort) : -1;
   if (wurf === 0 && komfort > 1 && m.u8(312) === 0) {
     writeI32(g, manager, 398, komfort - 1);
-    events.push({ kind: "komfort", text: texte("ui.komfort").join(" "), zurueck: meldung?.() ?? 0 });
+    events.push({ kind: "komfort", text: texte("ui.komfort").join(" "), zeilen: texte("ui.komfort"), zurueck: meldung?.() ?? 0 });
   }
   return events;
 }
