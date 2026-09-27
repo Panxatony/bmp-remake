@@ -400,7 +400,10 @@ je Pokal, 0x80 = frei) zufällige Plätze 1..31, die einen Auslandsverein tragen
 Byte 306 + Pokal = 1 für Teilnehmer, sonst 30. Folgerunden (0x18FC2): die Sieger stehen
 nach dem Rundenabschluss auf den geraden Plätzen, werden zusammengeschoben, mit zwanzig
 Zufallstauschen random(1,n)-1 gemischt und paarweise gelesen; DFB-Pokal wieder mit
-Heimrecht für Unterklassige.
+Heimrecht für Unterklassige. Mit Zeremonie läuft der Tausch zusätzlich mit der alten Runde
+(0x19185): im Halbfinale hat der Unterklassige also nur dann Heimrecht, wenn jemand die
+Zeremonie sieht (#131). In der Version 2026 läuft dieser Tausch immer, das Heimrecht im
+Halbfinale hängt nicht an der Zeremonie (#140); Finale und Europapokale ohne Tausch.
 
 Spielablauf: 1..45, 46..90. In der Verlängerung geht der Heimwert mit der Markierung +10 in
 den Torwürfel: das Original liest dort das Ergebnisbyte, in dem sie schon steht. DFB-Pokal:

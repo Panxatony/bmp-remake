@@ -348,3 +348,24 @@ test("DFB-Halbfinale mit Zeremonie: Unterklassiger auf dem Gastplatz bekommt Hei
   zeremonieHeimrecht(g);
   assert.deepEqual([0, 1, 2, 3].map((i) => p[CUP_TABLE + i]), [5, 45, 50, 12]);
 });
+
+test("Version 2026: Heimrecht im DFB-Halbfinale immer beim Unterklassigen, auch ohne Zeremonie (#140)", async () => {
+  const { nextRoundDraw, CUP_TABLE, CUP_ROUND, is2026, setRuleSet, RULES_2026, RULES_ORIGINAL } = await import("../src/index.ts");
+  const lauf = (regeln: number, seed: number) => {
+    const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+    setRuleSet(g, regeln === 1 ? RULES_2026 : RULES_ORIGINAL);
+    const p = g.save.plain;
+    // Viertelfinale gespielt: die Sieger stehen auf den geraden Plätzen 0, 2, 4, 6
+    p[CUP_ROUND] = 3;
+    [5, 0, 45, 0, 12, 0, 50, 0].forEach((c, i) => (p[CUP_TABLE + i] = c));
+    assert.equal(is2026(g), regeln === 1);
+    nextRoundDraw(g, 0, mulberryRng(seed));
+    // Paare: Plätze 0/1 und 2/3; ein Oberligist (45, 50) gegen einen Bundesligisten steht zu Hause
+    const paare = [[p[CUP_TABLE], p[CUP_TABLE + 1]], [p[CUP_TABLE + 2], p[CUP_TABLE + 3]]];
+    return paare.filter(([h, a]) => (h >= 38) !== (a >= 38)).every(([h]) => h >= 38);
+  };
+  // Ein Zufallswert, bei dem das Original (ohne Zeremonie) einen Oberligisten auswärts spielen lässt
+  let seed = 0;
+  while (lauf(0, seed)) seed++;
+  assert.equal(lauf(1, seed), true);
+});

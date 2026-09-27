@@ -29,6 +29,7 @@ import { riotCheck } from "./finance.ts";
 import { isForfeit, bookForfeit } from "./incidents.ts";
 import { addBalance } from "./transfer.ts";
 import type { MatchSim } from "./live.ts";
+import { is2026 } from "./regeln.ts";
 
 const defaultSim: MatchSim = (_h, _a, hs, as, r) => simulateMatch(hs, as, r, true);
 
@@ -195,6 +196,9 @@ export function nextRoundDraw(g: GameState, cup: number, rng: Rng): boolean {
     p[a + y] = t;
   }
   if (cup === 0) for (let slot = 0; slot < n; slot++) lowerClassHome(g, slot);
+  // Version 2026: der Unterklassige hat im DFB-Pokal immer Heimrecht, auch im Halbfinale ohne
+  // Zeremonie (#140)
+  if (cup === 0 && is2026(g)) zeremonieHeimrecht(g);
   return true;
 }
 
