@@ -690,8 +690,8 @@ Verein 23 Bytes Name und bei den 64 deutschen Vereinen 20 Spielernamen zu 26 Byt
 5 Abwehr, 8 Mittelfeld, 5 Angriff). Spielerwerte stehen nicht in der Datei, sie werden gewürfelt.
 
 Ablauf: Tabellenreihenfolge 28244 und Plätze = Identität; Historieblock 28435 gelöscht, die
-Bilanzen gegen jeden Verein (4 x 640 Bytes) auf 0xFF; Manager Byte 306..310 = 30, Porträt 29 =
-Platz + 1; Ligaplätze mischen (0x3AC5); Europapokalteilnehmer und Auslosung der Europapokale.
+Bilanzen gegen jeden Verein (4 x 640 Bytes) auf 0xFF; Porträt 29 = Platz + 1 (die Schleife
+0x8DBB, die Byte 306..310 = 30 schreibt, läuft bei 07AB = 0 nicht); Ligaplätze mischen (0x3AC5); Europapokalteilnehmer und Auslosung der Europapokale.
 Im Startbildschirm wählt jeder Manager Name, Porträt (1..4) und Wunschverein aus der Logoleiste,
 dazu Spiel-Level (Anzeige 1..4, gespeichert 5 - Anzeige in 34062) und Startjahr; das Standardspiel
 speichert 22251 in 34063 und 1992 in 27976 (Saison 1993/94, Kalender 29. Juli 1993).
@@ -720,7 +720,10 @@ Eintritt 2·8 - 3·Liga = 10 DM; Stehplätze 4000·(5 - Liga) = 12000, Sitze 300
 20·Liga = 10; Trainer (0x09623) = L·(random(15,20) + 40) + ((L·(110 - Fans)) & 0xFE)·500 mit
 L = 2 - Liga, danach mal random(10·(L+10), 25·(L+4))/100; Fernsehgeld 1000·(30·L + Fans);
 Sponsorenangebote; Kontostand 1.500.000 DM (Level 4 gespeichert: 1.900.000), Zuschauerminimum
-99999; Bytes 267..304 = 10; Historie 62..261 = 0xFF. Nach dem Startbildschirm (0x942A bis 0x9482):
+99999. (Bytes 267..304 = 10, 306..310 = 30 und Verlauf 62 + 4i = 0xFF setzt nur die Aufnahme in
+ein laufendes Spiel, Zweig 0xBDBF: dort bekommen die Neuen je Mannschaftsteil 2/5/8/5 freie
+Spieler mit einem Jahr Vertrag und laufen dann durch dieselbe Managerschleife, ohne neuen Pool
+und ohne Zinstabelle - `managerAufnehmen`, #132.) Nach dem Startbildschirm (0x942A bis 0x9482):
 Schwankung der Vereinsmatrix mit 10 (0x10067), Vereinsverteilung (0x1643B; das Jahr 4238:A7A0 steht
 noch auf 0, also bekommen nur vereinslose Spieler einen Verein), DFB-Pokal-Auslosung mit gesetzten
 Managervereinen, Transfermarkt mit derselben Erneuerung wie im Tagesablauf (0x245A8). Der erste

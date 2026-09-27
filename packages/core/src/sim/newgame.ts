@@ -12,7 +12,7 @@ import { GameState, TABLES, SCALARS } from "../records.ts";
 import type { Rng } from "./match.ts";
 import type { ManaData } from "../data/mana.ts";
 import { swapClubs, shuffleLeagues, CALENDAR_TEMPLATE } from "./season.ts";
-import { writePairings } from "./matchday.ts";
+import { writePairings, anzeigeStaerke } from "./matchday.ts";
 import { initialDraw, clearCupResults, europeanParticipants, ORDER_LIST, EU_LIST, EU_SLOTS, DFB_WINNER, PLAYOFF_FIRST_LEG, PLAYOFF_RESULT, CUP_TABLE, CUP_ROUND, LEG_FLAG, CUP_RESULTS, FIRST_LEG } from "./europa.ts";
 import { generateOffers, SHIRT_OFFSET, ADV_OFFSET } from "./werbung.ts";
 import { playerValue } from "./value.ts";
@@ -350,80 +350,7 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
   // Managerschleife (0x0AD44 ab 0xBDB8)
   const level = p[34062];
   const managers = g.activeManagers();
-  managers.forEach((m, mi) => {
-    const o = TABLES.managers.offset + 778 * mi;
-    const club = m.clubIndex;
-    const cls = club < 18 ? 1 : club < 38 ? 2 : 4;
-    // Stehen bleibt nur ein Oberligist bis Verein 57 (4cb3:2277, 0xC6D9); Verein 58 wird getauscht
-    if (!(cls === 4 && club <= 57)) {
-      let y: number;
-      do y = rng(38, 57);
-      while (managers.slice(0, mi).some((x) => x.clubIndex === y));
-      kp(50);
-      swapClubs(g, club, y, false);
-      // 0xAB84 tauscht die beiden Tabellensätze gleich wieder zurück (0xBFB9): die Tabelle bleibt
-      const t = TABLES.standings;
-      const a = g.save.plain.slice(t.offset + club * t.record, t.offset + (club + 1) * t.record);
-      g.save.plain.copyWithin(t.offset + club * t.record, t.offset + y * t.record, t.offset + (y + 1) * t.record);
-      g.save.plain.set(a, t.offset + y * t.record);
-    }
-    const league = 2;
-    const b = div(level, 2) + 27;
-    // Kaderwerte (0xC0A8 bis 0xC1AE): je Wert random(b, b+5) und immer auch random(40,60) - die
-    // Form nimmt den zweiten. Die Spielertabelle (Bytes 28, 29, 30) schreibt das Original über
-    // -0x4 - das ist aber die Stellung der Wappenleiste aus dem Startbildschirm, nicht der Spieler
-    // des Kaderplatzes: die Kaderspieler behalten ihre Poolwerte, und der Spieler mit der Nummer
-    // der Leistenstellung bekommt die Werte des letzten Kaderplatzes (NG18 gegen das Original:
-    // ein Klick auf das Wappen, Spieler 1 mit 28/33/47, #100)
-    const zeiger = g.players.at((opt.leiste ?? 0) & 63);
-    // Die Schleife zählt die Kader aller vier Manager (0xC188: 0x31A19 mit dem Schleifenzähler),
-    // schreibt aber immer in den Kader dessen, der gerade angelegt wird (0xC0E8, 25·304A): mit N
-    // Managern würfelt jeder N·20·6 Mal, es bleibt die letzte Runde (#129, Audit 2 B5). Die
-    // Kader der Plätze ab N sind leer.
-    const belegt = (r: number) => {
-      if (r >= opt.managers.length) return 0;
-      let k = 0;
-      for (let i = 0; i < 24; i++) if (!g.lineups.at(r * 25 + i).isEmpty) k++;
-      return k;
-    };
-    for (let r = 0; r < 4; r++) {
-      const anzahl = belegt(r);
-      for (let slot = 0; slot < anzahl; slot++) {
-        const l = g.lineups.at(mi * 25 + slot);
-        for (let k = 0; k < 3; k++) {
-          const v = rng(b, b + 5);
-          const f = rng(40, 60);
-          l.setU8(16 + k, k === 2 ? f : v);
-          zeiger.setU8(28 + k, k === 2 ? f : v);
-        }
-      }
-    }
-    g.squadOf(mi).forEach((_, slot) => {
-      kp(52);
-      writeI32(p, TABLES.lineups.offset + (mi * 25 + slot) * 52 + 40, playerValue(g, mi, slot, 1, rng));
-    });
-    [5, 4, 6, 5, 6].forEach((v, i) => (p[o + 321 + i] = v));
-    [1, 3, 3, 3].forEach((v, i) => (p[o + 326 + i] = v));
-    p[o + 312] = league;
-    p[o + 266] = 2 * 8 - 3 * league;
-    writeI32(p, o + 358, 4000 * (5 - league));
-    writeI32(p, o + 350, 3000 * (2 - league));
-    writeI32(p, o + 366, 3500 * (2 - league));
-    writeI32(p, o + 390, 4);
-    writeI32(p, o + 398, 3);
-    p[o + 305] = 16;
-    const fans = (50 - 20 * league) & 0xffff;
-    p[o + 476] = fans & 0xff;
-    p[o + 477] = fans >> 8;
-    trainerUndFernsehgeld(g, mi, rng);
-    kp(53);
-    generateOffers(g, mi, rng);
-    writeI32(p, o + 496, level === 4 ? 1900000 : 1500000);
-    writeI32(p, o + 492, 99999);
-    // Verlauf (62..261) und Zuschauerreihe (268..304) bleiben leer, die Pokalrunden auf 0:
-    // so sieht ein frisches Spiel des Originals aus (TEST-LAS)
-    defaultLineup(g, mi);
-  });
+  managers.forEach((_, mi) => managerSchleife(g, mi, level, opt.leiste ?? 0, rng, kp));
   // Spieltage, Pokale, Markt, Kalender, Datum
   for (let l = 0; l < 3; l++) {
     p[SCALARS.nextMatchday + l] = 1;
@@ -465,4 +392,146 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
   p[SCALARS.year16] = 1992 & 0xff;
   p[SCALARS.year16 + 1] = 1992 >> 8;
   return new SaveFile(plain).withMessages([]);
+}
+
+/**
+ * Managerschleife des Startbildschirms (0xAD44 ab 0xC510 -> 0xBF5C bis 0xC50B) für Manager `mi`:
+ * Tausch des Wunschvereins in die Oberliga, Kaderwerte, Gehälter, Startwerte, Trainer,
+ * Fernsehgeld, Werbeangebote, Kontostand, Aufstellung. Neues Spiel und Aufnahme (#132) gehen
+ * beide hier durch.
+ */
+function managerSchleife(g: GameState, mi: number, level: number, leiste: number, rng: Rng, kp: (k: number) => void): void {
+  const p = g.save.plain;
+  const o = TABLES.managers.offset + 778 * mi;
+  const managers = g.activeManagers();
+  const club = managers[mi].clubIndex;
+  const cls = club < 18 ? 1 : club < 38 ? 2 : 4;
+  // Stehen bleibt nur ein Oberligist bis Verein 57 (4cb3:2277, 0xC6D9); Verein 58 wird getauscht
+  if (!(cls === 4 && club <= 57)) {
+    let y: number;
+    do y = rng(38, 57);
+    while (managers.slice(0, mi).some((x) => x.clubIndex === y));
+    kp(50);
+    swapClubs(g, club, y, false);
+    // 0xAB84 tauscht die beiden Tabellensätze gleich wieder zurück (0xBFB9): die Tabelle bleibt
+    const t = TABLES.standings;
+    const a = g.save.plain.slice(t.offset + club * t.record, t.offset + (club + 1) * t.record);
+    g.save.plain.copyWithin(t.offset + club * t.record, t.offset + y * t.record, t.offset + (y + 1) * t.record);
+    g.save.plain.set(a, t.offset + y * t.record);
+  }
+  const league = 2;
+  const b = div(level, 2) + 27;
+  // Kaderwerte (0xC0A8 bis 0xC1AE): je Wert random(b, b+5) und immer auch random(40,60) - die
+  // Form nimmt den zweiten. Die Spielertabelle (Bytes 28, 29, 30) schreibt das Original über
+  // -0x4 - das ist aber die Stellung der Wappenleiste aus dem Startbildschirm, nicht der Spieler
+  // des Kaderplatzes: die Kaderspieler behalten ihre Poolwerte, und der Spieler mit der Nummer
+  // der Leistenstellung bekommt die Werte des letzten Kaderplatzes (NG18 gegen das Original:
+  // ein Klick auf das Wappen, Spieler 1 mit 28/33/47, #100)
+  const zeiger = g.players.at(leiste & 63);
+  // Die Schleife zählt die Kader aller vier Manager (0xC188: 0x31A19 mit dem Schleifenzähler),
+  // schreibt aber immer in den Kader dessen, der gerade angelegt wird (0xC0E8, 25·304A): mit N
+  // Managern würfelt jeder N·20·6 Mal, es bleibt die letzte Runde (#129, Audit 2 B5). Die
+  // Kader der Plätze ab N sind leer.
+  const belegt = (r: number) => {
+    if (r >= managers.length) return 0;
+    let k = 0;
+    for (let i = 0; i < 24; i++) if (!g.lineups.at(r * 25 + i).isEmpty) k++;
+    return k;
+  };
+  for (let r = 0; r < 4; r++) {
+    const anzahl = belegt(r);
+    for (let slot = 0; slot < anzahl; slot++) {
+      const l = g.lineups.at(mi * 25 + slot);
+      for (let k = 0; k < 3; k++) {
+        const v = rng(b, b + 5);
+        const f = rng(40, 60);
+        l.setU8(16 + k, k === 2 ? f : v);
+        zeiger.setU8(28 + k, k === 2 ? f : v);
+      }
+    }
+  }
+  g.squadOf(mi).forEach((_, slot) => {
+    kp(52);
+    writeI32(p, TABLES.lineups.offset + (mi * 25 + slot) * 52 + 40, playerValue(g, mi, slot, 1, rng));
+  });
+  [5, 4, 6, 5, 6].forEach((v, i) => (p[o + 321 + i] = v));
+  [1, 3, 3, 3].forEach((v, i) => (p[o + 326 + i] = v));
+  p[o + 312] = league;
+  p[o + 266] = 2 * 8 - 3 * league;
+  writeI32(p, o + 358, 4000 * (5 - league));
+  writeI32(p, o + 350, 3000 * (2 - league));
+  writeI32(p, o + 366, 3500 * (2 - league));
+  writeI32(p, o + 390, 4);
+  writeI32(p, o + 398, 3);
+  p[o + 305] = 16;
+  const fans = (50 - 20 * league) & 0xffff;
+  p[o + 476] = fans & 0xff;
+  p[o + 477] = fans >> 8;
+  trainerUndFernsehgeld(g, mi, rng);
+  kp(53);
+  generateOffers(g, mi, rng);
+  writeI32(p, o + 496, level === 4 ? 1900000 : 1500000);
+  writeI32(p, o + 492, 99999);
+  // Verlauf (62..261) und Zuschauerreihe (268..304) bleiben leer, die Pokalrunden auf 0:
+  // so sieht ein frisches Spiel des Originals aus (TEST-LAS)
+  defaultLineup(g, mi);
+}
+
+/**
+ * Manager in ein laufendes Spiel aufnehmen (Diskettenmenü, 0x971F bei 0xA7B4 -> 0xAD44 mit
+ * 07AB > 0, Zweig 0xBDBF; #132, Audit 2 B8). Je neuem Manager, in Managerreihenfolge:
+ * - Zuschauerreihe 267..304 = 10, Pokalrunden 306..310 = 30, Verlauf 62 + 4i = 0xFF (i < 50)
+ * - je Mannschaftsteil 2/5/8/5 Spieler random(07A6[g], 07A7[g]) mit Besitzer 5 (höchstens 1000
+ *   Versuche, dann der zuletzt gezogene), Besitzer = Manager, Aufnahme 0x224A8 mit einem Jahr
+ *   und 15.000 DM (0xBE6C)
+ * Danach laufen die neuen Manager durch die Managerschleife des Startbildschirms (0xC510), mit
+ * Aufstellung und Anzeigestärke (0xC4FB); Spielerpool und Zinstabelle bleiben (0xC73F).
+ * `neue` tragen den Verein als heutigen Vereinsindex.
+ */
+export function managerAufnehmen(g: GameState, neue: NewGameManager[], rng: Rng, leiste = 0): number[] {
+  const p = g.save.plain;
+  const alt = g.activeManagers().length;
+  if (neue.length < 1 || alt + neue.length > 4) throw new Error("höchstens vier Manager");
+  p[SCALARS.managerCount] = alt + neue.length;
+  const plaetze = neue.map((mg, k) => {
+    const mi = alt + k;
+    const o = TABLES.managers.offset + 778 * mi;
+    // Der Startbildschirm schreibt nur Name, Porträt und Verein; der Rest des Satzes bleibt, wie
+    // ihn das neue Spiel für den leeren Platz hinterlassen hat
+    writeStr(p, o, 29, toDosText(mg.name.slice(0, 12).toUpperCase()));
+    p[o + 29] = Math.max(1, Math.min(4, mg.portrait));
+    p[o + 30] = Math.max(0, Math.min(63, mg.club));
+    return mi;
+  });
+  // Zweig 0xBDBF
+  const gruppen = [
+    [2, 1, 20],
+    [5, 20, 64],
+    [8, 64, 106],
+    [5, 106, 151],
+  ];
+  for (const mi of plaetze) {
+    const o = TABLES.managers.offset + 778 * mi;
+    p.fill(10, o + 267, o + 267 + 38);
+    p.fill(30, o + 306, o + 306 + 5);
+    for (let i = 0; i < 50; i++) p[o + 62 + 4 * i] = 0xff;
+    for (const [anzahl, von, bis] of gruppen) {
+      for (let k = 0; k < anzahl; k++) {
+        let sp = 0;
+        for (let versuch = 0; versuch < 1000; versuch++) {
+          sp = rng(von, bis);
+          if (g.players.at(sp).u8(33) === 5) break;
+        }
+        g.players.at(sp).setU8(33, mi);
+        const platz = addToSquad(g, mi, sp, 1, rng);
+        if (platz >= 0) writeI32(p, TABLES.lineups.offset + (mi * 25 + platz) * 52 + 40, 15000);
+      }
+    }
+  }
+  const level = p[34062];
+  for (const mi of plaetze) {
+    managerSchleife(g, mi, level, leiste, rng, () => {});
+    anzeigeStaerke(g, mi);
+  }
+  return plaetze;
 }

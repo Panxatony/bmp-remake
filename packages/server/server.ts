@@ -107,6 +107,7 @@ import {
   simulateMatch,
   parseMana,
   createGame,
+  managerAufnehmen,
   setTraining,
   trainingCamp,
   campCost,
@@ -2749,6 +2750,29 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     setRoom(user, neu);
     await persist(neu);
     broadcast(neu);
+    broadcastLobby();
+    return json(res, 200, { ok: true });
+  }
+  if (p === "/api/aufnehmen") {
+    // Manager in das laufende Spiel aufnehmen (Diskettenmenü, 0xAD44 Zweig 0xBDBF, #132): die neuen
+    // bekommen einen Kader aus freien Spielern und laufen durch die Managerschleife des
+    // Startbildschirms. Die Plätze sind danach frei zum Hinsetzen.
+    if (!room) return json(res, 404, { error: "Keine Runde" });
+    if (!darfRundeVerwalten(user, room)) return json(res, 403, { error: "Nur wer die Runde verwaltet, nimmt Manager auf" });
+    if (room.live) return json(res, 409, { error: "Die Konferenz läuft" });
+    if (room.ceremony || saisonwechselStand(room.game) !== null) return json(res, 409, { error: "Erst die Auslosung bzw. den Saisonwechsel abschließen" });
+    const neue = (Array.isArray(body.managers) ? body.managers : []).map((m: any) => ({ name: String(m.name ?? "").trim().slice(0, 12) || "MANAGER", club: Number(m.club) | 0, portrait: Number(m.portrait) || 1 }));
+    const alt = room.game.activeManagers();
+    if (neue.length < 1 || alt.length + neue.length > 4) return json(res, 400, { error: "Höchstens vier Manager" });
+    // Einen Verein, den schon ein Manager führt, nimmt der Startbildschirm nicht an (0xB659)
+    const vereine = [...alt.map((m) => m.clubIndex), ...neue.map((m: { club: number }) => m.club)];
+    if (neue.some((m: { club: number }) => !(m.club >= 0 && m.club < 64)) || new Set(vereine).size !== vereine.length) return json(res, 400, { error: "Jeder Manager braucht einen eigenen Verein" });
+    const plaetze = managerAufnehmen(room.game, neue, room.rng, Number(body.leiste) | 0);
+    for (const _ of plaetze) room.balanceSums.push({ sum: 0 });
+    room.log.push(`${user} nimmt auf: ${plaetze.map((i) => room.game.managers.at(i).displayName).join(", ")}`);
+    await persist(room);
+    room.version++;
+    broadcast(room);
     broadcastLobby();
     return json(res, 200, { ok: true });
   }
