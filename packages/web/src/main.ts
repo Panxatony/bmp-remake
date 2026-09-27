@@ -463,7 +463,7 @@ class App {
   scenes = new Scenes();
   animating = false;
   /** Neues Spiel: Vereinsliste vom Server, Logo-Leiste, Manager-Plätze */
-  setup = { clubs: [] as { index: number; name: string; logo: number; league: number }[], strip: 0, selected: 0, slots: [0, 1, 2, 3].map((i) => ({ name: "", club: -1, portrait: i + 1 })), level: 2, regeln: 0 };
+  setup = { clubs: [] as { index: number; name: string; logo: number; league: number }[], strip: 0, selected: 0, slots: [0, 1, 2, 3].map((i) => ({ name: "", club: -1, portrait: i + 1 })), level: 2, regeln: 0, aufnahme: 0 };
 
   constructor() {
     this.canvas = document.getElementById("screen") as HTMLCanvasElement;
@@ -662,7 +662,41 @@ class App {
     this.render();
   }
 
+  /**
+   * Manager aufnehmen (Diskettenmenü, 0xAD44 mit 07AB > 0, #132): derselbe Startbildschirm, die
+   * vorhandenen Manager stehen fest, gewählt wird unter den Vereinen des laufenden Spiels.
+   */
+  aufnahmeOeffnen(): void {
+    const g = this.game!;
+    const n = g.activeManagers().length;
+    this.setup.clubs = Array.from({ length: 58 }, (_, c) => ({ index: c, name: g.clubs.at(c).name, logo: g.clubs.at(c).u8(33), league: c < 18 ? 0 : c < 38 ? 1 : 2 }));
+    this.setup.slots = [0, 1, 2, 3].map((i) =>
+      i < n ? { name: g.managers.at(i).name, club: g.managers.at(i).clubIndex, portrait: g.managers.at(i).u8(29) || i + 1 } : { name: "", club: -1, portrait: i + 1 },
+    );
+    this.setup.aufnahme = n;
+    this.setup.strip = 0;
+    this.go("newgame");
+  }
+
   startNewGame(): void {
+    if (this.setup.aufnahme > 0) {
+      const neue = this.setup.slots.slice(this.setup.aufnahme).filter((sl) => sl.name && sl.club >= 0);
+      if (neue.length === 0) {
+        this.hinweis = ["MINDESTENS EIN MANAGER", "BRAUCHT NAME UND VEREIN."];
+        this.render();
+        return;
+      }
+      this.fragJaNein([`${neue.length} MANAGER`, "INS LAUFENDE SPIEL", "AUFNEHMEN?"], () =>
+        void this.post("api/aufnehmen", { managers: neue }).then((a) => {
+          if (a.ok) {
+            this.setup.aufnahme = 0;
+            this.go("seat");
+          }
+          this.render();
+        }),
+      );
+      return;
+    }
     const managers = this.setup.slots.filter((sl) => sl.name && sl.club >= 0);
     if (managers.length === 0) {
       this.hinweis = ["MINDESTENS EIN MANAGER", "BRAUCHT NAME UND VEREIN."];
@@ -1195,6 +1229,7 @@ class App {
     // vier Manager-Plätze: Verein oben, Porträt unten, Name darunter
     st.slots.forEach((sl, i) => {
       const x = 20 + i * 75;
+      const fest = i < st.aufnahme;
       bevel(ctx, x, 106, 64, 116);
       ctx.fillStyle = "#000";
       ctx.fillRect(x + 12, 110, 40, 40);
@@ -1208,23 +1243,38 @@ class App {
       // Einen Verein, den schon ein anderer Manager gewählt hat, nimmt das Original nicht an
       // (0xB659-0xB688, #129, Audit 2 B6)
       this.hit(x + 12, 110, 40, 40, () => {
-        if (!st.slots.some((o) => o !== sl && o.club === st.selected)) sl.club = st.selected;
+        if (!fest && !st.slots.some((o) => o !== sl && o.club === st.selected)) sl.club = st.selected;
       });
       const faces = this.assets.img("0.VGA");
       ctx.fillStyle = "#000";
       ctx.fillRect(x + 12, 156, 40, 40);
       if (faces) ctx.drawImage(faces, (sl.portrait - 1) * 41, 0, 40, 40, x + 12, 156, 40, 40);
-      this.hit(x + 12, 156, 40, 40, () => (sl.portrait = (sl.portrait % 4) + 1));
+      this.hit(x + 12, 156, 40, 40, () => {
+        if (!fest) sl.portrait = (sl.portrait % 4) + 1;
+      });
       s.drawCenter(ctx, cp437ToGame(sl.name || "NAME ?"), x + 32, 204, sl.name ? COLORS.white : COLORS.textDim);
-      this.hit(x, 200, 64, 20, () =>
+      this.hit(x, 200, 64, 20, () => {
+        if (fest) return;
         this.fragText("NAME DES MANAGERS", "NAME", sl.name, 12, (n) => {
           sl.name = n;
           this.render();
-        }),
-      );
+        });
+      });
     });
     if (this.status) s.drawCenter(ctx, toGame(this.status.toUpperCase()), 160, 214, COLORS.red);
 
+    if (st.aufnahme > 0) {
+      // Aufnahme: Level und Regelwerk gehören zum laufenden Spiel
+      button(ctx, f, "AUFNEHMEN", 150, 224, 90, true);
+      this.hit(150, 224, 90, 16, () => this.startNewGame());
+      button(ctx, f, "ZUR}CK", 246, 224, 60);
+      this.hit(246, 224, 60, 16, () => {
+        st.aufnahme = 0;
+        st.slots = [0, 1, 2, 3].map((i) => ({ name: "", club: -1, portrait: i + 1 }));
+        this.go("menu");
+      });
+      return;
+    }
     s.draw(ctx, `SPIEL-LEVEL ${st.level}`, 6, 228, COLORS.white);
     button(ctx, f, "-", 62, 224, 16);
     button(ctx, f, "+", 82, 224, 16);
@@ -3398,7 +3448,12 @@ class App {
           this.game && is2026(this.game) && this.online ? { label: "2026", action: () => this.go("extra2026") } : null,
         ],
         // Torszenen-Editor (GitLab #6): eigenes Werkzeug, kein Teil des Originals
-        [this.online ? { label: "SZENEN", action: () => void this.editorStarten() } : null, null, null],
+        [
+          this.online ? { label: "SZENEN", action: () => void this.editorStarten() } : null,
+          // Manager aufnehmen (0xA7AC, 6. Eintrag des Diskettenmenüs, #132)
+          this.online && this.game && this.game.activeManagers().length < 4 && !this.live ? { label: "AUFNEHMEN", action: () => this.aufnahmeOeffnen() } : null,
+          null,
+        ],
       ],
     };
     if (this.live) {

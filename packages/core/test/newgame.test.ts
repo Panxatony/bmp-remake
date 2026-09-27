@@ -168,3 +168,28 @@ test("Neues Spiel: die Kaderwertschleife würfelt je Manager N·20·6 Mal (0xC0A
   const zwei = zaehle([5, 12]);
   assert.equal(zwei - eins, 20 * 6);
 });
+
+test("Manager im laufenden Spiel aufnehmen (0xAD44, Zweig 0xBDBF, #132)", async () => {
+  const { managerAufnehmen } = await import("../src/index.ts");
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+  const vorher = g.activeManagers().length;
+  const alteKader = g.activeManagers().map((_, i) => g.squadOf(i).map((l) => l.playerIndex).join(","));
+  const [mi] = managerAufnehmen(g, [{ name: "Neu", club: 5, portrait: 3 }], mulberryRng(8));
+  assert.equal(g.activeManagers().length, vorher + 1);
+  const m = g.managers.at(mi);
+  assert.equal(m.displayName, "NEU");
+  // Startwerte des Zweigs
+  assert.equal(m.u8(267), 10);
+  assert.equal(m.u8(304), 10);
+  assert.deepEqual([306, 307, 308, 309, 310].map((b) => m.u8(b)), [30, 30, 30, 30, 30]);
+  assert.equal(m.u8(62), 0xff);
+  // 20 Spieler aus dem freien Pool, 2/5/8/5 je Mannschaftsteil, alle dem neuen Manager
+  const kader = g.squadOf(mi);
+  assert.equal(kader.length, 20);
+  for (const l of kader) assert.equal(g.players.at(l.playerIndex).u8(33), mi);
+  // Die Kader der anderen bleiben, der Verein steht in der Oberliga
+  assert.deepEqual(g.activeManagers().slice(0, vorher).map((_, i) => g.squadOf(i).map((l) => l.playerIndex).join(",")), alteKader);
+  assert.ok(m.clubIndex >= 38 && m.clubIndex <= 57, `Verein ${m.clubIndex}`);
+  assert.equal(m.u8(312), 2);
+  assert.ok(m.balance >= 1500000);
+});
