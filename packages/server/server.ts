@@ -2157,7 +2157,6 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     // Über Saisontag 322 hinaus: System zurück, aufstellen, Stärke mit Flag 0 (0x1DC79)
     if (saisonEnde) tagesendeAufstellen(g, seasonDay(kNeu));
     g.activeManagers().forEach((m, i) => {
-      const before = g.squadOf(i).map((l) => l.u8(9));
       if (mitTagesroutine) {
         // Tagesroutine 0x0DF0D in der Reihenfolge des Originals (sim/tagesroutine.ts): Markt,
         // Stadion, Kaderschleife je Platz (Trainingsverletzung, Karriereankündigung,
@@ -2168,26 +2167,34 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
         const t = tagesroutine(g, i, seasonDay(kNeu), tr, r.rng, calendarFlag(g, k) === 0);
         // Die Meldungsroutine 0x30AA0 datiert jede Meldung um random(0,3) Tage zurück
         const datum = (zurueck = 0) => dateOfSeasonDay(Math.max(1, seasonDay(kNeu) - zurueck), startYear);
-        for (const ev of t.stadion) {
-          r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${ev.text}`);
-          pushMessage(r, i, wrap(ev.text), datum(ev.zurueck));
-        }
-        for (const ev of t.transfers) {
-          r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${ev.lines.join(" ")}`);
-          pushMessage(r, i, ev.lines, datum(ev.zurueck));
-        }
-        for (const a of t.karriereende) {
-          r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${a.name} hört am Vertragsende auf`);
-          pushMessage(r, i, a.zeilen, datum(a.zurueck));
+        // Die Meldungen in der Reihenfolge des Originals (Audit 2 H3); auch die
+        // Trainingsverletzung mit ihrem Rückversatz (B22)
+        for (const e of t.reihe) {
+          if (e.art === "stadion") {
+            r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${e.ev.text}`);
+            pushMessage(r, i, wrap(e.ev.text), datum(e.ev.zurueck));
+          } else if (e.art === "transfer") {
+            r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${e.ev.lines.join(" ")}`);
+            pushMessage(r, i, e.ev.lines, datum(e.ev.zurueck));
+          } else if (e.art === "karriere") {
+            r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: ${e.ev.name} hört am Vertragsende auf`);
+            pushMessage(r, i, e.ev.zeilen, datum(e.ev.zurueck));
+          } else if (e.art === "angebot") {
+            const offer = e.ev;
+            r.offers.push(offer);
+            r.log.push(`${m.displayName}: ${offer.name} bietet Vertragsverlängerung an (${offer.yearsFrom} -> ${offer.yearsTo} Jahre, ${offer.salary} DM)`);
+            pushMessage(r, i, [`${offer.name} ${T("quell.server", 10)}`, `von ${offer.yearsFrom} auf ${offer.yearsTo}`, T("quell.server", 0)], datum(offer.zurueck));
+          } else {
+            const l = g.squadOf(i).find((x) => x.playerIndex === e.playerIndex) ?? g.lineups.at(i * 25 + e.place);
+            const name = g.players.at(e.playerIndex).displayName;
+            const art = injuries()[injuryKind(l)]?.name ?? "?";
+            r.log.push(`${m.displayName}: ${name} verletzt (${art}, ${l.u8(13)} Wochen)`);
+            pushMessage(r, i, [T("quell.server", 1), name, ` (${art})`], datum(e.zurueck));
+          }
         }
         for (const platz of t.verfallen) {
           const l = g.lineups.at(i * 25 + platz);
           r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: Angebot von ${g.players.at(l.playerIndex).displayName} verfallen`);
-        }
-        for (const offer of t.angebote) {
-          r.offers.push(offer);
-          r.log.push(`${m.displayName}: ${offer.name} bietet Vertragsverlängerung an (${offer.yearsFrom} -> ${offer.yearsTo} Jahre, ${offer.salary} DM)`);
-          pushMessage(r, i, [`${offer.name} ${T("quell.server", 10)}`, `von ${offer.yearsFrom} auf ${offer.yearsTo}`, T("quell.server", 0)], datum(offer.zurueck));
         }
       }
       // Sponsorenangebote alle 14 Saisontage neu (0x1DC27: Saisontag mod 14 = 0 -> 0x176F4).
@@ -2196,12 +2203,6 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
         generateOffers(g, i, r.rng);
         r.log.push(`${dtNeu.day}.${dtNeu.month0 + 1}. ${m.displayName}: neue Sponsorenangebote`);
       }
-      g.squadOf(i).forEach((l, j) => {
-        if ((l.u8(9) & 2) && !(before[j] & 2)) {
-          r.log.push(`${m.displayName}: ${g.players.at(l.playerIndex).displayName} verletzt (${injuries()[injuryKind(l)]?.name ?? "?"}, ${l.u8(13)} Wochen)`);
-          pushMessage(r, i, [T("quell.server", 1), g.players.at(l.playerIndex).displayName, ` (${injuries()[injuryKind(l)]?.name ?? "?"})`]);
-        }
-      });
       // Medizinische Versorgung (Version 2026, #2): eine Behandlungswoche an denselben Tagen,
       // an denen die Verletzung herunterzählt - nach dem Training, die reguläre Woche ist dann ab
       // Nur mit der Verletzungswoche der Tagesroutine (an Saisontag 322 zählt das Original keine)
