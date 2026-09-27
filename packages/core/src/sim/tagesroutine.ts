@@ -30,7 +30,21 @@ export interface Tagesergebnis {
   karriereende: (Karriereende & { zurueck: number })[];
   verfallen: number[];
   angebote: (ContractOffer & { zurueck: number })[];
+  /**
+   * Alle Meldungen in der Reihenfolge, in der das Original sie über 0x30AA0 anlegt: Marktinteresse
+   * (0x0E1CD), Krawall und Komfort (0x0E43C, 0x0E530), dann je Kaderplatz Verletzung (0x0E762),
+   * Karriereankündigung (0x0E7F0) und Verlängerungsangebot (0x0E9C1), zuletzt das Interesse an
+   * Kaderspielern (0x0EA61) - Audit 2 H3.
+   */
+  reihe: Tagesmeldung[];
 }
+
+export type Tagesmeldung =
+  | { art: "transfer"; ev: TransferEvent }
+  | { art: "stadion"; ev: FinanceEvent }
+  | { art: "verletzt"; place: number; playerIndex: number; zurueck: number }
+  | { art: "karriere"; ev: Karriereende & { zurueck: number } }
+  | { art: "angebot"; ev: ContractOffer & { zurueck: number } };
 
 /**
  * Jede Meldung läuft durch 0x30AA0, und die datiert sie um random(0,3) Tage zurück - ein Wurf
@@ -39,25 +53,43 @@ export interface Tagesergebnis {
 export const meldungsWurf = (rng: Rng) => (): number => rng(0, 3);
 
 export function tagesroutine(g: GameState, manager: number, seasonDay: number, tr: TrainingInput, rng: Rng, spielfrei: boolean): Tagesergebnis {
-  const aus: Tagesergebnis = { transfers: [], stadion: [], verletzt: [], karriereende: [], verfallen: [], angebote: [] };
+  const aus: Tagesergebnis = { transfers: [], stadion: [], verletzt: [], karriereende: [], verfallen: [], angebote: [], reihe: [] };
   if (seasonDay > 321) return aus;
   const meldung = meldungsWurf(rng);
-  aus.transfers.push(...dailyTransfers(g, manager, seasonDay, rng, "markt", undefined, meldung));
-  aus.stadion.push(...stadionTag(g, manager, rng, "alles", meldung));
+  const markt = dailyTransfers(g, manager, seasonDay, rng, "markt", undefined, meldung);
+  aus.transfers.push(...markt);
+  aus.reihe.push(...markt.map((ev) => ({ art: "transfer" as const, ev })));
+  const stadion = stadionTag(g, manager, rng, "alles", meldung);
+  aus.stadion.push(...stadion);
+  aus.reihe.push(...stadion.map((ev) => ({ art: "stadion" as const, ev })));
   // Das Original zählt die belegten Plätze (0x31A19) und geht dann die Plätze 0..Anzahl-1 durch -
   // hat der Kader eine Lücke, kommt die leere Stelle dran und der letzte Spieler nicht
   const n = g.squadOf(manager).length;
   for (let place = 0; place < n; place++) {
     const l = g.lineups.at(manager * 25 + place);
-    if (trainingsverletzung(g, l, tr.level, spielfrei, rng)) aus.verletzt.push({ place, zurueck: meldung() });
+    if (trainingsverletzung(g, l, tr.level, spielfrei, rng)) {
+      const v = { place, zurueck: meldung() };
+      aus.verletzt.push(v);
+      aus.reihe.push({ art: "verletzt", ...v, playerIndex: l.playerIndex });
+    }
     const k = karriereAnkuendigung(g, manager, place, rng, true);
-    if (k) aus.karriereende.push({ ...k, zurueck: meldung() });
+    if (k) {
+      const ev = { ...k, zurueck: meldung() };
+      aus.karriereende.push(ev);
+      aus.reihe.push({ art: "karriere", ev });
+    }
     angebotsbitsVerfallen(l, rng);
     if (vertragszaehler(g, manager, place, rng, true)) aus.verfallen.push(place);
     const o = verlaengerungsangebot(g, manager, place, rng, true);
-    if (o) aus.angebote.push({ ...o, zurueck: meldung() });
+    if (o) {
+      const ev = { ...o, zurueck: meldung() };
+      aus.angebote.push(ev);
+      aus.reihe.push({ art: "angebot", ev });
+    }
   }
-  aus.transfers.push(...dailyTransfers(g, manager, seasonDay, rng, "kader", n, meldung));
+  const kader = dailyTransfers(g, manager, seasonDay, rng, "kader", n, meldung);
+  aus.transfers.push(...kader);
+  aus.reihe.push(...kader.map((ev) => ({ art: "transfer" as const, ev })));
   dailyTraining(g, manager, seasonDay, tr, rng, spielfrei, true, n);
   autoLineupIfEnabled(g, manager);
   return aus;

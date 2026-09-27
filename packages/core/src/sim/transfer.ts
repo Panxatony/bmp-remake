@@ -377,7 +377,8 @@ export function listPlayer(g: GameState, manager: number, place: number, rng: Rn
   if (p.u8(33) !== manager || l.u8(12) !== 0) return { ok: false, error: texte("ui.leihspieler").join(" ") };
   let slot = 0;
   while (slot < MARKET_SIZE && !g.lineups.at(100 + slot).isEmpty) slot++;
-  if (slot >= MARKET_SIZE) return { ok: false, error: "Der Transfermarkt ist voll" };
+  // "Schon 12 Mann auf / dem Transfermarkt" (0x224A8 bei 0x224B8: Grenze 12, Platz 11 belegt)
+  if (slot >= MARKET_SIZE) return { ok: false, error: texte("ui.marktvoll").join(" ") };
   // Das Original legt den Marktplatz über 0x224A8 an (0x236F2) und würfelt dabei Byte 19, 14 und
   // 20 - der Platz wird danach mit der Kaderkopie überschrieben (0x2373D), die Würfe bleiben
   // (#125, Audit 2 E19)

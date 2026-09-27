@@ -38,6 +38,50 @@ const RAHMEN = "#414161";
 const SKALA = ["#d30000", "#d32000", "#d34100", "#d36100", "#d38200", "#c3a200", "#c3c300", "#a2c300", "#82c300", "#61c300", "#41c300", "#20c300", "#00c300"];
 /** Zeilenfarbe nach Mannschaftsteil, im Original abgelesen: Tor am dunkelsten, Angriff am hellsten. */
 const GRUPPENFARBE: Record<string, string> = { TOR: "#714110", ABW: "#826141", MIT: "#928251", ANG: "#b2a271" };
+/** Die ersten 32 Plätze der Palette 1.PAL (in DOSBox mit STRG+F5 abgenommen). */
+const PAL = [
+  "#000000", "#a2a2c3", "#8282a2", "#717192", "#616182", "#515171", "#414161", "#303051",
+  "#000071", "#927151", "#b2a282", "#d3c3b2", "#516110", "#617120", "#618230", "#719241",
+  "#610010", "#920010", "#b20020", "#c37120", "#a26120", "#714110", "#3041c3", "#f3f300",
+  "#b2a271", "#928251", "#826141", "#614130", "#513020", "#f3f3f3", "#c330c3", "#000000",
+];
+/**
+ * Die Zeilenmarkierung der Listen (0x1ECDE ab 0x1EDE0) wird mit XOR 31 über die Zeile gelegt:
+ * aus dem Blau der Tafel (8) wird Gelb (23), aus der Schrift in Farbe c die Farbe 31 - c.
+ */
+const aufBalken = (farbe: string): string => {
+  const i = PAL.indexOf(farbe.toLowerCase());
+  return i >= 0 ? PAL[i ^ 31] : farbe;
+};
+/** Spaltenbreiten der Spielerlisten (4cb3:07C4), Spalte 0 NR bis 17 GEHALT. */
+const SPALTEN_BREITE = [11, 18, 57, 13, 12, 12, 14, 36, 12, 14, 12, 12, 13, 27, 40, 13, 25, 33];
+/** Spaltenmasken des Listenzeichners 0x1F37F: Kader, Vertragsansicht, Transfermarkt links. */
+const MASKE_KADER = 0xf0c7;
+const MASKE_VERTRAG = 0x3d146;
+const MASKE_MARKT = 0x90c6;
+/**
+ * Spalte der Liste unter dem Zeiger (0x1ED5E-0x1ED8F): die erste Spalte der Maske, deren
+ * aufsummierte Breite den Abstand `dx` zum linken Rand übersteigt; -1 rechts daneben.
+ */
+function listenSpalte(dx: number, maske: number): number {
+  if (dx < 0) return -1;
+  let summe = 0;
+  for (let i = 0; i < SPALTEN_BREITE.length; i++) {
+    if (!((maske >> i) & 1)) continue;
+    summe += SPALTEN_BREITE[i];
+    if (summe > dx) return i;
+  }
+  return -1;
+}
+/**
+ * Großschreiben wie die Kopierroutine 0x3196D: a..z sowie die Codepage-437-Umlaute ä ö ü; die
+ * Umlaute der Spielschrift ({ | }) bleiben stehen.
+ */
+const gross = (t: string): string => t.replace(/[a-z\x81\x84\x94]/g, (c) => ({ "\x81": "\x9a", "\x84": "\x8e", "\x94": "\x99" })[c] ?? c.toUpperCase());
+/** Spalte SP der Listen: Liga + DFB-Pokal + Europapokal (0x1F8A6, Kaderbytes 6+7+8). */
+const spieleGesamt = (l: Lineup): number => l.leagueApps + l.cupApps + l.euroApps;
+/** Spalte TO der Listen: Liga + DFB-Pokal + Europapokal (0x1F9C6, Kaderbytes 3+4+5). */
+const toreGesamt = (l: Lineup): number => l.leagueGoals + l.cupGoals + l.euroGoals;
 const LEAGUE_INK = ["#000000", "#303051", "#826141"];
 const leagueOfClub = (club: number): number => (club < 18 ? 0 : club < 38 ? 1 : 2);
 /** Überschriften und Gruppenreihenfolge der Pokalübersicht (0x198EB, Tabellen 4cb3:0654/065C). */
@@ -447,6 +491,11 @@ class App {
   /** Kaderbildschirm: Zeile unter der Maus und Nummer der Spalte für die Hilfszeile */
   squadHover = -1;
   squadSpalte = -1;
+  // Transfermarkt: Zeile und Spalte unter dem Zeiger in der linken Liste (Hilfszeile 0x1ECDE,
+  // Aufruf 0x2305F) und die Zeile unter dem Zeiger in der rechten Liste (VON-Zeile, 0x2325E)
+  marketHover = -1;
+  marketSpalte = -1;
+  marketHoverRechts = -1;
   /** Antwort der letzten Vertragsverhandlung, steht unter der Tabelle */
   vertragsAntwort = "";
   /** Kalendertag, an dem die Runde der auslaufenden Verträge schon geöffnet wurde */
@@ -2809,11 +2858,32 @@ class App {
     // das Band 29 + 6·i bis 34 + 6·i - der freie Punkt zwischen zwei Balken gehört zur unteren
     // Zeile. (Die Zeilen sind einmal um acht Punkte nach oben gerückt, ohne dass diese Rechnung
     // mitgezogen wurde; dadurch lag der gelbe Balken eine Zeile über dem Mauszeiger.)
-    if (this.screen === "squad" && x >= 6 && x < 6 + (this.pitchOpen ? 180 : 232) && y >= 29) {
+    if (this.screen === "squad" && x >= 6 && x <= this.squadRand() && y >= 29) {
       const i = Math.trunc((y - 29) / 6);
-      if (i >= 0 && i < this.squadRows().length) {
+      const sp = this.squadSpalteAt(x);
+      if (i >= 0 && i < this.squadRows().length && sp >= 0) {
         squad = i;
-        spalte = this.squadSpalteAt(x);
+        spalte = sp;
+      }
+    }
+    // Transfermarkt (0x22C15): links die Hilfszeile wie im Kader (x 2..155, Zeilen ab y 36),
+    // rechts die Marktliste (Zeilen ab y 35, x 163..314)
+    let markt = -1;
+    let marktSpalte = -1;
+    let marktRechts = -1;
+    if (this.screen === "market" && this.game) {
+      const links = this.game.squadOf(this.manager).length;
+      if (x >= 2 && x <= 155 && y >= 36) {
+        const i = Math.trunc((y - 36) / 6);
+        const sp = listenSpalte(x - 2, MASKE_MARKT);
+        if (i < links && sp >= 0) {
+          markt = i;
+          marktSpalte = sp;
+        }
+      }
+      if (x >= 163 && x <= 314 && y >= 35) {
+        const i = Math.trunc((y - 35) / 6);
+        if (i < (this.server.market?.entries.length ?? 0)) marktRechts = i;
       }
     }
     if (this.screen === "stadium") {
@@ -2828,7 +2898,10 @@ class App {
         else if (x > 136 && x < 217) camp = 9 + row;
       }
     }
-    const anders = stadium !== this.stadiumHover || bank !== this.bankHover || camp !== this.campHover || squad !== this.squadHover || spalte !== this.squadSpalte;
+    const anders = stadium !== this.stadiumHover || bank !== this.bankHover || camp !== this.campHover || squad !== this.squadHover || spalte !== this.squadSpalte || markt !== this.marketHover || marktSpalte !== this.marketSpalte || marktRechts !== this.marketHoverRechts;
+    this.marketHover = markt;
+    this.marketSpalte = marktSpalte;
+    this.marketHoverRechts = marktRechts;
     this.stadiumHover = stadium;
     this.bankHover = bank;
     this.campHover = camp;
@@ -2838,43 +2911,66 @@ class App {
   }
 
   /**
-   * Spalte unter dem Zeiger im Kaderbildschirm; die Zahl ist der Platz im Textkatalog
-   * (ui.kaderhilfe). Die Grenzen sind am 16.9.2026 im Original ausgemessen worden, indem der
-   * Zeiger die Zeile entlanggefahren ist und die Hilfszeile beobachtet wurde.
+   * Rechter Rand der Kaderliste für die Hilfszeile (Argument von 0x1ECDE): im Kaderbildschirm 236,
+   * mit eingeblendetem Spielfeld 175 (0x20550), in der Vertragsansicht 239 (0x2535C).
    */
-  squadSpalteAt(x: number): number {
-    const felder: [number, number, number][] = this.squadView === "vertrag"
-      ? [[6, 23, 18], [24, 84, 2], [85, 89, 6], [90, 102, 8], [103, 114, 12], [115, 158, 22], [159, 174, 15], [175, 200, 16], [201, 237, 17]]
-      : [[6, 16, 0], [17, 34, 18], [35, 93, 2], [94, 106, 6], [107, 142, 7], [143, 154, 12], [155, 179, 13], [180, 218, 22], [219, 237, 15]];
-    for (const [von, bis, nr] of felder) if (x >= von && x <= bis) return nr;
-    return -1;
+  squadRand(): number {
+    return this.squadView === "vertrag" ? 239 : this.pitchOpen ? 175 : 236;
   }
 
   /**
-   * Hilfszeile für die Spalte unter dem Zeiger. Im Original hängen fünf Spalten ihren Wert an:
-   * Mannschaftsteil (nur der Name), Name mit Alter und Fuß, Stärken mit dem Durchschnitt,
-   * Status und Tendenz. Die Erschöpfung steht nur in der Aufstellungsansicht dabei, in der
-   * Vertragsansicht nicht (beides im Original nachgemessen).
+   * Spalte unter dem Zeiger im Kaderbildschirm (0x1ECDE ab 0x1ED3B): erste Spalte der Maske,
+   * deren aufsummierte Breite (4cb3:07C4) den Abstand zum linken Rand x 6 übersteigt. Die Zahl
+   * ist der Platz im Textkatalog ui.kaderhilfe. Im Transfermarkt am Original nachgemessen
+   * (Grenzen NAME/SP bei x 76/77 und SP/ST[RKEN bei 90/91 genau wie gerechnet).
    */
+  squadSpalteAt(x: number): number {
+    return listenSpalte(x - 6, this.squadView === "vertrag" ? MASKE_VERTRAG : MASKE_KADER);
+  }
+
+  /** Hilfszeile der Kaderliste für die Spalte unter dem Zeiger. */
   squadHilfe(l: Lineup): string {
+    return this.listenHilfe(l, this.squadSpalte, this.squadRand());
+  }
+
+  /**
+   * Hilfszeile unter den Spielerlisten (0x1ECDE ab 0x1EE68) für Spalte `nr` (Spaltennummer der
+   * Maske, zugleich Platz in ui.kaderhilfe): Positionsname mit " (AUSGEL.)" beim Leihspieler
+   * (0x1EF4A), Name mit Alter und Fuß, Stärken mit dem Durchschnitt, der Status als Satz
+   * (0x1F172) und die Tendenz; die Erschöpfung nur bei rechtem Rand 236 (0x1F329), also nicht
+   * mit eingeblendetem Spielfeld, nicht in der Vertragsansicht und nicht im Transfermarkt.
+   */
+  listenHilfe(l: Lineup, nr: number, rand: number): string {
     const g = this.game!;
     const p = g.players.at(l.playerIndex);
     const hilfe = squadHelp();
-    const nr = this.squadSpalte;
+    const ks = texte("ui.kaderstatus");
     if (nr < 0) return "";
-    if (nr === 18) return hilfe[18 + ["TOR", "ABW", "MIT", "ANG"].indexOf(p.position)] ?? "";
+    if (nr === 1) return (hilfe[18 + ["TOR", "ABW", "MIT", "ANG"].indexOf(p.position)] ?? "") + (l.u8(12) !== 0 ? ks[0] : "");
     if (nr === 2) {
       const seite = p.u8(32);
       const fuss = seite < 5 ? (seite > 1 ? "L+R" : "L") : "R";
       return hilfe[2] + toGame(`${cp437ToGame(p.name)} (${p.age} JAHRE) (${fuss})`);
     }
     if (nr === 7) return `${hilfe[7]}(${l.overall})`;
-    if (nr === 22) return hilfe[22] + (this.einsatzFlag(l) & 2 ? "VERL." : this.einsatzFlag(l) & 1 ? "GESP." : l.number === 0 ? "" : l.number > 11 ? "RESERVE" : "IM TEAM");
+    if (nr === 14) {
+      // RESERVE vor Sperre und Verletzung (0x1F190); eine ausgesetzte Sperre (4238:513E) zählt
+      // wie keine
+      const ef = this.einsatzFlag(l);
+      let st: string;
+      if (l.number > 11) st = ks[6];
+      else if (ef === 0) st = l.number !== 0 ? ks[2] : ks[3];
+      else if (ef === 1) st = `${ks[4]}${l.u8(13)}${ks[5]}${texte("ui.spielerstatus")[1]}`;
+      else if (ef === 2 && isDopeBanned(l)) st = "DOPINGSPERRE";
+      else if (ef === 2) st = `${texte("ui.spielerstatus")[0]}(${gross(injuries()[l.u8(23)]?.name ?? "")})`;
+      else st = texte("pokal.namen")[3];
+      return ks[1] + st;
+    }
     if (nr === 15) {
       const w = tendencyWords();
       const stufe = Math.max(0, Math.min(2, Math.trunc((l.u8(14) - 30) / 13)));
       const wort = hilfe[15] + w[stufe];
-      return this.squadView === "vertrag" ? wort : `${wort} (${w[3]}:${l.u8(19)})`;
+      return rand === 236 ? `${wort} (${w[3]}:${l.u8(19)})` : wort;
     }
     return hilfe[nr] ?? "";
   }
@@ -4732,53 +4828,73 @@ class App {
       // Im Original ist die Zeile unter der Maus gelb - genauso wie die ausgewählte
       const sel = i === this.selectedRow || zeiger || i === this.squadHover;
       if (sel) {
-        // Farben und Maße aus dem Original abgelesen: Balken #f3f300, genau die fünf Zeilen der
-        // Schrift hoch (im Original y..y+4), Schrift darauf #414161
-        ctx.fillStyle = "#f3f300";
-        ctx.fillRect(6, y, 232, 5);
+        // Balken #f3f300 von x 6 bis zum rechten Rand der Liste (236, mit Spielfeld 175, in der
+        // Vertragsansicht 239), genau die fünf Zeilen der Schrift hoch; er liegt mit XOR 31 über
+        // der Zeile, die Schrift darauf steht in der Gegenfarbe (0x1EDE0, am Original gemessen)
+        ctx.fillStyle = PAL[23];
+        ctx.fillRect(6, y, this.squadRand() - 5, 5);
       }
       // Beide Ansichten färben die Zeile nach dem Mannschaftsteil und zeichnen ohne Schatten.
-      // Wer nach einem abgelehnten Angebot nicht mehr verhandelt, steht in der Vertragsansicht
-      // blau (Farbton noch nicht am Original nachgemessen).
-      const stur = vertrag && l.u8(24) > 0 && !(l.u8(24) & 0x80);
+      // Vertragsansicht (Modus 3, 0x1F695-0x1F6C1): wer nach einem Gespräch noch nicht wieder
+      // verhandelt (Kaderbyte 24 = 1..99), steht ganz in Farbe 3, wer seinen Rücktritt angekündigt
+      // hat (Bit 7), ganz in Farbe 17.
+      const b24 = l.u8(24);
+      const vertragsFarbe = !vertrag ? null : b24 & 0x80 ? PAL[17] : b24 > 0 && b24 < 100 ? PAL[3] : null;
       // Gedopte Spieler stehen grün, damit man die laufende Kur nicht vergisst (Version 2026, #3)
-      const c = sel ? "#414161" : stur ? "#5151d3" : isDoped(l) ? "#71a241" : (GRUPPENFARBE[p.position] ?? COLORS.text);
+      const farbe = (f: string): string => (sel ? aufBalken(f) : f);
+      const c = farbe(vertragsFarbe ?? (isDoped(l) ? "#71a241" : (GRUPPENFARBE[p.position] ?? COLORS.text)));
+      // Liegt ein Verlängerungsangebot des Spielers vor ((Byte 24 & 0x7F) > 99), steht der Name
+      // in Farbe 11 (0x1F818; das Original fragt dazu den Meldungszeiger in Feld 48 ab, den wir
+      // nicht führen - das Angebot steht für ihn)
+      const cName = vertrag && (b24 & 0x7f) > 99 ? farbe(PAL[11]) : c;
       const sh = false;
-      // RESERVE steht nur bei den Ersatzleuten mit Nummer (12..15); wer keine Nummer hat, hat
-      // im Original auch keinen Status. Eine Dopingsperre benutzt die Mechanik der Verletzung,
-      // heißt aber anders (#3).
+      // Die volle Liste prüft zuerst die Nummer (0x1FA2C): ein Ersatzmann (12..) heißt RESERVE,
+      // auch wenn er verletzt oder gesperrt ist, und steht in der Zeilenfarbe; erst danach
+      // Sperre und Verletzung in Rot. Wer keine Nummer hat, hat keinen Status. Eine Dopingsperre
+      // benutzt die Mechanik der Verletzung, heißt aber anders (#3).
       const ef = this.einsatzFlag(l);
+      const reserve = l.number > 11;
       // Wie 0x21E40: Text 4cb3:22FC[Byte 9 & 3], bei der Sperre mit der Dauer (Byte 13) in Klammern
-      const st = isDopeBanned(l) ? "DOPING" : ef === 3 ? " " : ef === 2 ? "VERL." : ef === 1 ? `GESP.(${l.u8(13)})` : l.number === 0 ? "" : l.number > 11 ? "RESERVE" : "IM TEAM";
+      const st = reserve ? "RESERVE" : isDopeBanned(l) ? "DOPING" : ef === 3 ? " " : ef === 2 ? "VERL." : ef === 1 ? `GESP.(${l.u8(13)})` : l.number === 0 ? "" : "IM TEAM";
+      const stRot = !reserve && ef !== 0;
+      // Punkt hinter ART beim Leihspieler (0x1F75A-0x1F7CA, Kaderbyte 12)
+      const leihPunkt = (xArt: number): void => {
+        if (l.u8(12) === 0) return;
+        ctx.fillStyle = c;
+        ctx.fillRect(xArt + 15, y + 2, 1, 1);
+      };
       const [ko, te, fo] = l.strength;
       if (vertrag) {
         const td = this.tendenz(l);
         const jahre = l.u8(11);
         s.draw(ctx, p.position, 6, y, c, sh);
-        s.draw(ctx, cp437ToGame(p.name), 24, y, c, sh);
-        s.drawRight(ctx, String(l.leagueApps + l.cupApps), 85, y, c, sh);
+        leihPunkt(6);
+        s.draw(ctx, cp437ToGame(p.name), 24, y, cName, sh);
+        s.drawRight(ctx, String(spieleGesamt(l)), 85, y, c, sh);
         s.drawRight(ctx, String(Math.trunc((ko + te + fo) / 3)), 99, y, c, sh);
-        s.drawRight(ctx, String(l.leagueGoals + l.cupGoals), 111, y, c, sh);
-        s.draw(ctx, st, 114, y, !sel && ef ? ROT : c, sh);
+        s.drawRight(ctx, String(toreGesamt(l)), 111, y, c, sh);
+        s.draw(ctx, st, 114, y, stRot ? farbe(ROT) : c, sh);
         // Die Tendenz steht auch hier rot, wenn Kaderbyte 19 über 130 liegt (im Original gesehen)
-        s.draw(ctx, td, 154, y, !sel && l.u8(19) > 130 ? ROT : c, sh);
-        // Ein abgelaufener Vertrag (0 Jahre) steht rot: über ihn wird noch verhandelt
-        s.draw(ctx, toGame(`${jahre} JAHR${jahre === 1 ? "" : "E"}`), 167, y, !sel && jahre === 0 ? ROT : c, sh);
+        s.draw(ctx, td, 154, y, l.u8(19) > 130 ? farbe(ROT) : c, sh);
+        // Byte 11 + " JAHR", das "E" nur, wenn die erste Ziffer über 1 liegt (0x1FB59): "0 JAHR",
+        // "1 JAHR", "2 JAHRE"; keine eigene Farbe
+        s.draw(ctx, toGame(`${jahre} JAHR${String(jahre)[0] > "1" ? "E" : ""}`), 167, y, c, sh);
         s.drawRight(ctx, `${l.i32(40)} DM`, 239, y, c, sh);
       } else {
       // Ohne Nummer bleibt das Feld im Original leer, kein Strich
-      if (l.number) s.drawRight(ctx, String(l.number), cols.nr, y, !sel && l.number > 11 ? NR_ERSATZ : c, sh);
+      if (l.number) s.drawRight(ctx, String(l.number), cols.nr, y, l.number > 11 ? farbe(NR_ERSATZ) : c, sh);
       s.draw(ctx, p.position, cols.art, y, c, sh);
+      leihPunkt(cols.art);
       s.draw(ctx, cp437ToGame(p.name), cols.name, y, c, sh);
-      s.drawRight(ctx, String(l.leagueApps + l.cupApps), cols.sp, y, c, sh);
+      s.drawRight(ctx, String(spieleGesamt(l)), cols.sp, y, c, sh);
       s.drawRight(ctx, String(ko), cols.st, y, c, sh);
       s.drawRight(ctx, String(te), cols.st + 12, y, c, sh);
       s.drawRight(ctx, String(fo), cols.st + 24, y, c, sh);
-      s.drawRight(ctx, String(l.leagueGoals + l.cupGoals), cols.to, y, c, sh);
+      s.drawRight(ctx, String(toreGesamt(l)), cols.to, y, c, sh);
       s.drawRight(ctx, String(l.yellowCards), cols.gk, y, c, sh);
       s.drawRight(ctx, String(l.redCards), cols.rk, y, c, sh);
-      s.draw(ctx, st, cols.status, y, !sel && ef ? ROT : c, sh);
-      s.draw(ctx, this.tendenz(l), cols.td, y, !sel && l.u8(19) > 130 ? ROT : c, sh);
+      s.draw(ctx, st, cols.status, y, stRot ? farbe(ROT) : c, sh);
+      s.draw(ctx, this.tendenz(l), cols.td, y, l.u8(19) > 130 ? farbe(ROT) : c, sh);
       }
       // Mit eingeblendetem Spielfeld endet die Liste vor dem Feld, sonst würden ihre
       // Klickflächen die linke Spalte des Feldes verdecken
@@ -4824,23 +4940,24 @@ class App {
       const st = Math.trunc((l.u8(16) + l.u8(17) + l.u8(18)) / 3);
       const seite = p.u8(32);
       const fuss = seite < 5 ? (seite > 1 ? "L+R" : "L") : "R";
-      s.drawCenter(ctx, toGame(`ST[RKE:${st}, ${p.age} JAHRE (${fuss})`), 122, 180, INK_HILFE);
+      s.drawCenter(ctx, toGame(`ST[RKE:${st}, ${p.age} JAHRE (${fuss})`), 122, 180, INK_HILFE, false);
     } else if (vertrag && this.vertragPlace >= 0 && rows[this.vertragPlace]) {
       const l = rows[this.vertragPlace];
       const p = g.players.at(l.playerIndex);
       const seite = p.u8(32);
       const fuss = seite < 5 ? (seite > 1 ? "L+R" : "L") : "R";
-      s.drawCenter(ctx, toGame(`NAME: ${cp437ToGame(p.name)} (${p.age} JAHRE) (${fuss})`), 122, 180, INK_HILFE);
+      s.drawCenter(ctx, toGame(`NAME: ${cp437ToGame(p.name)} (${p.age} JAHRE) (${fuss})`), 122, 180, INK_HILFE, false);
     } else if (this.squadHover >= 0 && rows[this.squadHover] && this.squadSpalte >= 0) {
       // Hilfszeile zur Spalte unter dem Zeiger (0x21567 ff.); sie verdrängt die Antwort der
       // letzten Verhandlung, sobald der Zeiger wieder über der Liste steht
-      s.drawCenter(ctx, this.squadHilfe(rows[this.squadHover]), 122, 180, INK_HILFE);
+      // Mittig zwischen x 6 und dem rechten Rand der Liste (0x6C7:0x87C), ohne Schatten
+      s.drawCenter(ctx, this.squadHilfe(rows[this.squadHover]), Math.floor((6 + this.squadRand()) / 2), 180, INK_HILFE, false);
     } else if (this.vertragsAntwort) {
       // Antwort der Vertragsverhandlung: im Original steht sie hier unter der Tabelle
-      s.drawCenter(ctx, toGame(this.vertragsAntwort), 122, 180, INK_HILFE);
+      s.drawCenter(ctx, toGame(this.vertragsAntwort), 122, 180, INK_HILFE, false);
     } else if (this.selectedRow >= 0 && rows[this.selectedRow]) {
       const p = g.players.at(rows[this.selectedRow].playerIndex);
-      s.drawCenter(ctx, `NAME: ${cp437ToGame(p.name)} (${p.age} JAHRE) - ZWEITEN ZUM TAUSCH W[HLEN`, 122, 180, INK_HILFE);
+      s.drawCenter(ctx, `NAME: ${cp437ToGame(p.name)} (${p.age} JAHRE) - ZWEITEN ZUM TAUSCH W[HLEN`, 122, 180, INK_HILFE, false);
     }
     // Einsatzregler (Grafik PIC/37.VGA, oberer Teil): Managerbyte 305, 0..34. Der Keil steht
     // links flach und rechts hoch; bis zum eingestellten Wert liegt ein heller Balken darüber.
@@ -6308,12 +6425,12 @@ class App {
       const sch = !gewaehlt;
       s.draw(ctx, p.position, 8, y, c, sch);
       s.draw(ctx, cp437ToGame(p.name), 26, y, c, sch);
-      s.drawRight(ctx, String(l.leagueApps + l.cupApps), 92, y, c, sch);
+      s.drawRight(ctx, String(spieleGesamt(l)), 92, y, c, sch);
       const [ko, te, fo] = l.strength;
       s.drawRight(ctx, String(ko), 110, y, c, sch);
       s.drawRight(ctx, String(te), 122, y, c, sch);
       s.drawRight(ctx, String(fo), 134, y, c, sch);
-      s.drawRight(ctx, String(l.leagueGoals + l.cupGoals), 146, y, c, sch);
+      s.drawRight(ctx, String(toreGesamt(l)), 146, y, c, sch);
       s.drawRight(ctx, String(p.age), 158, y, c, sch);
       s.drawRight(ctx, dm(poachAmount(g, owner, place, this.abwerbenBonus)).replace(" DM", ""), 214, y, c, sch);
       s.drawRight(ctx, `${poachChance(g, me, owner, place, this.abwerbenBonus)}%`, 260, y, c, sch);
@@ -6479,27 +6596,50 @@ class App {
     s.draw(ctx, "TD", 142, hy, PLATE, false);
     hline(ctx, 4, 32, 150, PLATE);
     let y = 36;
+    let zeile = 0;
+    let hoverKader: Lineup | null = null;
     for (let place = 0; place < 25; place++) {
       const l = g.lineups.at(me * 25 + place);
       if (l.isEmpty) continue;
       const p = g.players.at(l.playerIndex);
       const offer = (l.u8(9) & OFFER_SQUAD) !== 0;
-      const c = offer ? COLORS.highlight : (GRUPPENFARBE[p.position] ?? COLORS.text);
+      // Alle Spalten in der Farbe des Mannschaftsteils; nur der Name steht in Farbe 11, wenn ein
+      // Angebot vorliegt (0x1F7D5: Kaderbyte 9 & 0xC0, Spieler gehört dem Manager). Unter dem
+      // Zeiger liegt der gelbe Balken, die Schrift darauf in der Gegenfarbe (XOR 31).
+      const hover = zeile === this.marketHover;
+      if (hover) {
+        hoverKader = l;
+        ctx.fillStyle = PAL[23];
+        ctx.fillRect(2, y, 154, 5);
+      }
+      const farbe = (f: string): string => (hover ? aufBalken(f) : f);
+      const c = farbe(GRUPPENFARBE[p.position] ?? COLORS.text);
+      const cName = (l.u8(9) & 0xc0) !== 0 && p.u8(33) === me ? farbe(PAL[11]) : c;
       s.draw(ctx, p.position, 4, y, c, false);
-      s.draw(ctx, cp437ToGame(p.name), 22, y, c, false);
-      s.drawRight(ctx, String(l.leagueApps + l.cupApps), 89, y, c, false);
+      // Punkt hinter ART beim Leihspieler (0x1F75A)
+      if (l.u8(12) !== 0) {
+        ctx.fillStyle = c;
+        ctx.fillRect(19, y + 2, 1, 1);
+      }
+      s.draw(ctx, cp437ToGame(p.name), 22, y, cName, false);
+      s.drawRight(ctx, String(spieleGesamt(l)), 89, y, c, false);
       const [ko, te, fo] = l.strength;
       s.drawRight(ctx, String(ko), 103, y, c, false);
       s.drawRight(ctx, String(te), 115, y, c, false);
       s.drawRight(ctx, String(fo), 127, y, c, false);
-      s.drawRight(ctx, String(l.leagueGoals + l.cupGoals), 139, y, c, false);
-      // Die letzte Spalte ist die Tendenz wie im Kaderbildschirm, kein Leih- oder Angebotszeichen
-      s.draw(ctx, this.tendenz(l), 142, y, l.u8(19) > 130 ? "#b20020" : c, false);
+      s.drawRight(ctx, String(toreGesamt(l)), 139, y, c, false);
+      // Die letzte Spalte ist die Tendenz wie im Kaderbildschirm
+      s.draw(ctx, this.tendenz(l), 142, y, l.u8(19) > 130 ? farbe(PAL[18]) : c, false);
       const pl = place;
       this.hit(4, y - 1, 150, 6, () => this.marketSquadClick(pl, offer));
       y += 6;
+      zeile++;
     }
     hline(ctx, 4, 182, 150, PLATE);
+    // Unter der linken Liste: die Hilfszeile zur Spalte unter dem Zeiger (0x1ECDE über 0x2305F,
+    // rechter Rand 155, also ohne Erschöpfung) oder die Herkunft des Marktspielers unter dem
+    // Zeiger (0x2325E)
+    if (hoverKader && this.marketSpalte >= 0) s.drawCenter(ctx, this.listenHilfe(hoverKader, this.marketSpalte, 155), 78, 186, PAL[1], false);
     // Markt
     // Rechte Tafel (161,13) 156x113: Überschrift y 15 mittig über 162..315, Kopfzeile y 25,
     // Strich y 31, sechs Zeilen ab y 35, darunter ein Strich bei y 107 und die beiden Knöpfe.
@@ -6515,16 +6655,28 @@ class App {
     // Die Spalte WERT zeigt bei LEIHEN ein Drittel des Preises (0x1F37F ab 0x1FC29)
     const wert = (e: MarketEntry) => (this.marketMode === "leihen" ? Math.trunc(e.price / 3) : e.price);
     entries.forEach((e, i) => {
-      const sel = i === this.marketSel;
+      // Die Zeile unter dem Zeiger (im Original) und die gewählte (hier) liegen auf dem gelben
+      // Balken x 164..314, die Schrift darauf in der Gegenfarbe (XOR 31)
+      const sel = i === this.marketSel || i === this.marketHoverRechts;
       if (sel) {
-        ctx.fillStyle = COLORS.highlight;
-        ctx.fillRect(163, y - 1, 151, 7);
+        ctx.fillStyle = PAL[23];
+        ctx.fillRect(164, y, 151, 5);
       }
+      const farbe = (f: string): string => (sel ? aufBalken(f) : f);
       const mine = e.owner === me;
-      const c = sel ? COLORS.black : mine ? (e.offer ? COLORS.highlight : COLORS.white) : e.rejectedBy.includes(me) ? COLORS.textDim : (GRUPPENFARBE[e.position] ?? COLORS.text);
+      // Alles in der Farbe des Mannschaftsteils; nur der Name des eigenen Spielers mit
+      // vorliegendem Angebot steht in Farbe 11 (0x1F7D5, Marktbyte 9 & 0xC0). Eine Farbe für
+      // "abgelehnt" hat das Original nicht.
+      const c = farbe(GRUPPENFARBE[e.position] ?? COLORS.text);
+      const cName = mine && (g.lineups.at(100 + e.slot).u8(9) & 0xc0) !== 0 ? farbe(PAL[11]) : c;
       const sch = false; // wie im Original: die Zeilen tragen keinen Schatten
       s.draw(ctx, e.position, 163, y, c, sch);
-      s.draw(ctx, toGame(e.name), 181, y, c, sch);
+      // Punkt hinter ART: Leihspieler oder eigener Spieler (0x1F75A-0x1F7A6, Modus KAUFEN/LEIHEN)
+      if (mine || g.lineups.at(100 + e.slot).u8(12) !== 0) {
+        ctx.fillStyle = c;
+        ctx.fillRect(178, y + 2, 1, 1);
+      }
+      s.draw(ctx, toGame(e.name), 181, y, cName, sch);
       s.drawRight(ctx, String(e.strength[0]), 242, y, c, sch);
       s.drawRight(ctx, String(e.strength[1]), 254, y, c, sch);
       s.drawRight(ctx, String(e.strength[2]), 266, y, c, sch);
@@ -6533,7 +6685,7 @@ class App {
         // Offenes Bietgefecht (#105): in der Liste steht das Höchstgebot, grün wenn es das eigene ist
         const hoch = auk.gebote?.[0];
         const text = hoch ? `${hoch.amount} DM` : `${auk.anzahl} GEBOT${auk.anzahl > 1 ? "E" : ""}`;
-        s.drawRight(ctx, text, 317, y, sel ? COLORS.black : hoch?.manager === me ? "#71a241" : COLORS.highlight, sch);
+        s.drawRight(ctx, text, 317, y, sel ? PAL[6] : hoch?.manager === me ? "#71a241" : COLORS.highlight, sch);
       } else s.drawRight(ctx, `${wert(e)} DM`, 317, y, c, sch);
       this.hit(163, y - 1, 151, 7, () => this.marketClick(i, e));
       y += 6;
@@ -6552,13 +6704,24 @@ class App {
     this.hit(245, 110, 57, 13, () => (this.marketMode = "kaufen"));
     // Angebot und Kontostand
     panel(ctx, 161, 131, 156, 50);
+    // Herkunft des Marktspielers unter dem Zeiger (sonst des gewählten) unter der linken Liste
+    // (0x2325E ff.): "VON <Verein>, <Alter> J. (<Fuß>)" mittig über x 2..155 bei y 186; gehört er
+    // einem Manager, steht statt des Vereins dessen Name in Großbuchstaben (Managersatz über
+    // 0x3196D)
+    const von = entries[this.marketHoverRechts] ?? entries[this.marketSel];
+    if (von && !(hoverKader && this.marketSpalte >= 0)) {
+      const seite = g.players.at(von.playerIndex).u8(32);
+      const fuss = seite < 5 ? (seite > 1 ? "L+R" : "L") : "R";
+      const herkunft = von.owner === MARKET_MANAGER ? clubName(von.club) : cp437ToGame(gross(g.managers.at(von.owner).name));
+      s.drawCenter(ctx, `VON ${herkunft}, ${von.age} J. (${fuss})`, 78, 186, PAL[1], false);
+    }
     const sel = entries[this.marketSel];
     if (sel) {
       // Läuft ein Bietgefecht, steht in der Liste die Zahl der Gebote statt des Preises - der
       // Wert gehört dann hierher, sonst könnte man nicht abschätzen, was man bieten muss.
       const auk = mk?.auctions?.find((a) => a.slot === sel.slot);
       const bietet = !!auk && auk.anzahl > 0;
-      s.draw(ctx, `VON ${clubName(sel.club)}, ${sel.age} J.${bietet ? ` - ${wert(sel)} DM` : ""}`, 163, 135, COLORS.white);
+      if (bietet) s.draw(ctx, `WERT ${wert(sel)} DM`, 163, 135, COLORS.white);
       if (sel.owner === me) s.draw(ctx, sel.offer ? "ANGEBOT LIEGT VOR - ANKLICKEN" : "IHR SPIELER - KLICK HOLT ZUR]CK", 163, 143, COLORS.text);
       else if (sel.rejectedBy.includes(me)) s.draw(ctx, "ANGEBOT WURDE BEREITS ABGELEHNT", 163, 143, COLORS.red);
       else {
@@ -6570,7 +6733,6 @@ class App {
           const vorn = hoch ? `${toGame(g.managers.at(hoch.manager).displayName)} ${dm(hoch.amount).replace(" DM", "")}` : "";
           s.draw(ctx, hoch ? `VORN: ${vorn}${auk!.anzahl > 1 ? ` (${auk!.anzahl} GEBOTE)` : ""}` : "BIETGEFECHT BIS ZUM TAGESWECHSEL", 163, 151, COLORS.highlight);
         }
-        else if (sel.owner !== MARKET_MANAGER) s.draw(ctx, `VON ${toGame(g.managers.at(sel.owner).displayName)}`, 163, 151, COLORS.textDim);
       }
     }
     // Version 2026: Kaufsperre bei Überschuldung (das Bietgefecht steht in der Liste)
@@ -6943,7 +7105,9 @@ class App {
       f.drawCenter(ctx, cp437ToGame(g.clubs.at(sale.club).name), 160, 66, COLORS.white);
       f.drawCenter(ctx, "bietet f}r " + cp437ToGame(sale.name), 160, 78, COLORS.text, false);
       f.drawCenter(ctx, "Angebot: " + dm(sale.amount), 160, 92, COLORS.white, false);
-      f.drawCenter(ctx, `Abl|se: ${dm(sale.fee)} (${sale.years} Jahre Vertrag)`, 160, 104, COLORS.text, false);
+      // Unter "Abl|se" steht der Abzug Angebot/7·Vertragsjahre (0x2441B-0x24449), nicht der
+      // Betrag, der aufs Konto geht
+      f.drawCenter(ctx, `Abl|se: ${dm(sale.amount - sale.fee)}`, 160, 104, COLORS.text, false);
       button(ctx, f, "BEHALTEN", 60, 124, 90);
       button(ctx, f, "VERKAUFEN", 170, 124, 90, true);
       this.hit(60, 124, 90, 16, () => void this.post("api/market/decide", { manager: me, player: this.player, sell: false }));

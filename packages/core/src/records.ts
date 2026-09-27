@@ -472,19 +472,27 @@ export class Lineup extends Record {
   get yellowRedCards(): number {
     return this.u8(2);
   }
-  /** Ligatore + Pokaltore = Anzeige "TO". */
+  /** Ligatore (Byte 3); die Spalte TO der Listen ist Liga + DFB-Pokal + Europapokal (Byte 3+4+5). */
   get leagueGoals(): number {
     return this.u8(3);
   }
   get cupGoals(): number {
     return this.u8(4);
   }
-  /** Ligaeinsätze + Pokaleinsätze = Anzeige "SP". */
+  /** Ligaeinsätze (Byte 6); die Spalte SP der Listen ist Liga + DFB-Pokal + Europapokal (Byte 6+7+8). */
   get leagueApps(): number {
     return this.u8(6);
   }
   get cupApps(): number {
     return this.u8(7);
+  }
+  /** Europapokaleinsätze der Saison (Byte 8); die Listen zählen sie in SP mit (0x1F8A6). */
+  get euroApps(): number {
+    return this.u8(8);
+  }
+  /** Europapokaltore der Saison (Byte 5); die Listen zählen sie in TO mit (0x1F9C6). */
+  get euroGoals(): number {
+    return this.u8(5);
   }
   /** Bits 0..1: Positionsart, ausgewertet vom Mannschaftsbildschirm. */
   get positionFlags(): number {
