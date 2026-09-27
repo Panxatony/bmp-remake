@@ -152,8 +152,12 @@ gerechnet anders als im Original. Die Hauptformel selbst stimmt (Messreihe #24).
 
 ### B4 · Bewusste Auslassungen — *kein Handlungsbedarf*
 - Die Stärkeliste der Zielvereine (0x0F58B) rechnet das Original aus, benutzt sie aber nicht.
-- Die Relegationsmeldung vom 13. Juni ist im Original durch die Konstante 4cb3:226A abgeschaltet.
-- Historische Startjahre (1964/1966 mit Zuschlägen) bietet das Remake im neuen Spiel nicht an.
+- (Berichtigt nach Audit 2 C5: Die Relegationsmeldung vom 13. Juni ist im Original **nicht**
+  abgeschaltet. 4cb3:226A steht auf 1, 0x1442A `cmp %bh,%es:0x226a` / `je 0x14476` überspringt
+  sie nur bei 0. Das Remake zeigt sie wie das Original; keine Auslassung.)
+- Den historischen Start (Saison 1963/64) bietet das Remake im neuen Spiel nicht an. Die früher hier
+  genannten "historischen Startjahre 1964/1966" sind die Endjahre des 1- und 3-Jahres-Spiels mit
+  historischem Start; diese Spielarten werden nachgebaut (#133, Audit 2 B9).
 
 ### B5 · Speichern beendet den Zug nicht — *bewusste Abweichung*
 Im Original nimmt das Kalenderblatt nach dem Speichern keinen Klick mehr an. Im Mehrspielerbetrieb

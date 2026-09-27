@@ -3495,7 +3495,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     return json(res, 200, { ok: true });
   }
   if (p === "/api/stadium/bauzeit") {
-    // Bauzeit für die Rückfrage: einmal je Ausbauart und Tag gewürfelt, damit im Kasten und im
+    // Bauzeit für die Rückfrage: beim Öffnen des Kastens gewürfelt, damit im Kasten und im
     // Bauplan dieselbe Zahl steht (0x0000; GitLab #55)
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
     const kind = Math.trunc(Number(body.kind));

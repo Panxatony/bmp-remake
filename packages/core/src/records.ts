@@ -25,6 +25,11 @@ export const TABLES = {
   standings: { offset: 12357, length: 3456, record: 54, address: "4238:0ecc" },
   players: { offset: 15813, length: 5587, record: 37, address: "4238:57dd" },
   lineups: { offset: 21400, length: 6500, record: 52, address: "4238:774a" },
+  /**
+   * Trotz des Namens keine Tabellenreihenfolge (die steht in 4238:535A), sondern der Paarungsblock
+   * des aktuellen Spieltags: je Liga 10 Paare [Heim, Gast] ab (10·Liga + k)·2, Bundesliga 9
+   * (0x2B4F3 schreibt, 0x2D143 liest; `pairings`). Audit 2 G7.
+   */
   tableOrder: { offset: 27900, length: 60, record: 60, address: "4238:4b5e" },
   /** Ergebnisse der Saison: [liga 0..2][spieltag 0..37][spiel 0..9][heim, gast], 0xFF = offen */
   results: { offset: 59, length: 2280, record: 20, address: "4238:6ddc" },
@@ -39,7 +44,7 @@ export const SCALARS = {
   day: 27960,        // Tag im Monat (bestätigt: 11)
   monthIndex: 27964, // Monat 0-basiert (bestätigt: 10 = November)
   year: 27968,       // bestätigt: 1997
-  counter: 27972,    // 105, Bedeutung offen
+  counter: 27972,    // Saisontag 4cb3:07DC (0x19275 vergleicht mit 315); im Beispielstand 105 am 11. November
   year16: 27976,
   nextMatchday: 28432, // 3 Bytes, je Liga 1-basiert (bestätigt: 16, 19, 19)
 } as const;
@@ -608,7 +613,11 @@ export class GameState {
     return this.save.plain[SCALARS.currentManager];
   }
 
-  /** Vereinsindizes in Tabellenreihenfolge: 18 Bundesliga, dann 20 + 20 Zweite Liga. */
+  /**
+   * Rohbytes des Paarungsblocks 4238:4B5E, aufgeteilt in 18 + 20 + 20. Trotz des Namens keine
+   * Tabellenreihenfolge: es sind die Paarungen des aktuellen Spieltags (siehe `pairings`, Audit 2
+   * G7). Nur savefile.test.ts benutzt den Getter.
+   */
   get tableOrder(): { bundesliga: number[]; second: number[][] } {
     const b = this.save.plain.subarray(TABLES.tableOrder.offset, TABLES.tableOrder.offset + 60);
     return {

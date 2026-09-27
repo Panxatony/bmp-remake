@@ -90,8 +90,10 @@ export function standingsMessages(g: GameState, manager: number, flags: { v: num
  * Relegationsmeldung (0x143ED ab 0x1445E): am 13. Juni bekommt der Manager, dessen Verein das
  * Relegationsspiel bestreitet, "Ihre Mannschaft bestreitet das Relegationsspiel. Viel Glück."
  * Das sind der Sechzehnte der Bundesliga (Platzbyte == 15) und der Dritte der 2. Liga (== 2).
- * Das Original hat die Meldung über die Konstante 4cb3:226A abgeschaltet; das Remake zeigt sie,
- * weil es das Relegationsspiel tatsächlich austrägt.
+ * Die Meldung ist im Original aktiv: 0x1442A überspringt sie nur bei 4cb3:226A = 0, und dort
+ * steht 1 (Audit 2 C5). Das Original verlangt zusätzlich 4cb3:225A[Liga] = Spieltage + 1 und
+ * springt nach der Meldung ans Ende (0x144EB), "gesichert"/"verspielt" kommen dann erst beim
+ * nächsten Hauptmenü; das Remake prüft den Spieltag nicht und zeigt die übrigen Meldungen mit.
  */
 export const relegationLines = (): string[] => texte("meldungen.relegation");
 

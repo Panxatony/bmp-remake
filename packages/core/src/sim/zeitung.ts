@@ -1,7 +1,7 @@
 /**
  * Sportzeitung nach dem Spieltag (0x2F243 mit Platzhalterausgabe 0x2ED04/0x2F15A, Gruppenwahl
  * 0x3058F, Artikel 0x2EFAB, Spielbericht 0x305DE). Schlagzeilen (69 Vorlagen, DGROUP 0x4F90,
- * Gruppen 4cb3:9322) und Artikelsätze (110 Vorlagen, DGROUP 0x90D2, Gruppen 4cb3:9350) mit
+ * Gruppen 4cb3:9322) und Artikelsätze (109 Vorlagen, DGROUP 0x90D2, Gruppen 4cb3:9350) mit
  * Platzhaltern: %0:%1 Endstand, %2:%3 Stand beim größten Rückstand, %4:%5 Stand bei der
  * größten Führung, %9 Zuschauer, %a eigener Verein, %b Gegner, %c bester und %d schwächster
  * Spieler, %t Manager, %e Zeilenumbruch, %x<s><n>A#B#…#% Auswahl (s = 0 Zufall, 1 Heim/Auswärts,

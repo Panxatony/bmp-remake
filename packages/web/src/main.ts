@@ -5951,7 +5951,7 @@ class App {
         this.stadiumAmount = 0;
       });
       this.hit(227, 81, 57, 14, () => {
-        // Wie im Original: wer ablehnt, bekommt heute keine Baufirma mehr für diese Ausbauart
+        // Wie im Original: wer ablehnt, sperrt diese Ausbauart random(15,55) Tage für alle Manager (0x0584)
         void this.post("api/stadium/decline", { manager: this.manager, player: this.player, kind: k.kind });
         this.stadiumAsk = false;
         if (!k.perThousand) this.stadiumAmount = 0;
