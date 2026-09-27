@@ -3,7 +3,9 @@
  * je Tag in DOSBox gespielt (tools/dosbox/drive.py mit DRIVE_DEBUG), die Seiten abgelesen. Die
  * Erwartung in zeitung-original.json ist Wort für Wort mit diesen Bildern verglichen: drei Seiten
  * des TEST4-Tags und die erste des Derbytags (die zweite hat der Lauf ohne Bild weitergeklickt).
- * Das Foto (random(0,29)) ist nicht Teil des Vergleichs.
+ * Das Foto (random(0,29)) ist nicht Teil des Vergleichs. Die zwei Leerzeichen bei einem Tor ohne
+ * eigenen Schützen ("1:0  (32.MIN)") sind im Wortvergleich nicht aufgefallen; in DOSBox
+ * nachgemessen ist die Lücke dort 5 statt 3 Punkte breit (Audit 2 G16).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

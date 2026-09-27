@@ -38,9 +38,12 @@ export function highscoreFile(g: GameState): string {
 
 /**
  * Platzierungspunkte (0x34B14): (57 - Tabellenplatz - Ligabasis)/2 (nicht unter 0) + 2·Runde je
- * laufendem Pokal (Runden 1..6), dazu je gespielter Saison aus dem Verlauf (Byte 62 + 4i):
- * (58 - Rang)/2 + 2·(Ligabyte & 7), +20 bei Bit 7 des Ligabytes; hat das Ligabyte Bits über 3,
- * zusätzlich 25 (Europabyte Bit 7) bzw. 3·(Europabyte & 7). Summe durch (Saisons + 1), mal 10.
+ * laufendem Pokal (Runden 1..6), dazu je gespielter Saison aus dem Verlauf (Byte 62 + 4i, so
+ * viele wie der Saisonzähler 4cb3:07E2 sagt, höchstens 50): (58 - Rang)/2 gegen null gerundet,
+ * dann das Pokalbyte (64 + 4i): mit Bit 7 (DFB-Sieger) +20 und dazu der Europapokal - 25 bei
+ * Bit 7 des Europabytes, sonst 3·(Europabyte & 7) -, ohne Bit 7 nur 2·(Pokalbyte & 7). Den
+ * Europapokal gibt es also nur mit dem DFB-Siegerbit: 0x34BF3 prüft `test $0xfff8` auf dem schon
+ * mit 7 maskierten Byte (Audit 2 H5). Summe durch (Saisons + 1), mal 10.
  */
 export function placementPoints(g: GameState, manager: number): number {
   const m = g.managers.at(manager);
@@ -53,19 +56,16 @@ export function placementPoints(g: GameState, manager: number): number {
     const r = m.u8(306 + cup);
     if (r !== 0 && r < 7) v += 2 * r;
   }
-  let seasons = 0;
-  for (let i = 0; i < 50; i++) {
+  const seasons = Math.min(g.save.plain[34224], 50);
+  for (let i = 0; i < seasons; i++) {
     const o = 62 + 4 * i;
-    if (o + 3 >= 778 || m.u8(o) === 0) break;
-    seasons++;
-    v += (58 - m.u8(o)) >> 1;
+    v += div(58 - m.u8(o), 2);
     const lg = m.u8(o + 2);
-    if (lg & 0x80) v += 20;
-    else v += 2 * (lg & 7);
-    if (lg & 0xf8) {
+    if (lg & 0x80) {
+      v += 20;
       const eu = m.u8(o + 3);
       v += eu & 0x80 ? 25 : 3 * (eu & 7);
-    }
+    } else v += 2 * (lg & 7);
   }
   if (seasons > 0) v = div(v, seasons + 1);
   return v * 10;
@@ -132,35 +132,30 @@ export function encodeHighscore(entries: HighscoreEntry[]): Uint8Array {
 }
 
 /**
- * Eintrag einordnen (0x34616): derselbe Manager mit demselben Verein wird ersetzt, wenn die
- * neuen Punkte höher sind; sonst kommt der Eintrag hinzu, solange Platz ist oder er den letzten
- * übertrifft. Liste absteigend nach Punkten, höchstens 20.
+ * Eintrag einordnen (0x34616): derselbe Manager mit demselben Verein ersetzt seinen Eintrag ohne
+ * Punktevergleich (0x347CB/0x347E8); sonst kommt er auf den letzten der 20 Plätze, wenn er dort
+ * mehr Punkte hat (ein leerer Platz zählt 0). Danach sortiert das Original durch Tauschen: jeder
+ * Platz wird mit allen späteren verglichen und getauscht, wenn der spätere mehr Punkte hat
+ * (0x346F0-0x34787) - das ist nicht stabil, bei gleichen Punkten ändert sich die Reihenfolge
+ * (Audit 2 H6).
  */
 export function insertHighscore(list: HighscoreEntry[], e: HighscoreEntry): HighscoreEntry[] {
-  const out = list.slice();
-  const same = out.findIndex((x) => x.name === e.name && x.club === e.club);
-  if (same >= 0) {
-    if (out[same].points < e.points) out[same] = e;
-  } else if (out.length < HIGHSCORE_MAX) out.push(e);
-  else {
-    const last = out.length - 1;
-    if (out[last].points < e.points) out[last] = e;
-  }
-  out.sort((a, b) => b.points - a.points);
-  return out.slice(0, HIGHSCORE_MAX);
-}
-
-/**
- * Einordnen beim Spielende (0x1E73C-0x1E8A4): derselbe Manager mit demselben Verein ersetzt seinen
- * Eintrag ohne Punktevergleich; sonst kommt er nur an die letzte Stelle, wenn er mehr Punkte hat
- * (eine leere Stelle zählt 0). Danach absteigend sortiert (#133).
- */
-export function insertHighscoreEnde(list: HighscoreEntry[], e: HighscoreEntry): HighscoreEntry[] {
-  const out = list.slice();
+  const out = list.slice(0, HIGHSCORE_MAX);
   const same = out.findIndex((x) => x.name === e.name && x.club === e.club);
   if (same >= 0) out[same] = e;
   else if (out.length < HIGHSCORE_MAX) out.push(e);
-  else if (out[out.length - 1].points < e.points) out[out.length - 1] = e;
-  out.sort((a, b) => b.points - a.points);
-  return out.slice(0, HIGHSCORE_MAX);
+  else if (out[HIGHSCORE_MAX - 1].points < e.points) out[HIGHSCORE_MAX - 1] = e;
+  for (let i = 0; i < out.length - 1; i++)
+    for (let j = i + 1; j < out.length; j++)
+      if (out[j].points > out[i].points) [out[i], out[j]] = [out[j], out[i]];
+  return out;
+}
+
+/**
+ * Einordnen beim Spielende (0x1E73C-0x1E8A4): dieselbe Regel wie 0x34616 - derselbe Manager mit
+ * demselben Verein ersetzt seinen Eintrag ohne Punktevergleich, sonst nur die letzte Stelle bei
+ * mehr Punkten (#133).
+ */
+export function insertHighscoreEnde(list: HighscoreEntry[], e: HighscoreEntry): HighscoreEntry[] {
+  return insertHighscore(list, e);
 }

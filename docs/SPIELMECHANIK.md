@@ -1472,14 +1472,16 @@ Spielerinfo-Tafel (aus Kader, Markt und Vertragsliste): "Info über <Name>", "AH
 n JAHRE ALT, " + Alterslabel (Tabelle 4cb3:2608 nach (Alter - 18)/5, höchstens 3: GRÜNSCHNABEL,
 NOCH GANZ FRISCH, MITTELALTER, FAST AM ENDE); "STATUS: " je nach Nummer und Byte 9: Nummer
 1..11 "IST FÜR'S NÄCHSTE SPIEL EINGEPLANT (NR. n)", ab 12 "HÜTET DIE ERSATZBANK", ohne Nummer
-"KANN SPIELEN, DARF ABER SCHEINBAR NICHT...", gesperrt "NOCH n SPIELE GESPERRT.", verletzt
-"NOCH n SPIELE VERLETZT (<Verletzung 4cb3:23B4>)" (n = Byte 13). Dann TORE:/SPIELE: je LIGA,
-DFB-POKAL, EUROPACUP und DATEN: KONDITION, TECHNIK, FORM (Bytes 16..18), ROTE/GELBE/GELB-ROTE
+"KANN SPIELEN, DARF ABER SCHEINBAR NICHT...", gesperrt "NOCH n SPIELE GESPERRT." (n = Byte 13),
+verletzt "VERLETZT (<VERLETZUNG>)" ohne Zähler, die Art aus 4cb3:23B4 in Großbuchstaben
+(0x15656-0x1573A). Dann TORE:/SPIELE: je LIGA, DFB-POKAL, EUROPACUP als "Saison(Gesamt)"
+(Kaderbyte 3 + k bzw. 6 + k, Wort 34 + 2k bzw. 28 + 2k; Mindestbreite 2, eine 0 als "^@") und
+DATEN: KONDITION, TECHNIK, FORM (Bytes 16..18), ROTE/GELBE/GELB-ROTE
 KARTEN (Bytes 0..2), SEITE(N) aus Spielerbyte 32 (bis 1 LINKS, bis 4 MITTE, sonst RECHTS),
 GEHALT/M. (i32 bei 40), VERTRAGSDAUER (Byte 11, "JAHR"/"JAHRE"); Balken TENDENZ =
 (Byte 14 - 30)·100/38 und ERSCHÖPFUNG = (Byte 19 - 50)·94/100 (je höchstens 94, acht Kästchen
-zu 12). Im Remake: Schaltfläche INFO im Kaderbildschirm für den markierten Spieler; die
-Europacup-Spalte entfällt (nicht getrennt geführt).
+zu 12). Im Remake: zweiter Klick auf den Spieler im Kaderbildschirm oder Klick in der
+Bestenliste (Managerspieler).
 
 Elfmeter (0x05186): bei einer Elfmeterszene (Szenendateien 2..5 mit Kennung E) steht statt
 "n.Minute" der Schriftzug "ELFMETER" unter der Szene; der Ton entfällt.
@@ -1569,15 +1571,20 @@ die HIGH.02 aller Originalstände gehört zu Level 2 (gespeichert 3). Das Remake
 bisher nur nach dem Startjahr (HIGH.00/01/02, highscore.ts `highscoreFile`, Audit 2 H7). 20
 Einträge zu 58 Bytes: 0..25 Managername, 26..48 Vereinsname, 49 Meisterschaften, 50 DFB-Pokale, 51
 Europapokale, 52..53 Punkte). Platzierungspunkte (0x34B14): (57 - Tabellenplatz - Ligabasis)/2,
-nicht unter 0, + 2·Runde je laufendem Pokal (Runden 1..6); je Saison im Verlauf (Byte 62 + 4i):
-(58 - Rang)/2 + 2·(Ligabyte & 7) bzw. +20 bei Bit 7, bei Ligabyte-Bits über 3 zusätzlich 25
-(Europabyte Bit 7) oder 3·(Europabyte & 7); Summe durch (Saisons + 1), mal 10. Punkte (0x34CDA)
+nicht unter 0, + 2·Runde je laufendem Pokal (Runden 1..6); je Saison im Verlauf (Byte 62 + 4i,
+so viele wie der Saisonzähler 4cb3:07E2, höchstens 50): (58 - Rang)/2 gegen null gerundet, dann
+das Pokalbyte (64 + 4i): mit Bit 7 +20 und dazu 25 (Europabyte Bit 7) oder 3·(Europabyte & 7),
+ohne Bit 7 nur 2·(Pokalbyte & 7) - den Europapokal gibt es also nur mit dem DFB-Siegerbit, weil
+0x34BF3 das schon maskierte Byte prüft (Audit 2 H5); Summe durch (Saisons + 1), mal 10. Punkte (0x34CDA)
 = Platzierungspunkte + (Marktwerte des Kaders + 135000·Stadionwert - Kredite + Kontostand)/80000
 + 40·Meisterschaften + 20·DFB-Pokale + 60·Europapokale - 500, mindestens 1; +300, wenn 0x34474 die
 Spielart 0 (Endlosspiel) liefert (0x34E4D-0x34E53, Argument 0x34CDA = Rückgabe von 0x34474).
-Einordnung: gleicher Name und Verein wird bei höheren Punkten ersetzt, sonst Aufnahme, solange
-Platz ist oder der letzte Eintrag unterboten wird; Liste absteigend. Anzeige über die Diskette
-("PUNKTE:" und "(X/X/X)" = Titel). Das Remake liest und schreibt die Datei im Spielstandordner;
+Einordnung: gleicher Name und Verein wird ohne Punktevergleich ersetzt, sonst kommt der Eintrag
+auf den letzten der 20 Plätze, wenn er dort mehr Punkte hat; danach Austauschsortieren (nicht
+stabil). Anzeige über die Diskette ("PUNKTE:" und "(X/X/X)" = Titel); dabei ordnet das Original
+den Manager am Zug mit seinem jetzigen Stand ein und schreibt das im Endlosspiel gleich in die
+Datei (0x34AF5; Audit 2 H6, in DOSBox gesehen). Alle Einträge stehen in Farbe 3 (Kennung in den
+Bytes 54..57 = 4cb3:0668, beide 0). Das Remake liest und schreibt die Datei im Spielstandordner;
 die vorhandene HIGH.02 des Originals wird byteidentisch zurückgeschrieben (Test).
 
 ## Auslosung als Zeremonie (0x17C26, Tafel 0x184BA; packages/web drawAuslosung)

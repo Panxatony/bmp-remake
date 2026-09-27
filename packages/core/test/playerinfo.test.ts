@@ -29,7 +29,8 @@ test("Spielerinfo (0x15346): Alterslabel, Status nach Nummer und Flag, Daten und
   assert.equal(playerInfo(g, 0).status, "STATUS: NOCH 2 SPIELE GESPERRT.");
   l.setU8(9, (l.u8(9) & ~3) | 2);
   l.setU8(23, 0);
-  assert.equal(playerInfo(g, 0).status, "STATUS: NOCH 2 SPIELE VERLETZT (Oberschenkelzerrung)");
+  // Ohne Zähler, die Art in Großbuchstaben (0x156DD, Audit 2 C3)
+  assert.equal(playerInfo(g, 0).status, "STATUS: VERLETZT (OBERSCHENKELZERRUNG)");
   assert.deepEqual([sideLabel(0), sideLabel(1), sideLabel(2), sideLabel(4), sideLabel(5), sideLabel(6)], ["LINKS", "LINKS", "MITTE", "MITTE", "RECHTS", "RECHTS"]);
   l.setU8(14, 68);
   l.setU8(19, 120);

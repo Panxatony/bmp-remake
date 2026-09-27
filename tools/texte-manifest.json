@@ -3870,6 +3870,42 @@
     "len": 4,
     "sum": "3cf41c60"
    }
+  ],
+  "ui.nachholtermin": [
+   {
+    "off": 324837,
+    "len": 4,
+    "sum": "e524b3a9"
+   }
+  ],
+  "ui.pokalzusatz": [
+   {
+    "off": 319893,
+    "len": 4,
+    "sum": "9fb917e5"
+   },
+   {
+    "off": 319898,
+    "len": 4,
+    "sum": "8ce2e3cc"
+   }
+  ],
+  "info.spaeher": [
+   {
+    "off": 325636,
+    "len": 29,
+    "sum": "dd4dd15c"
+   },
+   {
+    "off": 325666,
+    "len": 32,
+    "sum": "99ce6af9"
+   },
+   {
+    "off": 325699,
+    "len": 42,
+    "sum": "612fc244"
+   }
   ]
  }
 }

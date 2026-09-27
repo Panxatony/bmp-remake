@@ -58,8 +58,8 @@ export const strengthModes = (): string[] => texte("staerken.modi");
 /**
  * Stärketabelle einer Liga (Bildschirm 0x2DCA1). GESAMT mittelt die drei Linien der Matrix,
  * die übrigen Ansichten zeigen nur ihre Linie (Abwehr 0, Mittelfeld 1, Sturm 2). Sortiert wird
- * absteigend nach der Summe Kondition + Technik + Form der gewählten Linien, bei Gleichstand
- * bleibt die Reihenfolge der Liga stehen; die Werte sind auf 0..99 begrenzt.
+ * absteigend nach der Summe Kondition + Technik + Form der gewählten Linien (nicht stabil, siehe
+ * unten); die Werte sind auf 0..99 begrenzt.
  */
 export function strengthTable(g: GameState, league: number, mode = 0): StrengthRow[] {
   const L = LEAGUES[league];
@@ -81,7 +81,11 @@ export function strengthTable(g: GameState, league: number, mode = 0): StrengthR
     const fo = linie(30);
     return { club, ko, te, fo, sum };
   });
-  rows.sort((a, b) => b.sum - a.sum);
+  // Austauschsortieren wie 0x2DF80-0x2DFFD: jeder Platz wird mit allen späteren verglichen und
+  // getauscht, wenn der spätere eine größere Summe hat - nicht stabil, bei gleichen Summen
+  // ändert sich die Reihenfolge (aus 2a, 2b, 3 wird 3, 2b, 2a; Audit 2 G15)
+  for (let i = 0; i < rows.length - 1; i++)
+    for (let j = i + 1; j < rows.length; j++) if (rows[j].sum > rows[i].sum) [rows[i], rows[j]] = [rows[j], rows[i]];
   return rows.map((r, i) => ({ place: i + 1, club: r.club, ko: r.ko, te: r.te, fo: r.fo }));
 }
 
@@ -195,6 +199,46 @@ export function leagueScorers(g: GameState, league: number, limit = 20): ScorerR
 }
 
 /**
+ * Die Bestenliste so, wie 0x16515 sie zeichnet (0x16850-0x16CBE): der Zeilenzähler zählt nur
+ * gezeichnete Zeilen (höchstens 20), die Platzziffer läuft für alle Einträge der Liga mit.
+ * SPIELER überspringt die Vereine, die keinem Manager gehören - es erscheinen also bis zu 20
+ * Managerspieler aus der ganzen Liga (Audit 2 D3). In der Ansicht LIGA folgt hinter dem Spieler
+ * mit dem Sortierplatz 12 (in der Sortierung aller Spieler) eine 14 Punkte hohe Lücke mit einer
+ * senkrechten Punktlinie bei x 45 (0x16C50-0x16CAE, Audit 2 D4). Die Schleife benutzt dafür ihr
+ * Zählregister: danach geht es erst beim Sortierplatz "Zeile + 9" weiter - in DOSBox gesehen
+ * (TEST2, Bundesliga): drei Spieler, die Punktlinie, dann nichts mehr.
+ *
+ * `y` ist die oberste Schriftzeile, `punkte` die y-Werte der Punktlinie.
+ */
+export function bestenliste(g: GameState, league: number, spieler: boolean): { zeilen: (ScorerRow & { y: number })[]; punkte: number[] } {
+  const L = LEAGUES[league];
+  const tore = saisonTore(g);
+  const order = scorerOrder(g);
+  const vereine = new Set(g.activeManagers().map((m) => m.clubIndex));
+  const zeilen: (ScorerRow & { y: number })[] = [];
+  const punkte: number[] = [];
+  let unten = 34;
+  let platz = 0;
+  for (let si = 1; si < 151; si++) {
+    const i = order[si - 1];
+    const p = g.players.at(i);
+    const club = p.u8(36);
+    if (club < L.base || club >= L.base + L.teams || tore(i) < 2 || (p.u8(33) === 5 && p.name === "")) continue;
+    platz++;
+    if (zeilen.length >= 20 || (spieler && !vereine.has(club))) continue;
+    zeilen.push({ playerIndex: i, name: p.displayName, club, goals: tore(i), apps: p.u8(35), place: platz, y: unten - 4 });
+    unten += 7;
+    if (!spieler && si === 12) {
+      unten += 14;
+      let d = unten - 18;
+      for (; d < unten - 7; d += 2) punkte.push(d);
+      si = d;
+    }
+  }
+  return { zeilen, punkte };
+}
+
+/**
  * "Die Besten der Spieler": dieselbe Bestenliste der Liga, nur auf die Vereine der Mitspieler
  * eingedampft - die Plätze bleiben die der Liga. In DOSBox nachgemessen: als Manager von
  * Hannover 96 standen dort die Spieler von Hannover **und** von Fortuna Düsseldorf, dem Verein
@@ -203,7 +247,8 @@ export function leagueScorers(g: GameState, league: number, limit = 20): ScorerR
  */
 export function playerScorers(g: GameState, league: number): ScorerRow[] {
   const vereine = new Set(g.activeManagers().map((m) => m.clubIndex));
-  return leagueScorers(g, league).filter((r) => vereine.has(r.club));
+  // Bis zu 20 Managerspieler aus der ganzen Liga, nicht nur aus deren ersten 20 (Audit 2 D3)
+  return leagueScorers(g, league, 150).filter((r) => vereine.has(r.club)).slice(0, 20);
 }
 
 /** Torschützen des eigenen Kaders (Kaderplatz Byte 3 Ligatore, Byte 6 Ligaeinsätze). */
@@ -225,6 +270,11 @@ export interface CupPairRow {
   result: [number, number];
   /** Hinspielergebnis aus Sicht des jetzigen Gastgebers (Europapokal, Rückspielrunde) */
   firstLeg: [number, number] | null;
+  /**
+   * Anzeige der Übersicht 0x198EB (0x19F3E-0x1A031): Heimwert je über 9 um 10 gekürzt, dabei
+   * die Marke 1 ("n.V.") bzw. 2 ("n.E."); der Gastwert steht ungekürzt da.
+   */
+  anzeige: { home: number; away: number; marke: number };
 }
 
 /** Rundennamen des Originals (DGROUP 0x24C8): Rundenbyte 1..5. */
@@ -244,12 +294,22 @@ export function cupView(g: GameState, cup: number): { name: string; round: strin
     if (home > 199 || away > 199) return;
     const ro = CUP_RESULTS + 32 * cup + 2 * i;
     const result: [number, number] = [p[ro] % 10, p[ro + 1] % 10];
+    let h = p[ro];
+    let marke = 0;
+    if (h > 9) {
+      h -= 10;
+      marke = 1;
+      if (h > 9) {
+        h -= 10;
+        marke = 2;
+      }
+    }
     let firstLeg: [number, number] | null = null;
     if (cup > 0) {
       const lo = FIRST_LEG + 32 * (cup - 1) + 2 * i;
       firstLeg = [p[lo], p[lo + 1]];
     }
-    pairs.push({ home, away, result, firstLeg });
+    pairs.push({ home, away, result, firstLeg, anzeige: { home: h, away: p[ro + 1], marke } });
   });
   return { name: cupNames()[cup], round: cupRoundName(n), pairs };
 }

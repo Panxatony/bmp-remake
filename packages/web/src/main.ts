@@ -4,7 +4,7 @@
  * Tabelle, Finanzen, Stadion und Meldungen und schreibt den geänderten
  * Spielstand als *.MAN zurück.
  */
-import { SaveFile, GameState, spielart, endjahr, replays, fixtures, vereinsInfo, restprogramm, restStartRueck, infoX, INFO_Y, INFO_BREITE, INFO_HOEHE, type InfoBefehl, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, restWochen, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, CUP_ROUND, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
+import { SaveFile, GameState, spielart, endjahr, replays, fixtures, vereinsInfo, restprogramm, restStartRueck, infoX, INFO_Y, INFO_BREITE, INFO_HOEHE, type InfoBefehl, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, bestenliste, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, restWochen, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, CUP_ROUND, dateOfSeasonDay, seasonStartYear, insertHighscore, highscoreEntry, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
 import { Assets, Sounds, COLORS, W, H, bevel, panel, button, hline, drawIcon, drawIconOver, toGame, upperGame, cp437ToGame, dm, type Font } from "./gfx.ts";
 import { Scenes, SCENE_FRAME_MS, VIEW, type SceneData } from "./scene.ts";
 
@@ -451,6 +451,8 @@ class App {
   spieleMd = 0;
   staerkenLeague = 0;
   bestMode: "liga" | "spieler" = "liga";
+  /** Spielerinfo aus der Bestenliste (Kaderplatz), -1 = keine */
+  bestInfo = -1;
   bestLeague = 0;
   cup = 0;
   status = "";
@@ -1763,13 +1765,9 @@ class App {
       if (pic) ctx.drawImage(pic, 14 * d, 113, 14, 16, dx, y + 15, 14, 16);
       else this.assets.font.draw(ctx, String(d), dx + 4, y + 17, COLORS.white, false);
     };
-    const score = (v: number, cx: number) => {
-      if (v < 10) digit(v, cx - 7);
-      else {
-        digit(Math.trunc(v / 10), cx - 15);
-        digit(v % 10, cx);
-      }
-    };
+    // Das Original zieht über 9 so lange 10 ab, bis eine Ziffer übrig bleibt, und zeichnet nur
+    // diese (0x1A69F-0x1A6AC, 0x1A76F-0x1A77C, Audit 2 D13): bei 11 Toren steht "1"
+    const score = (v: number, cx: number) => digit(v % 10, cx - 7);
     // Solange die Torszene läuft, steht auf der Tafel noch der Spielstand davor. Die beiden
     // Ziffernfelder sitzen nicht spiegelbildlich: die einstellige Heimzahl steht bei 33, die
     // Auswärtszahl bei 111 (im Original nachgemessen, GitLab #56).
@@ -2127,7 +2125,7 @@ class App {
       const g = this.game!;
       const md = live.entries.find((e) => e.league === seite.nr && e.spieltag)?.spieltag ?? g.nextMatchday(seite.nr);
       const liga = texte("ui.ligen")[seite.nr];
-      this.drawLeagueOverview(live, seite.nr, fertig ? null : weiter, undefined, `SPIELE  ${liga}   ${md}.SPIELTAG    ${live.minute}.MINUTE`);
+      this.drawLeagueOverview(live, seite.nr, fertig ? null : weiter, undefined, `SPIELE  ${liga}   ${md}.SPIELTAG    ${live.minute}.MINUTE`, md);
     }
     if (fertig) {
       const offen = this.server.managers.filter((m) => m.seat && !(live.halfSeen ?? []).includes(m.seat)).length;
@@ -2184,7 +2182,21 @@ class App {
   }
 
   /** Eine Seite der Spielübersicht (siehe drawPause). */
-  drawLeagueOverview(live: LiveState, liga: number, weiter: (() => void) | null, eintraege?: LiveEntry[], titel?: string): void {
+  /**
+   * Termin eines verlegten Spiels wie 0x2BBD2-0x2BD5B: den Eintrag der Nachholtabelle mit
+   * Spieltag, Liga und Spielnummer suchen und "T.M. (N)" zeigen, Tag und Monat auf zwei Stellen
+   * aufgefüllt (4cb3:079C = 2, '^' ist in der kleinen Schrift leer); ohne Eintrag nichts.
+   */
+  nachholTermin(liga: number, spieltag: number, spiel: number): string {
+    const g = this.game!;
+    const e = replays(g).find((x) => x.league === liga && x.matchday === spieltag && x.match === spiel);
+    if (!e) return "";
+    const d = dateOfSeasonDay(seasonDay(e.dayIndex), seasonStartYear(g));
+    const zwei = (n: number) => `${n < 10 ? "^" : ""}${n}`;
+    return `${zwei(d.day)}.${zwei(d.month0 + 1)}.${texte("ui.nachholtermin")[0]}`;
+  }
+
+  drawLeagueOverview(live: LiveState, liga: number, weiter: (() => void) | null, eintraege?: LiveEntry[], titel?: string, spieltag?: number): void {
     const ctx = this.ctx;
     const f = this.assets.font;
     const s = this.assets.micro;
@@ -2218,14 +2230,22 @@ class App {
       // Die Gesamtstärke mittelt alle neun Matrixwerte, nicht die drei Linienmittel (GitLab #55)
       return toGame(`${platz.get(club) ?? 0}. PLATZ, ST[RKE ${clubStrength(g, club).total} (${r.ko},${r.te},${r.fo})`);
     };
-    rows.slice(0, 10).forEach((e, i) => {
+    // Die Paarungen stehen an ihrem Platz im Paarungsblock; ein verlegtes Spiel behält seine
+    // Zeile und zeigt statt des Ergebnisses den Nachholtermin (0x2BBD2, Audit 2 G5)
+    const paare = !eintraege && liga >= 0 && spieltag !== undefined ? g.pairings(liga) : null;
+    const nachPaar = paare && rows.every((e) => paare.some(([h, a]) => h === e.home && a === e.away));
+    const zeilen: { e?: LiveEntry; home: number; away: number; spiel: number }[] = nachPaar
+      ? paare.map(([home, away], spiel) => ({ e: rows.find((x) => x.home === home && x.away === away), home, away, spiel }))
+      : rows.map((e, spiel) => ({ e, home: e.home, away: e.away, spiel }));
+    zeilen.slice(0, 10).forEach(({ e, home, away, spiel }, i) => {
       const y = (titel ? 18 : 3) + 17 * i;
-      f.draw(ctx, toGame(e.homeName), 3, y, INK, false);
-      f.draw(ctx, "- " + toGame(e.awayName), 136, y, INK, false);
+      f.draw(ctx, toGame(e?.homeName ?? g.clubs.at(home).displayName), 3, y, INK, false);
+      f.draw(ctx, "- " + toGame(e?.awayName ?? g.clubs.at(away).displayName), 136, y, INK, false);
       // Das Ergebnis steht linksbündig bei 288, nicht rechtsbündig
-      f.draw(ctx, `${e.hg}:${e.ag}`, 288, y, INK, false);
-      s.drawRight(ctx, info(e.home), 126, y + 9, INK_DIM);
-      s.drawRight(ctx, info(e.away), 269, y + 9, INK_DIM);
+      if (e) f.draw(ctx, `${e.hg}:${e.ag}`, 288, y, INK, false);
+      else s.drawCenter(ctx, this.nachholTermin(liga, spieltag!, spiel), 296, y - 1, INK, false);
+      s.drawRight(ctx, info(home), 126, y + 9, INK_DIM);
+      s.drawRight(ctx, info(away), 269, y + 9, INK_DIM);
     });
     if (weiter) {
       this.iconFrame(268, 196);
@@ -2394,7 +2414,9 @@ class App {
         const y = 12 + 16 * i;
         f.draw(ctx, toGame(g.clubs.at(row.home).displayName), 3, y, INK, false);
         f.draw(ctx, "- " + toGame(g.clubs.at(row.away).displayName), 133, y, INK, false);
-        f.drawRight(ctx, row.postponed ? toGame("verlegt") : row.result ? `${row.result.home}:${row.result.away}` : "-:-", 313, y, INK, false);
+        // Verlegt: der Nachholtermin statt des Ergebnisses (0x2BBD2, Audit 2 G5)
+        if (row.postponed) s.drawCenter(ctx, this.nachholTermin(liga, md, i), 296, y - 1, INK, false);
+        else f.drawRight(ctx, row.result ? `${row.result.home}:${row.result.away}` : "-:-", 313, y, INK, false);
         s.drawRight(ctx, info(row.home), 123, y + 9, INK_DIM);
         s.drawRight(ctx, info(row.away), 266, y + 9, INK_DIM);
         // Wie im Spielplan (0x2C089): links der Heimverein in der Heimansicht, rechts der Gast.
@@ -2610,14 +2632,29 @@ class App {
    * Titelzähler ab 243. Alles in Palettenfarbe 4 und ohne Schatten; der eigene Eintrag ist
    * nicht hervorgehoben, und Knöpfe hat der Bildschirm keine.
    */
+  /** Bestenliste aus dem Diskettenmenü geöffnet (0x0A78C, Argument 1): mit dem eigenen Stand. */
+  highscoreVorlaeufig = false;
+
+  bestenlisteAusMenue(): void {
+    this.highscoreVorlaeufig = true;
+    this.go("highscore");
+    // Im Endlosspiel schreibt der Server den Stand in die Datei (0x34AF5, Audit 2 H6)
+    if (this.online) void this.post("api/highscore/einordnen", { manager: this.manager, player: this.player }, true);
+  }
+
   drawHighscore(): void {
     const ctx = this.ctx;
     const s = this.assets.micro;
     const bild = this.assets.img("45.CP");
     if (bild) ctx.drawImage(bild, 0, 0);
     else panel(ctx, 6, 6, 308, 226);
+    // Alle Einträge in Farbe 3: das Original hebt die Einträge hervor, deren Bytes 54..57 der
+    // Kennung 4cb3:0668 gleichen - beide sind 0, also alle (in DOSBox gesehen)
     const INK = "#717192";
-    const list = this.server.highscore ?? [];
+    // Aus dem Diskettenmenü steht der Manager am Zug mit seinem jetzigen Stand darin, eingeordnet
+    // wie 0x34616: derselbe Name mit demselben Verein wird ersetzt, auch nach unten (Audit 2 H6)
+    const g = this.game;
+    const list = this.highscoreVorlaeufig && g && !this.server.spielende ? insertHighscore(this.server.highscore ?? [], highscoreEntry(g, this.manager)) : (this.server.highscore ?? []);
     list.slice(0, 20).forEach((e, i) => {
       const y = 28 + 10 * i;
       s.draw(ctx, cp437ToGame(e.name), 56, y, INK, false);
@@ -2626,7 +2663,10 @@ class App {
       s.drawRight(ctx, String(e.points), 242, y, INK, false);
       s.draw(ctx, `(${e.titles[0]}/${e.titles[1]}/${e.titles[2]})`, 243, y, INK, false);
     });
-    this.hit(0, 0, W, H, () => this.go(this.server.spielende ? "ende" : "menu"));
+    this.hit(0, 0, W, H, () => {
+      this.highscoreVorlaeufig = false;
+      this.go(this.server.spielende ? "ende" : "menu");
+    });
   }
 
   /**
@@ -2710,19 +2750,31 @@ class App {
     // Umbruch, sobald die Probe breiter ist als 180 (0x2EB89, Artikel) bzw. 295 (Aufstellung) -
     // wie `artikelspalte` im Core; aufgefüllt wird wie bisher bis 181 bzw. 296 (0x2EBC5: bis die
     // Breite mindestens 180 erreicht, gleichwertig)
-    const zeilen = umbruch(cp437ToGame(z.sentences.join(" ")).split(" ").filter((w) => w !== ""), 180);
-    zeilen.slice(0, 17).forEach((teile, i) => {
+    // Wörter an Leerzeichen und 0xA0 getrennt; ein leeres Wort bleibt als Lücke stehen (Artikel 55
+    // beginnt mit " %a"). Welche Artikel dastehen, entscheidet der Kern (y über 148 nach einem
+    // Artikel); der letzte läuft ganz durch (0x2EFAB, Audit 2 G20)
+    const zeilen = umbruch(cp437ToGame(z.sentences.join(" ")).split(/[ \xa0]/), 180);
+    zeilen.forEach((teile, i) => {
       const letzte = i === zeilen.length - 1;
       s.draw(ctx, letzte ? teile.join(" ") : blocksatz(teile, 181), 13, 56 + i * 7, COLORS.black, false);
     });
-    // Die Aufstellung bricht an den Kommas um; Vereinsname und jeder Eintrag sind ein Baustein
-    const bausteine = cp437ToGame(z.lineup).split(", ").map((t, i, a) => (i < a.length - 1 ? t + "," : t));
+    // Die Aufstellung bricht an den Kommas um; der Vereinsname mit ": " und jeder Eintrag sind
+    // je ein Baustein (0x2E469, 0x2E4B6, Audit 2 G16)
+    const doppel = cp437ToGame(z.lineup).indexOf(": ");
+    const bausteine = doppel >= 0 ? [cp437ToGame(z.lineup).slice(0, doppel + 2), ...cp437ToGame(z.lineup).slice(doppel + 2).split(/(?<=,) /)] : [cp437ToGame(z.lineup)];
     const auf = umbruch(bausteine, 295);
     auf.slice(0, 3).forEach((teile, i) => {
       const letzte = i === auf.length - 1;
       s.draw(ctx, letzte ? teile.join(" ") : blocksatz(teile, 296), 13, 183 + i * 7, COLORS.black, false);
     });
-    s.draw(ctx, cp437ToGame(z.goals), 13, 205, COLORS.black, false);
+    // Die Tore ebenso: "TORE:" und jedes Tor ein eigener Baustein mit Umbruch bei 295 (0x2E5A5 ff.)
+    const tore = cp437ToGame(z.goals);
+    const toreTeile = tore.startsWith("TORE: ") ? ["TORE: ", ...tore.slice(6).split(/(?<=,) /)] : [tore];
+    const torZeilen = umbruch(toreTeile, 295);
+    torZeilen.slice(0, 3).forEach((teile, i) => {
+      const letzte = i === torZeilen.length - 1;
+      s.draw(ctx, letzte ? teile.join(" ") : blocksatz(teile, 296), 13, 205 + i * 7, COLORS.black, false);
+    });
     s.draw(ctx, cp437ToGame(z.yellow), 13, 226, COLORS.black, false);
     s.draw(ctx, cp437ToGame(z.red), 13, 233, COLORS.black, false);
     this.hit(0, 0, W, H, weiter ?? (() => this.go("menu")));
@@ -3046,6 +3098,7 @@ class App {
       if ((this.screen === "market" || this.screen === "camp") && this.online && this.game) void this.post("api/verlassen", { manager: this.manager, player: this.player, screen: this.screen }, true);
       this.blende();
       this.vertragsAntwort = "";
+      this.bestInfo = -1;
       this.resultPage = 0;
     }
     this.screen = s;
@@ -3142,8 +3195,12 @@ class App {
     }
   }
 
+  /** Die Tabelle des Spieltagsablaufs steht gerade (dort geht der Klick zur Info auch, G13). */
+  tabelleImAblauf = false;
+
   zeichne(): void {
     this.hits = [];
+    this.tabelleImAblauf = false;
     const ctx = this.ctx;
     const bg = this.assets.img("22.CP");
     if (bg) ctx.drawImage(bg, 0, 0);
@@ -3267,7 +3324,7 @@ class App {
       this.hit(0, 0, W, H, () => this.go(this.online ? "start-online" : "start"));
     }
     if (this.screen === "menu" && this.drawSonderseite()) return;
-    if (this.vereinsInfo && (this.screen === "table" || this.screen === "spiele" || this.screen === "staerken" || this.screen === "results")) this.drawVereinsInfo();
+    if (this.vereinsInfo && (this.screen === "table" || this.screen === "spiele" || this.screen === "staerken" || this.screen === "results" || this.screen === "pokal" || (this.screen === "live" && this.tabelleImAblauf))) this.drawVereinsInfo();
     else this.vereinsInfo = null;
     // Zahleneingaben und kurze Rückmeldungen liegen über dem Bildschirm, zu dem sie gehören
     this.drawEingabe();
@@ -3584,7 +3641,7 @@ class App {
         [null, null, null],
       ],
       diskette: [
-        [{ icon: "laden", action: () => this.go(this.online ? "start-online" : "start") }, { icon: "speichern", action: () => void this.saveGame() }, { icon: "highscore", action: () => this.go("highscore") }],
+        [{ icon: "laden", action: () => this.go(this.online ? "start-online" : "start") }, { icon: "speichern", action: () => void this.saveGame() }, { icon: "highscore", action: () => this.bestenlisteAusMenue() }],
         [
           { icon: "optionen", action: () => this.go("optionen") },
           { icon: "neu", action: () => this.go(this.online ? "start-online" : "start") },
@@ -5178,7 +5235,7 @@ class App {
   }
 
   /** Spielerinfo-Tafel (0x15346): AHA!-Zeile, Status, Tore/Spiele, DATEN, Tendenz und Erschöpfung. */
-  drawPlayerInfo(lineupIndex: number): void {
+  drawPlayerInfo(lineupIndex: number, schliessen: () => void = () => (this.infoPlace = -1)): void {
     const ctx = this.ctx;
     const f = this.assets.font;
     const s = this.assets.micro;
@@ -5189,14 +5246,15 @@ class App {
     s.draw(ctx, cp437ToGame(info.ageLine), 10, 40, COLORS.text);
     s.draw(ctx, cp437ToGame(info.status), 10, 48, COLORS.text);
     hline(ctx, 8, 58, 250);
-    s.draw(ctx, "LIGA", 90, 62, COLORS.white);
-    s.draw(ctx, "DFB-POKAL", 140, 62, COLORS.white);
+    // Drei Spalten LIGA, DFB-POKAL, EUROPACUP, je "Saison(Gesamt)" (0x157FE-0x159A9, Audit 2 C4)
+    ["LIGA", "DFB-POKAL", "EUROPACUP"].forEach((kopf, k) => {
+      const x = 70 + 62 * k;
+      s.drawCenter(ctx, kopf, x + 29, 62, COLORS.white);
+      s.draw(ctx, info.goals[k], x + 12, 70, COLORS.text);
+      s.draw(ctx, info.apps[k], x + 12, 78, COLORS.text);
+    });
     s.draw(ctx, "TORE:", 10, 70, COLORS.text);
     s.draw(ctx, "SPIELE:", 10, 78, COLORS.text);
-    s.drawRight(ctx, String(info.goals[0]), 108, 70, COLORS.text);
-    s.drawRight(ctx, String(info.goals[1]), 178, 70, COLORS.text);
-    s.drawRight(ctx, String(info.apps[0]), 108, 78, COLORS.text);
-    s.drawRight(ctx, String(info.apps[1]), 178, 78, COLORS.text);
     s.draw(ctx, "DATEN:", 10, 90, COLORS.white);
     info.data.forEach(([k, v], i) => {
       const x = i < 5 ? 10 : 132;
@@ -5215,7 +5273,7 @@ class App {
     bar("ERSCH|PFUNG", info.exhaustion, 158);
     button(ctx, f, "WEITER", 180, 200, 70, true);
     this.hit(4, 14, 258, 212, () => {
-      this.infoPlace = -1;
+      schliessen();
       this.render();
     });
   }
@@ -5270,6 +5328,7 @@ class App {
    * grün (#71a241) für Aufstiegs- bzw. Europaplätze und rot (#920010) für Abstiegsplätze.
    */
   drawTable(weiter: (() => void) | null = null): void {
+    if (this.screen === "live") this.tabelleImAblauf = true;
     const ctx = this.ctx;
     const f = this.assets.font;
     const s = this.assets.micro;
@@ -5303,7 +5362,9 @@ class App {
       const folge = tableOrder(g, league, this.tableMode === "heim" ? 0 : 2);
       rows.sort((a, b) => folge.indexOf(a.club) - folge.indexOf(b.club));
     }
-    const matchday = Math.max(...rows.map((r) => r.s.homeGames + r.s.awayGames));
+    // Vor dem ersten Spieltag steht "1.SPIELTAG" (0x2C81A: 225A, aus dem Menü um eins weniger,
+    // aber nicht unter 1; Audit 2 G11)
+    const matchday = Math.max(1, ...rows.map((r) => r.s.homeGames + r.s.awayGames));
     const INK = "#a2a2c3";
     const SHADOW = "#303051";
     const GRUEN = "#719241";
@@ -5363,8 +5424,8 @@ class App {
       s.draw(ctx, diff > 0 ? "+" : diff < 0 ? "-" : "#", 287, y, c, false);
       s.drawRight(ctx, String(Math.abs(diff)), 301, y, c, false);
       // Ein Klick auf die Zeile öffnet "Info über <Verein>" (0x2D0BA): Modus nach der Ansicht
-      // (4cb3:5538), der Platz ist der gezeigte
-      if (!weiter) {
+      // (4cb3:5538), der Platz ist der gezeigte - auch im Spieltagsablauf (0x2D0C0, Audit 2 G13)
+      {
         const modus = this.tableMode === "heim" ? 0 : this.tableMode === "auswaerts" ? 1 : 2;
         this.hit(7, y - 1, 306, 7, () => this.oeffneVereinsInfo(r.club, modus, 0, i + 1));
       }
@@ -7240,24 +7301,27 @@ class App {
     const g = this.game!;
     const L = this.spieleLeague;
     const days = LEAGUES[L].matchdays;
-    if (this.spieleMd < 1) this.spieleMd = 1;
-    if (this.spieleMd > days) this.spieleMd = days;
+    // Startwert ist der Spieltagszähler 225A, über der Spieltagszahl Spieltag 1 (0x2B781)
+    if (this.spieleMd < 1 || this.spieleMd > days) this.spieleMd = 1;
     const md = this.spieleMd;
     panel(ctx, 2, 4, 316, 184);
     // Wie bei den Pokalrunden nennt das Original hinter dem Spieltag dessen Datum
     const datum = matchdayDate(g, L, md);
     f.drawCenter(ctx, toGame(`SPIELE ${texte("ui.ligen")[L]}   ${md}.SPIELTAG${datum ? ` ${datum.day}.${datum.month0 + 1}.` : ""}`), 160, 8, COLORS.white);
     let y = 20;
-    for (const r of matchdayView(g, L, md)) {
+    for (const [spiel, r] of matchdayView(g, L, md).entries()) {
       const c = this.game!.managers.at(this.manager).clubIndex;
       const mine = r.home === c || r.away === c;
       const col = mine ? COLORS.white : COLORS.text;
       f.draw(ctx, cp437ToGame(g.clubs.at(r.home).name), 6, y, col, false);
       f.draw(ctx, "- " + cp437ToGame(g.clubs.at(r.away).name), 146, y, col, false);
-      f.drawRight(ctx, r.result ? `${r.result.home}:${r.result.away}` : r.postponed ? "verlegt" : "-:-", 312, y, col, false);
+      // Verlegt: der Nachholtermin "T.M. (N)" in kleiner Schrift, mittig über x 296 (0x2BBD2, G5)
+      if (r.postponed && !r.result) s.drawCenter(ctx, this.nachholTermin(L, md, spiel), 296, y - 1, col, false);
+      else f.drawRight(ctx, r.result ? `${r.result.home}:${r.result.away}` : "-:-", 312, y, col, false);
+      // Der Platz steht auf zwei Stellen, vorn mit dem leeren '^' aufgefüllt (0x2C139, G10)
       const info = (club: number, place: number) => {
         const st = clubStrength(g, club);
-        return `${place}. PLATZ, ST[RKE ${st.total} (${st.ko},${st.te},${st.fo})`;
+        return `${place < 10 ? "^" : ""}${place}. PLATZ, ST[RKE ${st.total} (${st.ko},${st.te},${st.fo})`;
       };
       s.draw(ctx, info(r.home, r.homePlace), 10, y + 9, COLORS.textDim);
       s.draw(ctx, info(r.away, r.awayPlace), 152, y + 9, COLORS.textDim);
@@ -7270,11 +7334,12 @@ class App {
     bevel(ctx, 6, 196, 46, 38);
     bevel(ctx, 9, 199, 40, 32, COLORS.panel, true);
     drawIcon(ctx, this.assets, "links", 13, 203);
-    this.hit(6, 196, 46, 38, () => (this.spieleMd = Math.max(1, this.spieleMd - 1)));
+    // Blättern springt über den Rand: vor 1 kommt der letzte Spieltag, danach wieder 1 (0x2BF6B, G6)
+    this.hit(6, 196, 46, 38, () => (this.spieleMd = this.spieleMd <= 1 ? days : this.spieleMd - 1));
     bevel(ctx, 60, 196, 46, 38);
     bevel(ctx, 63, 199, 40, 32, COLORS.panel, true);
     drawIcon(ctx, this.assets, "rechts", 67, 203);
-    this.hit(60, 196, 46, 38, () => (this.spieleMd = Math.min(days, this.spieleMd + 1)));
+    this.hit(60, 196, 46, 38, () => (this.spieleMd = this.spieleMd >= days ? 1 : this.spieleMd + 1));
     this.sideButtons([]);
   }
 
@@ -7339,7 +7404,10 @@ class App {
     const liga = this.bestMode === "liga";
     // Beide Listen kommen aus der Bestenliste der Liga; SPIELER zeigt daraus nur die Vereine
     // der Mitspieler, mit den Plätzen der Ligaliste (GitLab #55)
-    const rows = liga ? leagueScorers(g, this.bestLeague) : playerScorers(g, this.bestLeague);
+    // Zeilen wie 0x16515: SPIELER bis zu 20 Managerspieler aus der ganzen Liga (D3), LIGA mit der
+    // Lücke und Punktlinie hinter Sortierplatz 12 (D4)
+    const liste = bestenliste(g, this.bestLeague, !liga);
+    const rows = liste.zeilen;
     panel(ctx, 35, 8, 251, 182);
     const hell = "#a2a2c3";
     const titel = `${T("ui.bestenkopf")}${liga ? "Liga" : "Spieler"}`;
@@ -7351,8 +7419,8 @@ class App {
     hline(ctx, 36, 26, 249, hell);
     const managerClubs = new Set(g.activeManagers().map((m) => m.clubIndex));
     const pad = (n: number) => "^".repeat(Math.max(0, 2 - String(n).length)) + n;
-    rows.slice(0, 20).forEach((r, i) => {
-      const y = 30 + 7 * i;
+    rows.forEach((r) => {
+      const y = r.y;
       const c = managerClubs.has(r.club) ? "#d3c3b2" : hell;
       s.draw(ctx, `${pad(r.place)}. ${toGame(r.name)}`, 38, y, c, false);
       s.draw(ctx, cp437ToGame(g.clubs.at(r.club).name), 114, y, c, false);
@@ -7360,6 +7428,19 @@ class App {
       // Tore je Spiel mit einer Nachkommastelle (10·Tore/Einsätze)
       const zehntel = r.apps ? Math.trunc((10 * r.goals) / r.apps) : 10 * r.goals;
       s.draw(ctx, `${Math.trunc(zehntel / 10)}.${zehntel % 10}`, 252, y, c, false);
+    });
+    ctx.fillStyle = hell;
+    for (const py of liste.punkte) ctx.fillRect(45, py, 1, 1);
+    // Klick auf eine Zeile (y > 29, Zeile (y - 30)/7 < 20): der Spieler wird in den Kadern der
+    // Manager gesucht und seine Spielerinfo gezeigt (0x16968-0x16D6F, Audit 2 D5). Die Zeile
+    // rechnet das Original ohne die Lücke.
+    rows.forEach((r, i) => {
+      this.hit(36, 30 + 7 * i, 249, 7, () => {
+        for (const [m] of g.activeManagers().entries()) {
+          const place = g.squadOf(m).findIndex((l) => l.playerIndex === r.playerIndex);
+          if (place >= 0) this.bestInfo = m * 25 + place;
+        }
+      });
     });
     if (rows.length === 0) {
       const leer = toGame(T("ui.bestenliste", 2));
@@ -7370,6 +7451,7 @@ class App {
     this.hit(54, 175, 57, 13, () => (this.bestMode = "liga"));
     this.hit(212, 175, 57, 13, () => (this.bestMode = "spieler"));
     this.sideButtons([]);
+    if (this.bestInfo >= 0) this.drawPlayerInfo(this.bestInfo, () => (this.bestInfo = -1));
   }
 
   /**
@@ -7400,8 +7482,10 @@ class App {
     const v = cupView(g, cup);
     const d = nextCupDate(g, cup);
     const SCHATTEN = "#303051";
-    // Hervorgehoben sind die Vereine **aller** Manager, nicht nur der eigene (im Original gesehen)
-    const mine = new Set(g.activeManagers().map((m) => m.clubIndex));
+    // Hervorgehoben sind im DFB-Pokal die Vereine **aller** Manager (im Original gesehen), im
+    // Europapokal alle deutschen Vereine (0x19DD9/0x19EF1: Verein < 64, Audit 2 D11)
+    const managerVereine = new Set(g.activeManagers().map((m) => m.clubIndex));
+    const mine = { has: (club: number) => (cup === 0 ? managerVereine.has(club) : club < 64) };
     const rows: { head?: string; leer?: boolean; pair?: (typeof v.pairs)[number] }[] = [];
     if (cup === 0) {
       for (const [a, b] of LEAGUE_GROUPS) {
@@ -7451,8 +7535,18 @@ class App {
         s.drawCenter(ctx, cp437ToGame(g.clubs.at(r.home).name), 65, y, col(r.home), SCHATTEN);
         s.drawCenter(ctx, "GEGEN", 140, y, "#717192");
         s.drawCenter(ctx, cp437ToGame(g.clubs.at(r.away).name), 205, y, col(r.away), SCHATTEN);
-        s.drawRight(ctx, `(${r.result[0]}:${r.result[1]})`, 287, y, "#a2a2c3", false);
-        if (cup > 0) s.drawRight(ctx, `(${r.firstLeg ? r.firstLeg.join(":") : "0:0"})`, 313, y, "#a2a2c3", false);
+        // Ergebnis linksbündig bei x 268 (Europapokal 249), der Heimwert je über 9 um 10 gekürzt
+        // und dahinter "n.V." bzw. "n.E.", der Gastwert ungekürzt (0x19F3E-0x1A065, Audit 2 D12)
+        const zusatz = r.anzeige.marke === 2 ? texte("ui.pokalzusatz")[0] : r.anzeige.marke === 1 ? texte("ui.pokalzusatz")[1] : "";
+        s.draw(ctx, `(${r.anzeige.home}:${r.anzeige.away})${zusatz}`, cup > 0 ? 249 : 268, y, "#a2a2c3", false);
+        // Klick auf die Paarung: links (x bis 130) der Heimverein in der Heimansicht, sonst der
+        // Gast in der Auswärtsansicht (0x1A298-0x1A302, Audit 2 G12/D5)
+        if (this.screen === "pokal") {
+          this.hit(7, y - 1, 124, 7, () => this.oeffneVereinsInfo(r.home, 0, 0));
+          this.hit(131, y - 1, 183, 7, () => this.oeffneVereinsInfo(r.away, 1, 0));
+        }
+        // Das Hinspiel steht linksbündig bei x 285 (0x1A109)
+        if (cup > 0) s.draw(ctx, `(${r.firstLeg ? r.firstLeg.join(":") : "0:0"})`, 285, y, "#a2a2c3", false);
       }
       y += 7;
     }
