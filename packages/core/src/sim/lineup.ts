@@ -246,6 +246,19 @@ export function sperreAusgesetzt(g: GameState, manager: number): boolean {
 }
 
 /**
+ * Nummernpflege des Hauptmenüs (0x9C78-0x9D40) vor der Aufstellung: trägt niemand die höchste
+ * Reservenummer 4238:56EE (15), rückt eine 16 dorthin; danach verliert jede Nummer darüber ihre
+ * Nummer. So endet ein im Spiel Ausgewechselter mit 16 meist ohne Nummer (#131, Audit 2 E17).
+ */
+export function nummernPflege(g: GameState, manager: number): void {
+  const plaetze = Array.from({ length: 24 }, (_, i) => g.lineups.at(manager * 25 + i)).filter((l) => !l.isEmpty);
+  const max = 15;
+  // Der Merker "15 vergeben" steht vor der Schleife fest (0x9C78-0x9CB5): jede 16 wird zur 15
+  if (!plaetze.some((l) => l.number === max)) for (const l of plaetze) if (l.number === max + 1) l.setU8(10, max);
+  for (const l of plaetze) if (l.number > max) l.setU8(10, 0);
+}
+
+/**
  * Feldzelle für einen neuen Starter ohne gemerkte Zelle (0x1FF36): Reihe 7 - 7·Position/100
  * (Spielerbyte 31; aus 7 wird 6), darin die erste Spalte 0..7, auf der kein Starter der Plätze
  * 0..23 steht (0x1FEC9); ist die Reihe voll, die nächste, nach 7 wieder 0.

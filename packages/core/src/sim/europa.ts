@@ -96,12 +96,12 @@ export function orderList(g: GameState, league: number): number[] {
 const clubClass = (c: number): number => (c < 18 ? 1 : c < 38 ? 2 : 4);
 
 /** 0x18DA8: auf einem Gastplatz (ungerader Index) spielt ein Unterklassiger vor Runde 4 zu Hause. */
-function lowerClassHome(g: GameState, slot: number): void {
+function lowerClassHome(g: GameState, slot: number, runde = g.save.plain[CUP_ROUND]): void {
   const p = g.save.plain;
   if ((slot & 1) === 0) return;
   const a = p[CUP_TABLE + slot];
   const b = p[CUP_TABLE + slot - 1];
-  if (clubClass(a) === 4 && clubClass(b) < 4 && p[CUP_ROUND] < 4) {
+  if (clubClass(a) === 4 && clubClass(b) < 4 && runde < 4) {
     p[CUP_TABLE + slot] = b;
     p[CUP_TABLE + slot - 1] = a;
   }
@@ -196,6 +196,19 @@ export function nextRoundDraw(g: GameState, cup: number, rng: Rng): boolean {
   }
   if (cup === 0) for (let slot = 0; slot < n; slot++) lowerClassHome(g, slot);
   return true;
+}
+
+/**
+ * Auslosung im DFB-Pokal mit Zeremonie (0x19111-0x191B6): vor dem gewöhnlichen Durchlauf läuft
+ * 0x18DA7 noch einmal mit der alten Runde (4238:0008 zurückgezählt). Wirksam ist das nur im
+ * Halbfinale - die alte Runde 3 liegt unter der Grenze 4, die neue nicht -, dort bekommt ein
+ * Unterklassiger auf dem Gastplatz Heimrecht nur, wenn jemand die Zeremonie sehen will. In den
+ * früheren Runden hat schon der gewöhnliche Durchlauf getauscht (#131, Audit 2 D7).
+ */
+export function zeremonieHeimrecht(g: GameState): void {
+  const alt = g.save.plain[CUP_ROUND] - 1;
+  if (alt < 0 || alt >= 4) return;
+  for (let slot = 0; slot < ROUND_PAIRS[alt]; slot++) lowerClassHome(g, slot, alt);
 }
 
 /**

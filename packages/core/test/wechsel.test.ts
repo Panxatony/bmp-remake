@@ -67,3 +67,17 @@ test("#106: Version 2026 - fünf Wechsel, in der Verlängerung einer mehr; Techn
   assert.equal(wechselZahl({ 0: { goalkeeper: 1, field: 2 } }, 0, laden()), 3);
   assert.equal(wechselZahl({ 0: { goalkeeper: 1, field: 4 } }, 0, laden()), 5);
 });
+
+test("Ausgewechselter bekommt die kleinste freie Nummer ab 12, bei voller Bank 16; das Hauptmenü macht 0 daraus (#131, E17)", async () => {
+  const { nummernPflege } = await import("../src/index.ts");
+  const g = laden();
+  const bank = [12, 13, 14, 15].filter((n) => g.squadOf(0).some((l) => l.number === n));
+  assert.equal(bank.length, 4, "volle Bank im Stand");
+  const vorher = block(g);
+  tausch(g, 1, 2); // Platz 2 trägt die 12
+  assert.equal(applySubstitutions({ subs: [], news: [], entries: [] } as unknown as LiveState, g, 0, vorher, mulberryRng(1)).ok, true);
+  assert.equal(g.lineups.at(1).number, 16);
+  nummernPflege(g, 0);
+  // die 15 ist vergeben: 16 wird 0, die Bank schrumpft
+  assert.equal(g.lineups.at(1).number, 0);
+});

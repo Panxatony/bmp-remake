@@ -330,3 +330,21 @@ test("0:2-Prüfung entfällt ab dem 10. Juni (Relegation, 0x1C6B8)", () => {
   setDayIndex(g, 91);
   assert.equal(isForfeit(g, 0), false);
 });
+
+test("DFB-Halbfinale mit Zeremonie: Unterklassiger auf dem Gastplatz bekommt Heimrecht (0x19185, #131 D7)", async () => {
+  const { zeremonieHeimrecht, CUP_TABLE, CUP_ROUND } = await import("../src/index.ts");
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+  const p = g.save.plain;
+  const setze = (runde: number) => {
+    p[CUP_ROUND] = runde;
+    [5, 45, 50, 12].forEach((c, i) => (p[CUP_TABLE + i] = c));
+  };
+  // Nach der Auslosung des Halbfinales steht die Runde auf 4: der gewöhnliche Durchlauf tauscht nicht
+  setze(4);
+  zeremonieHeimrecht(g);
+  assert.deepEqual([0, 1, 2, 3].map((i) => p[CUP_TABLE + i]), [45, 5, 50, 12]);
+  // Im Finale (Runde 5, alte Runde 4) gilt die Grenze auch für die alte Runde
+  setze(5);
+  zeremonieHeimrecht(g);
+  assert.deepEqual([0, 1, 2, 3].map((i) => p[CUP_TABLE + i]), [5, 45, 50, 12]);
+});
