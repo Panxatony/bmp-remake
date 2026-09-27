@@ -6622,6 +6622,12 @@ class App {
       return;
     }
     const ein = this.eingabe;
+    // Schummeltasten im Einstellungsbildschirm (0x26A85, #135): im Original nur mit dem
+    // Mauszeiger auf einer Fläche der Farbe 11 - hier überall im Bildschirm (ABWEICHUNGEN)
+    if (!ein && this.screen === "optionen" && this.online && /^[0-5gsadp]$/i.test(e.key)) {
+      void this.post("api/schummeln", { manager: this.manager, player: this.player, taste: e.key }, true);
+      return;
+    }
     if (!ein) return;
     const f = ein.felder[ein.feld];
     if (e.key >= "0" && e.key <= "9") {

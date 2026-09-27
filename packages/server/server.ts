@@ -3865,6 +3865,41 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     broadcast(room);
     return json(res, 200, { ok: true, result });
   }
+  if (p === "/api/schummeln") {
+    // Schummeltasten des Einstellungsbildschirms (0x26A85-0x26C34, #135): '0'..'5' Spielstufe
+    // (4cb3:4A28 = '5' - Taste), 'g' +200.000 DM, 's' alle Kaderplätze Byte 14 = 0x44 und
+    // Byte 19 = 0x32, 'a' dazu Kondition/Technik/Form 99 und 99.999.999 DM. 'd' leert Kennungen
+    // des Speicherns und 'p' setzt einen Merker, den das Programm nie liest - beides ohne Wirkung
+    // im Remake. Entscheidung lhuno 27.9.2026: alle dürfen, die anderen erfahren es ohne Namen.
+    if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    if (room.live) return json(res, 409, { error: "Die Konferenz läuft" });
+    const taste = String(body.taste ?? "").slice(0, 1).toLowerCase();
+    const g = room.game;
+    const m = g.managers.at(manager);
+    let gewirkt = true;
+    if (taste >= "0" && taste <= "5") g.save.plain[34062] = 0x35 - taste.charCodeAt(0);
+    else if (taste === "g") m.balance = m.balance + 200000;
+    else if (taste === "s" || taste === "a") {
+      for (let platz = 0; platz < 24; platz++) {
+        const l = g.lineups.at(manager * 25 + platz);
+        if (l.isEmpty) continue;
+        l.setU8(14, 0x44);
+        l.setU8(19, 0x32);
+        if (taste === "a") for (let b = 16; b <= 18; b++) l.setU8(b, 99);
+      }
+      if (taste === "a") m.balance = 99999999;
+    } else gewirkt = false;
+    if (gewirkt) {
+      room.log.push("Schummeltaste benutzt");
+      g.activeManagers().forEach((_, i) => {
+        if (i !== manager && !isAi(g, i)) pushMessage(room, i, ["Achtung:", "Jemand schummelt!"]);
+      });
+      flushMessages(room);
+      room.version++;
+      broadcast(room);
+    }
+    return json(res, 200, { ok: true });
+  }
   if (p === "/api/werbebudget") {
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
     // Im 1-Jahres-Spiel ist der Werbebildschirm nicht erreichbar (0xA370-0xA38F, #133)
