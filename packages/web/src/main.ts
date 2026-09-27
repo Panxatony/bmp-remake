@@ -4,7 +4,7 @@
  * Tabelle, Finanzen, Stadion und Meldungen und schreibt den geänderten
  * Spielstand als *.MAN zurück.
  */
-import { SaveFile, GameState, spielart, endjahr, replays, fixtures, vereinsInfo, restprogramm, restStartRueck, infoX, INFO_Y, INFO_BREITE, INFO_HOEHE, type InfoBefehl, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, restWochen, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
+import { SaveFile, GameState, spielart, endjahr, replays, fixtures, vereinsInfo, restprogramm, restStartRueck, infoX, INFO_Y, INFO_BREITE, INFO_HOEHE, type InfoBefehl, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, leagueScorers, playerScorers, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, restWochen, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendVorhanden, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, CUP_ROUND, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer } from "../../core/src/index.ts";
 import { Assets, Sounds, COLORS, W, H, bevel, panel, button, hline, drawIcon, drawIconOver, toGame, upperGame, cp437ToGame, dm, type Font } from "./gfx.ts";
 import { Scenes, SCENE_FRAME_MS, VIEW, type SceneData } from "./scene.ts";
 
@@ -110,7 +110,7 @@ interface ServerExtra {
   poachRequests: { poacher: number; owner: number; place: number; bonus: number; playerIndex: number; name: string }[];
   loanRequests: { borrower: number; lender: number; amount: number }[];
   loanOffers?: { borrower: number; lender: number; amount: number; months: number; rate: number }[];
-  sonderseiten?: { manager: number; art: "winter" | "scherz1" | "scherz2"; tag: number; monat: number; saisontag?: number }[];
+  sonderseiten?: { manager: number; art: "winter" | "scherz1" | "scherz2" | "weihnacht" | "saisonende"; tag: number; monat: number; saisontag?: number; betrag?: number }[];
   freeAgents: { playerIndex: number; name: string; position: string; age: number; strength: number[]; from: number; salary: number; value: number; bids: { manager: number; salary: number }[] }[];
   /** Frisch aus der Jugend aufgerückte Spieler; sie stehen bis zum Tageswechsel zur Abwerbung (#4) */
   jugendFrisch?: { manager: number; place: number; name: string; preis: number }[];
@@ -514,7 +514,7 @@ class App {
   scenes = new Scenes();
   animating = false;
   /** Neues Spiel: Vereinsliste vom Server, Logo-Leiste, Manager-Plätze */
-  setup = { clubs: [] as { index: number; name: string; logo: number; league: number }[], strip: 0, selected: 0, slots: [0, 1, 2, 3].map((i) => ({ name: "", club: -1, portrait: i + 1 })), level: 2, regeln: 0, aufnahme: 0, spielart: 0 };
+  setup = { clubs: [] as { index: number; name: string; logo: number; league: number }[], strip: 0, selected: 0, slots: [0, 1, 2, 3].map((i) => ({ name: "", club: -1, portrait: i + 1 })), level: 2, regeln: 0, aufnahme: 0, spielart: 0, portraitWahl: -1 };
 
   constructor() {
     this.canvas = document.getElementById("screen") as HTMLCanvasElement;
@@ -725,6 +725,7 @@ class App {
       i < n ? { name: g.managers.at(i).name, club: g.managers.at(i).clubIndex, portrait: g.managers.at(i).u8(29) || i + 1 } : { name: "", club: -1, portrait: i + 1 },
     );
     this.setup.aufnahme = n;
+    this.setup.portraitWahl = -1;
     this.setup.strip = 0;
     this.go("newgame");
   }
@@ -1310,8 +1311,23 @@ class App {
       ctx.fillStyle = "#000";
       ctx.fillRect(x + 12, 156, 40, 40);
       if (faces) ctx.drawImage(faces, (sl.portrait - 1) * 41, 0, 40, 40, x + 12, 156, 40, 40);
+      if (st.portraitWahl === i) {
+        ctx.strokeStyle = COLORS.red;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 11, 155, 42, 42);
+        ctx.lineWidth = 1;
+      }
+      // Porträts werden nur getauscht (0xB704-0xB74B): der erste Klick merkt den Manager, der
+      // zweite tauscht die Bilder der beiden - so bleiben es vier verschiedene Gesichter
       this.hit(x + 12, 156, 40, 40, () => {
-        if (!fest) sl.portrait = (sl.portrait % 4) + 1;
+        if (fest) return;
+        if (st.portraitWahl < 0) {
+          st.portraitWahl = i;
+          return;
+        }
+        const a = st.slots[st.portraitWahl];
+        [a.portrait, sl.portrait] = [sl.portrait, a.portrait];
+        st.portraitWahl = -1;
       });
       s.drawCenter(ctx, cp437ToGame(sl.name || "NAME ?"), x + 32, 204, sl.name ? COLORS.white : COLORS.textDim);
       this.hit(x, 200, 64, 20, () => {
@@ -3361,8 +3377,8 @@ class App {
    * Spieltag den Tabellenplatz des Vereins (Managerbyte 267 + Spieltag, geschrieben in 0x2DBC5)
    * und zieht daraus einen Linienzug in Farbe 11. Er beginnt links bei (63, Byte 267 + 64) und
    * geht bis (177, letzter Platz + 65); die Punkte liegen 116/(Spiele-1) Pixel auseinander, es
-   * passen also erst gegen Saisonende alle hinein. Bei höchstens einem Spiel steht statt dessen
-   * ein flacher Strich in Farbe 7.
+   * passen also erst gegen Saisonende alle hinein. Bis Saisontag 1 steht statt dessen ein
+   * flacher Strich in Farbe 7.
    */
   drawTabellenkurve(m: ReturnType<GameState["managers"]["at"]>): void {
     const ctx = this.ctx;
@@ -3392,13 +3408,16 @@ class App {
         }
       }
     };
-    if (spiele <= 1) {
+    // Den flachen Strich in Farbe 7 gibt es nur bis Saisontag 1 (0x9F1B-0x9F2F, 4cb3:07DC); bei
+    // höchstens einem Spiel beginnt die Kurve bei y 74 mit der Schrittweite 116, zieht also nur
+    // die Schlusslinie in Farbe 11 (0x9860-0x988A, Audit 2 B4)
+    if (seasonDay(dayIndex(g)) <= 1) {
       linie(63, 74, 177, 74, "#303051");
       return;
     }
-    const schritt = 116 / (spiele - 1);
+    const schritt = spiele <= 1 ? 116 : 116 / (spiele - 1);
     let x1 = 63;
-    let y1 = m.u8(267) + 64;
+    let y1 = spiele <= 1 ? 74 : m.u8(267) + 64;
     let k = 0;
     let acc = 0;
     for (let i = 0; i < 115; i++) {
@@ -3417,28 +3436,32 @@ class App {
   }
 
   /**
-   * Ereignis des aktuellen Kalendertags für den Verein: Spieltag, Pokal, Europapokal oder
-   * Spielfrei. Ein Pokaltag zählt nur, wenn dieser Manager dort noch dabei ist - sonst steht
-   * auch im Original "Spielfrei" (Managerbytes 306..309, Runde 1..7).
+   * Ereignis des aktuellen Kalendertags im Kopf des Hauptmenüs (0x9A29-0x9C46), in dieser
+   * Reihenfolge: "SAISONENDE" am 20. Juni (Tag 20 + 4cb3:224C, Monat 5), der Spieltag der
+   * eigenen Liga, "DFB-Pokal" nur an einem reinen Pokaltag (Kalenderbyte = 8) und nur, wenn das
+   * Pokalbyte des Managers die laufende Runde trägt (4238:0008), "Relegation" für den 16. der
+   * Bundesliga und den 3. der 2. Liga (4238:5369/5370) am Relegationstag (Byte = 0x10),
+   * "Europapokal" für einen Manager in der laufenden Runde eines Europapokals an einem
+   * Europapokaltag außer der Relegation, sonst "Nachholspiel" oder "Spielfrei".
    */
   dayEvent(club: number): string {
     const g = this.game!;
-    const k = g.save.plain[34226];
-    const flag = g.save.plain[34227 + k];
+    const p = g.save.plain;
+    const tx = texte("ui.tagesereignis");
+    if (g.date.day === 20 && g.date.month === 6) return tx[0];
+    const k = p[34226];
+    const flag = p[34227 + k];
     const league = club < 18 ? 0 : club < 38 ? 1 : 2;
-    if (flag & (1 << league)) return `${g.nextMatchday(league)}. Spieltag`;
+    if (flag & (1 << league)) return `${g.nextMatchday(league)}.${tx[1]}`;
     const manager = g.activeManagers().findIndex((m) => m.clubIndex === club);
-    const dabei = (cup: number): boolean => {
-      if (manager < 0) return false;
-      const r = g.managers.at(manager).u8(306 + cup);
-      return r > 0 && r < 8;
-    };
-    if (flag & 8 && dabei(0)) return "DFB-Pokal";
-    for (let cup = 1; cup <= 3; cup++) if (flag & (8 << cup) && dabei(cup)) return "Europapokal";
+    const inRunde = (cup: number): boolean => manager >= 0 && g.managers.at(manager).u8(306 + cup) === p[CUP_ROUND + cup];
+    if (inRunde(0) && flag === 8) return tx[2];
+    // Reihenfolgeliste 4238:535A: Bundesliga Platz 16 und 2. Liga Platz 3
+    if ((club === p[28244 + 15] || club === p[28244 + 20 + 2]) && flag === 0x10) return tx[3];
+    if ([1, 2, 3].some(inRunde) && flag & 0x70 && flag !== 0x10) return tx[4];
     // Holt der eigene Verein heute ein Spiel nach, steht "Nachholspiel" (0x9C18 mit 0x310A)
-    if (flag & 0x80 && replays(g).some((e) => e.dayIndex === k && e.league === league && (fixtures(e.league, e.matchday)[e.match] ?? []).includes(club)))
-      return texte("ui.ankuendigung")[5];
-    return "Spielfrei";
+    if (flag & 0x80 && replays(g).some((e) => e.dayIndex === k && e.league === league && (fixtures(e.league, e.matchday)[e.match] ?? []).includes(club))) return tx[5];
+    return tx[6];
   }
 
   nextOpponent(club: number): string {
@@ -5043,8 +5066,9 @@ class App {
       void this.post("api/sonderseite", { manager: this.manager, player: this.player, art: seite.art }, true);
     };
     this.hits = [];
-    if (seite.art === "winter") {
-      this.drawAnkuendigung(texte("ui.winterpause")[0]);
+    if (seite.art === "winter" || seite.art === "saisonende") {
+      // Titelseite 0x32F2: "WINTERPAUSE" (0x1D99D) bzw. "SAISONENDE" (0x1EB17, Audit 2 E7)
+      this.drawAnkuendigung(seite.art === "winter" ? texte("ui.winterpause")[0] : texte("ui.tagesereignis")[0]);
       if (jetzt - this.sonderStart > ANNOUNCE_MS_CLIENT) fertig();
       else setTimeout(() => this.render(), ANNOUNCE_MS_CLIENT);
       this.hit(0, 0, W, H, fertig);
@@ -5055,13 +5079,32 @@ class App {
     ctx.strokeStyle = "#c37120";
     ctx.lineWidth = 1;
     ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
-    const bild = this.assets.img("41.VGA");
+    // Weihnachten (Index 0) zeigt Bild 42, die Scherztage Bild 41 (0x1D042)
+    const weihnacht = seite.art === "weihnacht";
+    const bild = this.assets.img(weihnacht ? "42.VGA" : "41.VGA");
     if (bild) ctx.drawImage(bild, 136, 52);
     ctx.strokeStyle = "#f3f3f3";
     ctx.strokeRect(134.5, 50.5, 49, 58);
     const mitte = (t: string, y: number, farbe: string) => f.draw(ctx, t, 160 - Math.trunc(f.width(t) / 2), y, farbe, COLORS.black);
     const datum = `${DAYS[((seite.saisontag ?? 0) + 6) % 7]}, ${seite.tag}. ${MONTHS[seite.monat]}`;
     mitte(datum, 2, "#d3c3b2");
+    if (weihnacht) {
+      // "Frohe Weihnachten !" in Farbe 19 (0x1D1C5); mit Weihnachtspaketen fünf Briefzeilen und
+      // in kleiner Schrift die Beträge mit Tausenderpunkten (0x1D246 setzt 4cb3:07B2 = 0). Die
+      // Seite steht bis zum Klick (0x1D65F).
+      mitte(T("quell.server", 6), 29, "#c37120");
+      const b = seite.betrag ?? 0;
+      if (b > 0) {
+        texte("finanzen.weihnachten").forEach((z, i) => mitte(z, 134 + 11 * i, "#d3c3b2"));
+        const w = texte("ui.weihnacht");
+        const punkte = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+        const s = this.assets.micro;
+        s.drawCenter(ctx, `${w[0]}${punkte(b)}${w[1]}${punkte(Math.trunc(b / 2))}${w[4]}`, 159, 218, "#d3c3b2", false);
+        s.drawCenter(ctx, `${w[2]}${punkte(Math.trunc(b / 3))}${w[3]}`, 159, 226, "#d3c3b2", false);
+      }
+      this.hit(0, 0, W, H, fertig);
+      return true;
+    }
     const titel = texte("scherz.titel");
     mitte(titel[0], 27, "#c37120");
     texte("scherz.brief").forEach((z, i) => mitte(i === 3 ? z + titel[seite.art === "scherz1" ? 1 : 2] : z, 119 + 11 * i, "#d3c3b2"));
@@ -5448,8 +5491,9 @@ class App {
         }
         s.drawCenter(ctx, gross(europa), 246, y, e.europe & 0x80 ? gelb : hell, false);
       }
-      // Unter jeder Saison ein Strich in Palettenfarbe 6, von x 6 über 307 Punkte
-      hline(ctx, 6, y + 6, 307, "#414161");
+      // Unter jeder Saison ein Strich in Palettenfarbe 6, von x 6 über 307 Punkte - nicht unter
+      // der 16., letzten Zeile der Seite (0x2A2CF)
+      if ((i + 1) % 16 !== 0) hline(ctx, 6, y + 6, 307, "#414161");
     });
     if (seiten > 1) this.hit(5, 8, 309, 144, () => (this.verlaufSeite = (this.verlaufSeite + 1) % seiten));
     panel(ctx, 5, 157, 259, 74, COLORS.black);
@@ -5810,17 +5854,23 @@ class App {
     // Angebot: erst ein Klick auf den Kasten öffnet die Sponsorenansicht (wie im Original),
     // danach blättern die Pfeile durch alle zehn Sponsoren
     const cur = page === 0 ? shirtC : boardContract(g, m, this.werbungSlot);
+    // Die Ansicht beginnt beim Sponsor des (letzten) Vertrags (0x29765-0x2979E) und lässt sich
+    // auch bei laufendem Vertrag durchblättern (0x29737 prüft ihn nicht); OK meldet dann "Sie
+    // stehen noch unter Vertrag"
     this.hit(127, 67, 38, 30, () => {
+      if (this.werbungActive) return;
       this.werbungActive = true;
-      this.werbungOffer = 0;
+      this.werbungOffer = cur.sponsor;
     });
-    if (cur.months > 0) {
+    if (cur.months > 0 && !this.werbungActive) {
       // Laufender Vertrag: das Original nennt hier die Restmonate (0x28841 mit Monatsform)
       drawLogo(cur.sponsor, 127, 67, false);
       s.drawCenter(ctx, toGame(`VERTRAG: ${cur.months} MONAT${cur.months === 1 ? "" : "E"}`), 265, 62, COLORS.white);
       s.drawCenter(ctx, dm(advertisingAmount(g, m, page === 0 ? 0 : 1 + this.werbungSlot)), 265, 74, COLORS.white);
     } else if (!this.werbungActive) {
-      s.drawCenter(ctx, "SPONSOREN ANSEHEN", 265, 68, COLORS.textDim);
+      // Ohne laufenden Vertrag "K}NDBAR" und der Betrag darunter (0x28841 mit 0 Monaten: 0x28972)
+      s.drawCenter(ctx, texte("ui.kuendbar")[0], 265, 62, COLORS.white);
+      s.drawCenter(ctx, dm(advertisingAmount(g, m, page === 0 ? 0 : 1 + this.werbungSlot)), 265, 74, COLORS.white);
     } else {
       // Durchgeblättert werden alle zehn Sponsoren; ohne Angebot steht dort "KEIN INTERESSE..."
       const sp = ((this.werbungOffer % 10) + 10) % 10;
@@ -5834,8 +5884,9 @@ class App {
         ctx.drawImage(ui, sx, 47, 48, 16, 217, 91, 48, 16);
         ctx.drawImage(ui, sx, 63, 48, 16, 265, 91, 48, 16);
       }
-      this.hit(181, 60, 30, 23, () => (this.werbungOffer = (this.werbungOffer + 9) % 10));
-      this.hit(181, 84, 30, 23, () => (this.werbungOffer = (this.werbungOffer + 1) % 10));
+      // Oberer Pfeil zählt hoch bis 9, unterer herunter bis 0, ohne Umlauf (0x2993A-0x29955)
+      this.hit(181, 60, 30, 23, () => (this.werbungOffer = Math.min(9, this.werbungOffer + 1)));
+      this.hit(181, 84, 30, 23, () => (this.werbungOffer = Math.max(0, this.werbungOffer - 1)));
       if (amount === 0) s.drawCenter(ctx, T("ui.werbung", 0), 265, 78, COLORS.textDim);
       else {
         s.drawCenter(ctx, toGame(`VERTRAG: ${years} JAHR${years === 1 ? "" : "E"}`), 265, 62, COLORS.white);
@@ -5854,9 +5905,10 @@ class App {
     s.drawRight(ctx, dm(tv), 308, 158, COLORS.white);
     s.drawRight(ctx, dm(spend), 308, 187, COLORS.white);
     s.drawRight(ctx, dm(shirt + boards + tv - spend), 308, 212, COLORS.white);
-    // Werbeausgaben ändern: links weniger, rechts mehr (2500 DM je Klick)
-    this.hit(199, 185, 55, 11, () => void this.post("api/werbebudget", { manager: m, player: this.player, up: 0 }));
-    this.hit(254, 185, 55, 11, () => void this.post("api/werbebudget", { manager: m, player: this.player, up: 1 }));
+    // Werbeausgaben ändern (0x29420-0x29450): x 217..308, y 186..196, links von x 263 weniger,
+    // ab 263 mehr (2500 DM je Klick)
+    this.hit(217, 186, 46, 11, () => void this.post("api/werbebudget", { manager: m, player: this.player, up: 0 }));
+    this.hit(263, 186, 46, 11, () => void this.post("api/werbebudget", { manager: m, player: this.player, up: 1 }));
     // Das Original hat hier keine Schaltfläche; man verlässt den Bildschirm mit der rechten Maustaste
   }
 
@@ -5866,17 +5918,13 @@ class App {
       this.status = "Vertragsabschluss nur im Mehrspielermodus";
       return;
     }
-    const g = this.game!;
     if (this.werbungPage === 0) {
       void this.post("api/werbung", { manager: this.manager, kind: "shirt", sponsor });
       return;
     }
-    // Der Vertrag gilt dem ausgewählten Bandenplatz, nicht irgendeinem freien
+    // Der Vertrag gilt dem ausgewählten Bandenplatz, nicht irgendeinem freien; läuft dort noch
+    // ein Vertrag, antwortet der Server "Sie stehen noch unter Vertrag"
     const slot = this.werbungSlot;
-    if (boardContract(g, this.manager, slot).months !== 0) {
-      this.status = "Dieser Platz ist schon vergeben";
-      return;
-    }
     void this.post("api/werbung", { manager: this.manager, kind: "board", slot, sponsor }).then(() => (this.werbungActive = false));
   }
 
@@ -6024,7 +6072,9 @@ class App {
             s.draw(ctx, toGame(`MAX. GR|~E: ${num(max)}`), 154, 76, INK);
             s.draw(ctx, toGame(` KOSTEN: ${num(cost)} DM.`), 154, 83, INK);
           } else {
-            s.draw(ctx, toGame(`${k.kind <= 5 ? T("ui.stadium", 3) : T("ui.stadium", 4)}${cp437ToGame(names[max] ?? "")}`), 154, 76, INK);
+            // "MAX. STATUS: " für alle Arten 4..7, bei Flutlicht und Anzeigetafel mit dem
+            // Größennamen (0x12C9)
+            s.draw(ctx, toGame(`${T("ui.stadium", 4)}${cp437ToGame(names[max] ?? "")}`), 154, 76, INK);
             s.draw(ctx, toGame(`(KOSTEN: ${num(cost)} DM)`), 154, 83, INK);
           }
         }
@@ -6186,6 +6236,21 @@ class App {
         this.hinweis = [abs[2], abs[3]];
         this.render();
         return;
+      }
+      // Absagen beim Öffnen des Kastens (0x0A6E, 0x0F03, 0x0F5D, Audit 2 A5): kein Geld für
+      // neue Plätze, schon die höchste Stufe, kein Geld für eine Stufe
+      if (this.game && this.stadiumPick !== row) {
+        const k = stadiumKinds()[row - 1];
+        const e = stadiumState(this.game, this.manager)[row - 1];
+        const punkte = Math.trunc(this.game.managers.at(this.manager).balance / k.price);
+        const abs = texte("stadion.absagen");
+        const zeilen = k.perThousand ? (punkte <= 0 ? [abs[4], abs[5]] : null) : e.value + e.pending === e.max ? [abs[6], abs[7]] : punkte <= 0 ? texte("stadion.sparen") : null;
+        if (zeilen) {
+          this.hinweis = zeilen;
+          this.stadiumPick = 0;
+          this.render();
+          return;
+        }
       }
     }
     this.stadiumAsk = false;
@@ -7456,12 +7521,13 @@ class App {
       this.hit(x, y, 24, 17, () => void this.post("api/options", { manager: this.manager, player: this.player, flag: i, value: true }));
       this.hit(x + 26, y, 24, 17, () => void this.post("api/options", { manager: this.manager, player: this.player, flag: i, value: false }));
     });
-    // Geschwindigkeit: im Original ein Wert 0..75 auf der Bahn, hier die neun Stufen des Servers
+    // Geschwindigkeit: im Original ein Wert 0..70 auf der Bahn (x auf 202..272 begrenzt,
+    // 0x26D1B-0x26D59), hier die neun Stufen des Servers
     if (pic) ctx.drawImage(pic, 0, 0, 100, 19, 190, 155, 100, 19);
     // Bahn freiräumen und den Knopf setzen (0x26376): 6x7 in Rot mit hellem Rand rechts unten
     ctx.fillStyle = "#515171";
     ctx.fillRect(202, 161, 76, 8);
-    const wert = Math.round(((o.tempo - 1) * 75) / 8);
+    const wert = Math.round(((o.tempo - 1) * 70) / 8);
     const kx = 202 + wert;
     ctx.fillStyle = "#b20020";
     ctx.fillRect(kx, 161, 6, 7);
@@ -7474,7 +7540,7 @@ class App {
     ctx.fillStyle = "#610010";
     ctx.fillRect(kx, 161, 1, 1);
     this.hit(202, 158, 82, 13, (cx) => {
-      const t = Math.max(1, Math.min(9, Math.round(((cx - 202) * 8) / 75) + 1));
+      const t = Math.max(1, Math.min(9, Math.round(((Math.min(272, cx) - 202) * 8) / 70) + 1));
       void this.post("api/options", { manager: this.manager, player: this.player, tempo: t });
     });
     this.sideButtons([]);
