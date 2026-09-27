@@ -90,6 +90,7 @@ import {
   type CupFinal,
   cupNames,
   cupView,
+  zeremonieHeimrecht,
   calendarFlag,
   dayIndex,
   setDayIndex,
@@ -156,6 +157,7 @@ import {
   driftInterest,
   autoLineupIfEnabled,
   sperreAusgesetzt,
+  nummernPflege,
   anzeigeStaerke,
   tagesendeAufstellen,
   tagesroutine,
@@ -686,6 +688,11 @@ interface Room {
    * Laden steht dort 0 wie im Original, das den Wert nicht speichert
    */
   sperre513E?: boolean;
+  /**
+   * Die DFB-Auslosung stammt aus einem Rundenabschluss (0x18FC2): will jemand die Zeremonie
+   * sehen, läuft der Tausch des Heimrechts noch mit der alten Runde (#131, Audit 2 D7)
+   */
+  dfbZeremonieTausch?: boolean;
   /** Marke der automatischen Speicherung (4cb3:5256), bis zum nächsten Hauptmenü */
   autosaveMarke?: boolean;
   /**
@@ -1160,7 +1167,10 @@ function zugBeenden(r: Room): void {
   r.sperre513E = sperreAusgesetzt(r.game, r.game.activeManagers().length - 1);
   // Jeder Aufbau des Hauptmenüs stellt auf (0x9D46 -> 0x22030), mit dem 513E des Managers am
   // Zug; der letzte vor den Spielen gilt (Audit 2, B2)
-  r.game.activeManagers().forEach((_, i) => autoLineupIfEnabled(r.game, i, sperreAusgesetzt(r.game, i)));
+  r.game.activeManagers().forEach((_, i) => {
+    nummernPflege(r.game, i); // 0x9C78-0x9D40
+    autoLineupIfEnabled(r.game, i, sperreAusgesetzt(r.game, i));
+  });
   const stand = saisonwechselStand(r.game);
   if (stand === "zug") saisonwechselBeginnen(r);
   else if (stand === "vertraege") saisonwechselAbschliessen(r);
@@ -1359,7 +1369,10 @@ function nachTageswechsel(r: Room): void {
       anzeigeStaerke(g, i);
     }
     // Das erste Hauptmenü des Zugs stellt mit dem eigenen 513E neu auf (Audit 2, B2)
-    for (let i = 0; i < n; i++) autoLineupIfEnabled(g, i, sperreAusgesetzt(g, i));
+    for (let i = 0; i < n; i++) {
+      nummernPflege(g, i); // 0x9C78-0x9D40
+      autoLineupIfEnabled(g, i, sperreAusgesetzt(g, i));
+    }
   }
   const dt = dateOfSeasonDay(seasonDay(k), seasonStartYear(g));
   for (let i = 0; i < n; i++) {
@@ -2039,6 +2052,7 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   if (flag & 8) {
     const played = playCupDay(g, r.rng, sim, (home, away) => live?.attendance?.get(`${home}-${away}`), nachspiel, live?.booking?.vorbereitet ?? false, live?.booking?.forfeit);
     logCupMatches(r, "DFB-Pokal", played, played.finals ?? [], live?.scorers);
+    if ((played.gezogen ?? []).includes(0)) r.dfbZeremonieTausch = true;
     zeremonieAnsetzen(r, played.gezogen ?? []);
   }
   // Tagesverteiler 0x1D8D1: genau Flag 0x10 ist die Relegation, sonst ein Europapokaltag
@@ -2828,6 +2842,11 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       c.votes[user] = Boolean(body.vote);
       if (seated.length > 0 && seated.every((u) => u in c.votes)) {
         c.skipped = seated.every((u) => !c.votes[u]);
+        if (c.cup === 0 && room.dfbZeremonieTausch) {
+          // "ABER KLAR": 0x18DA7 noch einmal mit der alten Runde (0x19185)
+          if (!c.skipped) zeremonieHeimrecht(room.game);
+          room.dfbZeremonieTausch = false;
+        }
         if (c.skipped) {
           // Niemand will zusehen: Tafel und Übersicht entfallen ganz (wie im Original)
           room.log.push(`Auslosung ${cupNames()[c.cup]}: übersprungen`);

@@ -762,6 +762,22 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
     return { ok: false, error: texte("ui.keinwechsel").join(" ") };
   used.goalkeeper += gk;
   used.field += field;
+  // Der Herausgenommene bekommt im Spiel die kleinste freie Nummer ab 12 (0x20661-0x20809,
+  // 0x20B12) - gesucht, solange der Eingewechselte seine Banknummer noch trägt: bei voller Bank
+  // 12..15 also 16. Das nächste Hauptmenü macht daraus 15 oder 0 (nummernPflege). Bis #131
+  // tauschten die beiden nur ihre Nummern (Audit 2 E17).
+  const vergeben = new Set<number>();
+  for (let slot = 0; slot < 25; slot++) {
+    if (outs.includes(slot) || g.lineups.at(manager * 25 + slot).isEmpty) continue;
+    const n = before[slot * 52 + 10];
+    if (n >= 12) vergeben.add(n);
+  }
+  for (const slot of outs) {
+    let n = 12;
+    while (vergeben.has(n)) n++;
+    vergeben.add(n);
+    g.lineups.at(manager * 25 + slot).setU8(10, n);
+  }
   // Der Eingewechselte bekommt einen Einsatz im Wettbewerb (Kaderbyte 6/7/8), in der Liga dazu
   // Spielerbyte 35, und Frische + 4 + random(2,4) (0x20E0B bis 0x20E72); die 16-Bit-Zähler der
   // Starter (28/30/32) bleiben unberührt
