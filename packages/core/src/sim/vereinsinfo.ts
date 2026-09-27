@@ -69,8 +69,14 @@ export function toreJeSpiel(g: GameState, club: number, art: number): string {
  * `platz` ist der angezeigte Platz: das Original liest Tabellenbyte 46, das die Heim- und
  * Auswärtssortierung vorher umgeschrieben hat - das Remake reicht den Platz der gezeigten
  * Tabelle durch. `manager` bestimmt den eigenen Verein für die historischen Ergebnisse.
+ *
+ * `breite` ist die Mindestbreite der Zahlen 4cb3:079C, die der Aufrufer stehen lässt: 0x2A41E
+ * setzt sie vor der Kopfzeile nicht, aus Tabelle, Stärketabelle und Spielplan steht 2 (der Platz
+ * heißt dann "^5."); erst ein nicht leerer Rekord setzt 1 (0x2B37F/0x2B45C). Sind alle gezeigten
+ * Rekorde leer, laufen die historischen Ergebnisse und die Ewigen Punkte noch mit Breite 2
+ * (Audit 2 G9).
  */
-export function vereinsInfo(g: GameState, club: number, modus: number, versatz: number, manager: number, platz?: number): InfoBefehl[] {
+export function vereinsInfo(g: GameState, club: number, modus: number, versatz: number, manager: number, platz?: number, breite = 2): InfoBefehl[] {
   const t = texte("info.texte");
   const si = infoX(versatz);
   const aus: InfoBefehl[] = [];
@@ -81,12 +87,19 @@ export function vereinsInfo(g: GameState, club: number, modus: number, versatz: 
   aus.push({ art: "linie", x: si + 1, bis: si + 0xdf, y: INFO_Y + 10, farbe: 11 });
   // Knöpfe (0x2A563 bis 0x2A66C); ANZEIGEN rot, wenn der Verein markiert ist (4cb3:54DC)
   aus.push({ art: "knopf", text: t[23], x: si + 4, y: INFO_Y + 0x9f, farbe: 10, aktion: "zu" });
+  if (club > 63) {
+    // Ausländischer Verein (nur aus der Europapokalübersicht erreichbar, 0x2A56B): drei Zeilen
+    // der Späher in Farbe 1, kein RESTPROGRAMM (Audit 2 G12)
+    texte("info.spaeher").forEach((z, i) => aus.push({ art: "text", text: z, x: si, bis: si + 0xe0, y: INFO_Y + [0x44, 0x4c, 0x56][i] - 4, farbe: 1 }));
+    aus.push({ art: "knopf", text: t[2], x: si + 0xa4, y: INFO_Y + 0x9f, farbe: vereinMarkiert(g, club) ? 17 : 10, aktion: "anzeigen" });
+    return aus;
+  }
   aus.push({ art: "knopf", text: t[1], x: si + 0x54, y: INFO_Y + 0x9f, farbe: 10, aktion: "rest" });
   aus.push({ art: "knopf", text: t[2], x: si + 0xa4, y: INFO_Y + 0x9f, farbe: vereinMarkiert(g, club) ? 17 : 10, aktion: "anzeigen" });
   const liga = ligaVon(club);
   const st = g.standings.at(club);
   // "<Platz>. PLATZ IN DER <LIGA>, STÄRKE: <Summe der neun Matrixbytes / 9>" mittig mit Schatten
-  const kopf = `${platz ?? st.u8(46) + 1}.${t[3]}${texte("ui.ligen")[liga].toUpperCase()}${t[4]}${clubStrength(g, club).total}`;
+  const kopf = `${zahl(platz ?? st.u8(46) + 1, breite)}.${t[3]}${texte("ui.ligen")[liga].toUpperCase()}${t[4]}${clubStrength(g, club).total}`;
   aus.push({ art: "text", text: kopf, x: si, bis: si + 0xe0, y: INFO_Y + 0x12 - 4, farbe: 1, schatten: true });
   let y = INFO_Y + 0x1c;
   const wert = si + 0x6b;
@@ -133,7 +146,11 @@ export function vereinsInfo(g: GameState, club: number, modus: number, versatz: 
   // Rekorde (0x2AD68): Heim 0..3, Auswärts 4..7, gesamt der bessere von Heim und Auswärts
   const rekorde = clubRecords(g, club);
   const roh = (i: number) => (rekorde[i].text === "" ? 0 : rohRekord(g, club, i));
-  const rekordText = (i: number) => (rekorde[i].text === "" ? T("ui.statistik", 1) : `${rekorde[i].text} (${gegnerName(g, rekorde[i].opponent)})`);
+  const rekordText = (i: number) => {
+    if (rekorde[i].text === "") return T("ui.statistik", 1);
+    breite = 1;
+    return `${rekorde[i].text} (${gegnerName(g, rekorde[i].opponent)})`;
+  };
   for (let i = modus === 0 ? 0 : 4; i < (modus === 0 ? 4 : 8); i++) {
     if (modus !== 2) {
       text(texte("info.rekorde")[i], si + 3, y);
@@ -168,7 +185,7 @@ export function vereinsInfo(g: GameState, club: number, modus: number, versatz: 
         const b = p[basis + 2 * j + seite];
         if (b === 0xff) continue;
         if (j !== 0) s += ",";
-        s += `${b >> 4}:${b & 15}`;
+        s += `${zahl(b >> 4, breite)}:${zahl(b & 15, breite)}`;
       }
       if (seite === 1) {
         if (s.length === 3) s += t[19];
@@ -180,7 +197,7 @@ export function vereinsInfo(g: GameState, club: number, modus: number, versatz: 
   }
   // Punkte in der Ewigen Tabelle (Tabellenbyte 50), ohne Punkte ganz in Farbe 2
   const punkte = st.i32(50);
-  text(t[21] + (punkte !== 0 ? String(punkte) : t[22]), si + 3, y, punkte !== 0 ? 1 : 2);
+  text(t[21] + (punkte !== 0 ? zahl(punkte, breite) : t[22]), si + 3, y, punkte !== 0 ? 1 : 2);
   return aus;
 }
 

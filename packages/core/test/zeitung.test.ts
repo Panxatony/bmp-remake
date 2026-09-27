@@ -52,7 +52,7 @@ test("Zeitung: Spielbericht aus einem gespielten Spiel (Rückstand, Führung, To
   assert.deepEqual([r.ownGoals, r.oppGoals], [2, 1]);
   assert.deepEqual([r.deficit, r.deficitScore, r.lead, r.leadScore], [-1, [0, 1], 1, [2, 1]]);
   assert.equal(r.events.length, 5);
-  assert.ok(r.goals.startsWith("TORE: 0:1 (5.MIN), 1:1 TESTER (44.MIN), 2:1 (60.MIN)"), r.goals);
+  assert.ok(r.goals.startsWith("TORE: 0:1  (5.MIN), 1:1 TESTER (44.MIN), 2:1  (60.MIN)"), r.goals);
   // Hinter jedem Spieler steht seine Spielnote von 1 bis 6, nicht die Rückennummer (#64)
   const noten = [...r.lineup.matchAll(/\((\d)\)/g)].map((m) => Number(m[1]));
   assert.equal(noten.length, 11);

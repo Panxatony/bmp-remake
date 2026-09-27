@@ -498,12 +498,15 @@ export function reportFromMatch(g: GameState, manager: number, m: ReportSource, 
     return div((strength(t, 0, 0) + strength(t, 1, 0) + strength(t, 2, 0)) * 2, 15);
   };
   const attendance = home ? (m.attendance ?? 0) : 0;
-  const starters = g.squadOf(manager).filter((l) => !l.isEmpty && l.u8(10) >= 1 && l.u8(10) <= 11).sort((a, b) => a.u8(10) - b.u8(10));
+  // Nach Kaderplatz, nicht nach Rückennummer (0x2E480-0x2E564: Plätze 0..Anzahl-1 mit Nummer
+  // 1..11, Audit 2 G16)
+  const starters = g.squadOf(manager).filter((l) => !l.isEmpty && l.u8(10) >= 1 && l.u8(10) <= 11);
   // Reihenfolge wie im Original: erst das Foto (0x2F3D3), dann die Noten (0x2F63C)
   const picture = rng(0, 29);
   const noten = spielnoten(g, manager, rng, m.bewertungen);
   // Im Original steht zwischen Name und Rückennummer ein Leerzeichen, und hinter dem Verein
-  // nur eines: der Blocksatz der Zeitung füllt die Lücken hinter den Kommas selbst auf (#56)
+  // nur eines: der Blocksatz der Zeitung füllt die Lücken hinter den Kommas selbst auf (#56).
+  // Hinter dem letzten Eintrag steht kein Komma (in DOSBox gesehen, TEST4: "... B.WINKLER (3)")
   const lineup = g.clubs.at(own).name + ": " + starters.map((l) => `${g.players.at(l.playerIndex).name} (${noten.get(l.playerIndex) ?? 6})`).join(", ");
   let hg = 0;
   let ag = 0;
@@ -513,7 +516,9 @@ export function reportFromMatch(g: GameState, manager: number, m: ReportSource, 
     if (e.side === "home") hg++;
     else ag++;
     const sc = m.scorers.find((s) => s.minute === e.minute && s.side === e.side && s.side === ownSide);
-    goalTexts.push(`${hg}:${ag}${sc ? " " + sc.name : ""} (${e.minute}.MIN)`);
+    // "h:a" + " " + Torschütze + " (" + Minute (0x2E6E9-0x2E7A5): ohne eigenen Torschützen
+    // bleibt der Name leer, es stehen also zwei Leerzeichen (G16)
+    goalTexts.push(`${hg}:${ag} ${sc ? sc.name : ""} (${e.minute}.MIN)`);
   }
   return {
     manager,

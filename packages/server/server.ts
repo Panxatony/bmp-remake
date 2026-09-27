@@ -1677,7 +1677,7 @@ function advanceCeremony(r: Room, fromCup: number): void {
       r.log.push("Auslosung: fertig");
       return;
     }
-    r.ceremony = { cup: naechster, phase: "vote", ready: true, votes: {}, startedAt: null, skipped: false, seen: [], folge: rest };
+    r.ceremony = zeremonieBeginnen(r, naechster, rest);
     r.log.push(`Auslosung: Abfrage für ${cupNames()[naechster]}`);
     return;
   }
@@ -1687,8 +1687,25 @@ function advanceCeremony(r: Room, fromCup: number): void {
     r.log.push("Auslosung: fertig");
     return;
   }
-  r.ceremony = { cup: next, phase: "vote", ready: true, votes: {}, startedAt: null, skipped: false, seen: [] };
+  r.ceremony = zeremonieBeginnen(r, next);
   r.log.push(`Auslosung: Abfrage für ${cupNames()[next]}`);
+}
+
+/**
+ * Zeremonie eines Wettbewerbs beginnen: zuerst die Abfrage, ob jemand zusehen will. Vor dem
+ * Finale des DFB-Pokals fragt das Original nicht (0x17C77-0x17C83: DFB und weniger als vier
+ * Paare in der gespielten Runde -> 0x17F89), die Zeremonie läuft gleich (Audit 2 D8). Das
+ * Heimrecht der Zeremonie (0x18DA7 mit der alten Runde) wirkt dort nicht mehr.
+ */
+function zeremonieBeginnen(r: Room, cup: number, folge?: number[]): NonNullable<Room["ceremony"]> {
+  const c: NonNullable<Room["ceremony"]> = { cup, phase: "vote", ready: true, votes: {}, startedAt: null, skipped: false, seen: [], ...(folge ? { folge } : {}) };
+  if (cup === 0 && cupView(r.game, 0).pairs.length === 1) {
+    c.phase = "draw";
+    c.startedAt = Date.now();
+    r.dfbZeremonieTausch = false;
+    r.log.push("Auslosung: Finale ohne Abfrage");
+  }
+  return c;
 }
 
 /**
@@ -1705,7 +1722,7 @@ function zeremonieAnsetzen(r: Room, cups: number[]): void {
     return;
   }
   const [erster, ...rest] = neu;
-  r.ceremony = { cup: erster, phase: "vote", ready: true, votes: {}, startedAt: null, skipped: false, seen: [], folge: rest };
+  r.ceremony = zeremonieBeginnen(r, erster, rest);
   r.log.push(`Auslosung: Abfrage für ${cupNames()[erster]}`);
 }
 
@@ -3899,6 +3916,25 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
         if (i !== manager && !isAi(g, i)) pushMessage(room, i, ["Achtung:", "Jemand schummelt!"]);
       });
       flushMessages(room);
+      room.version++;
+      broadcast(room);
+    }
+    return json(res, 200, { ok: true });
+  }
+  if (p === "/api/highscore/einordnen") {
+    // Bestenliste aus dem Diskettenmenü (0x0A78C -> 0x34616 mit Argument 1): der Manager am Zug
+    // wird mit seinem jetzigen Stand eingeordnet, ohne Punktevergleich - im Endlosspiel schreibt
+    // das Original das gleich in die Datei (0x34AF5 mit Argument 2; in DOSBox gesehen: BLACKY
+    // 135 -> 155 in HIGH.02). Im 1-/3-Jahres-Spiel zeigt es den Stand nur an (Audit 2 H6).
+    if (!mine) return json(res, 403, { error: "nicht dein Manager" });
+    if (spielart(room.game) === 0 && !room.spielende) {
+      const list = insertHighscore(room.highscore, highscoreEntry(room.game, manager));
+      room.highscore = list;
+      try {
+        writeFileSync(join(savesDir, highscoreFile(room.game)), encodeHighscore(list));
+      } catch (err) {
+        room.log.push(`Highscore-Datei nicht geschrieben: ${String(err)}`);
+      }
       room.version++;
       broadcast(room);
     }

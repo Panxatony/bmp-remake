@@ -52,13 +52,13 @@ test("Highscore: Platzierungspunkte und Eintrag aus TEST4", () => {
     const r = m.u8(306 + cup);
     if (r !== 0 && r < 7) expect += 2 * r;
   }
-  let seasons = 0;
-  for (let i = 0; i < 50 && m.u8(62 + 4 * i) !== 0; i++) {
-    seasons++;
+  // Saisons aus dem Zähler 4cb3:07E2; Europapokal nur mit dem DFB-Siegerbit (Audit 2 H5)
+  const seasons = Math.min(g.save.plain[34224], 50);
+  for (let i = 0; i < seasons; i++) {
     const lg = m.u8(64 + 4 * i);
-    expect += (58 - m.u8(62 + 4 * i)) >> 1;
-    expect += lg & 0x80 ? 20 : 2 * (lg & 7);
-    if (lg & 0xf8) expect += m.u8(65 + 4 * i) & 0x80 ? 25 : 3 * (m.u8(65 + 4 * i) & 7);
+    expect += Math.trunc((58 - m.u8(62 + 4 * i)) / 2);
+    if (lg & 0x80) expect += 20 + (m.u8(65 + 4 * i) & 0x80 ? 25 : 3 * (m.u8(65 + 4 * i) & 7));
+    else expect += 2 * (lg & 7);
   }
   if (seasons > 0) expect = Math.trunc(expect / (seasons + 1));
   assert.equal(p, expect * 10);

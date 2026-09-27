@@ -32,6 +32,7 @@ soll sich wie das Original verhalten; wo es das nicht tut, ist das ein Fehler.
 | Anzeigeoptionen, Zinsleitwert, Öffnungszeiten der Lager | nur im Speicher, nach dem Laden auf der Vorgabe | im Raumzustand des Servers; Zinsleitwert aus Byte 35 |
 | Heim- und Auswärtstabelle ansehen | schreibt die Reihenfolgeliste und die Plätze um; beim Verlassen wird ab der Heimreihenfolge neu sortiert, bei völligem Gleichstand bleibt die Gesamtreihenfolge dauerhaft anders | nur Anzeige, der Spielstand bleibt unberührt (restroutinen.md, R13) |
 | Lebensdauer der Meldungen | verfallen nach drei Tagen (Zähler 4238:1D34) | bleiben bis "Gelesen", je Manager die 20 neuesten (so viele fasst die Tabelle des Originals) |
+| Konferenztafel Manager gegen Manager | zeichnet erst die Zahlen des Heim-, dann die des Gastmanagers an dieselbe Stelle; zu sehen sind die des Gastes (0x1B075-0x1B0C9) | jeder sieht die Zahlen seiner eigenen Seite (Audit 2 D14) |
 | Name in Farbe 11 in der Vertragsansicht | wenn zum Spieler ein Meldungszeiger (Kaderfeld 48) steht und (Byte 24 & 0x7F) > 99 (0x1F818) | nur nach Byte 24: die Meldungen hängen auf dem Server nicht am Kaderplatz (Audit 2 E15) |
 | Laden | nur Stände, die im selben Programmlauf weder geladen noch gespeichert wurden; V1-Stände mit Levelabfrage; fehlt der Anhang, wird trotzdem geladen | jeder V2-Stand mit Anhang (R16, Rest) |
 
