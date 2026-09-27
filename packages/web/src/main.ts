@@ -6622,9 +6622,17 @@ class App {
       return;
     }
     const ein = this.eingabe;
-    // Schummeltasten im Einstellungsbildschirm (0x26A85, #135): im Original nur mit dem
-    // Mauszeiger auf einer Fläche der Farbe 11 - hier überall im Bildschirm (ABWEICHUNGEN)
-    if (!ein && this.screen === "optionen" && this.online && /^[0-5gsadp]$/i.test(e.key)) {
+    // Schummeltasten im Einstellungsbildschirm (0x26A85, #135): nur mit dem Mauszeiger auf einem
+    // Bildpunkt der Farbe 11 (211,195,178; 0x26AA4 liest die Farbe unter dem Zeiger über 3930:043A).
+    // In DOSBox nachgemessen: das sind die Buchstaben und der Pfeil des Knopfs HAUPT MENU und
+    // einzelne Eckpunkte; eine Taste mit dem Zeiger auf dem H wirkt, daneben nicht
+    const farbe11 = (): boolean => {
+      const { x, y } = this.maus;
+      if (x < 0 || y < 0) return false;
+      const d = this.ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
+      return d[0] === 211 && d[1] === 195 && d[2] === 178;
+    };
+    if (!ein && this.screen === "optionen" && this.online && /^[0-5gsadp]$/i.test(e.key) && farbe11()) {
       void this.post("api/schummeln", { manager: this.manager, player: this.player, taste: e.key }, true);
       return;
     }
