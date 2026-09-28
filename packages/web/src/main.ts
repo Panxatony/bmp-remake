@@ -82,6 +82,17 @@ const gross = (t: string): string => t.replace(/[a-z\x81\x84\x94]/g, (c) => ({ "
 const spieleGesamt = (l: Lineup): number => l.leagueApps + l.cupApps + l.euroApps;
 /** Spalte TO der Listen: Liga + DFB-Pokal + Europapokal (0x1F9C6, Kaderbytes 3+4+5). */
 const toreGesamt = (l: Lineup): number => l.leagueGoals + l.cupGoals + l.euroGoals;
+/**
+ * Kader- und Marktliste zeigen Kaderplatz i in Zeile i (0x1F37F rückt y für jeden Platz um 6
+ * weiter und lässt bei Kaderbyte 15 = 0 nur die Spalten leer): ein leerer Platz bleibt eine
+ * Leerzeile, die Liste endet mit dem letzten belegten Platz (in DOSBox mit TEST2, Manager 2).
+ */
+const kaderZeilen = (g: GameState, manager: number): Lineup[] => {
+  const out: Lineup[] = [];
+  for (let i = 0; i < 25; i++) out.push(g.lineups.at(manager * 25 + i));
+  while (out.length && out[out.length - 1].isEmpty) out.pop();
+  return out;
+};
 const LEAGUE_INK = ["#000000", "#303051", "#826141"];
 const leagueOfClub = (club: number): number => (club < 18 ? 0 : club < 38 ? 1 : 2);
 /** Überschriften und Gruppenreihenfolge der Pokalübersicht (0x198EB, Tabellen 4cb3:0654/065C). */
@@ -1448,8 +1459,8 @@ class App {
 
   /** Vertragskasten für einen Kaderplatz öffnen (Zeile auswählen und Eingabe starten). */
   vertragOeffnen(place: number): void {
-    const l = this.game?.squadOf(this.manager)[place];
-    if (!l) return;
+    const l = this.squadRows()[place];
+    if (!l || l.isEmpty) return;
     this.selectedRow = place;
     this.vertragPlace = place;
     this.vertragsAntwort = "";
@@ -2940,7 +2951,7 @@ class App {
     let marktSpalte = -1;
     let marktRechts = -1;
     if (this.screen === "market" && this.game) {
-      const links = this.game.squadOf(this.manager).length;
+      const links = kaderZeilen(this.game, this.manager).length;
       if (x >= 2 && x <= 155 && y >= 36) {
         const i = Math.trunc((y - 36) / 6);
         const sp = listenSpalte(x - 2, MASKE_MARKT);
@@ -4847,8 +4858,9 @@ class App {
     return ["-", "O", "+"][Math.max(0, Math.min(2, Math.trunc((l.u8(14) - 30) / 13)))];
   }
 
+  /** Zeilen der Kaderliste: Zeile i ist Kaderplatz i, leere Plätze bleiben stehen (kaderZeilen). */
   squadRows(): Lineup[] {
-    return this.game!.squadOf(this.manager);
+    return kaderZeilen(this.game!, this.manager);
   }
 
   drawSquad(): void {
@@ -4903,6 +4915,17 @@ class App {
     const rows = this.squadRows();
     let y = 30;
     rows.forEach((l, i) => {
+      if (l.isEmpty) {
+        // Leerer Kaderplatz: eine Leerzeile. Unter dem Zeiger liegt auch hier der gelbe Balken
+        // (die Hilfszeile darunter liest dann Spieler 0: "NAME: (0 JAHRE) (R)"); ein Klick tut
+        // nichts (beides in DOSBox gesehen)
+        if (i === this.squadHover) {
+          ctx.fillStyle = PAL[23];
+          ctx.fillRect(6, y, this.squadRand() - 5, 5);
+        }
+        y += 6;
+        return;
+      }
       const p = g.players.at(l.playerIndex);
       const zeiger = this.pitchOpen && this.pitchHover !== null && l.number >= 1 && l.number <= 11 && l.u8(25) === this.pitchHover.col && l.u8(26) === this.pitchHover.row;
       // Im Original ist die Zeile unter der Maus gelb - genauso wie die ausgewählte
@@ -5013,7 +5036,7 @@ class App {
     hline(ctx, 6, 176, 231, INK_KOPF);
     // Zeiger über dem Spielfeld: Stärke, Alter und Fuß des Spielers darunter (0x21567 mit
     // 0x04D22: Spielerbyte 32, unter 5 heißt links, über 1 rechts, dazwischen beides)
-    const hoverPlace = this.pitchOpen && this.pitchHover ? rows.findIndex((l) => l.number >= 1 && l.number <= 11 && l.u8(25) === this.pitchHover!.col && l.u8(26) === this.pitchHover!.row) : -1;
+    const hoverPlace = this.pitchOpen && this.pitchHover ? rows.findIndex((l) => !l.isEmpty && l.number >= 1 && l.number <= 11 && l.u8(25) === this.pitchHover!.col && l.u8(26) === this.pitchHover!.row) : -1;
     if (hoverPlace >= 0) {
       const l = rows[hoverPlace];
       const p = g.players.at(l.playerIndex);
@@ -5301,9 +5324,8 @@ class App {
     }
     if (this.selectedRow === i) {
       // Zweiter Klick auf denselben Spieler: Spielerinfo (0x15346)
-      const rows = this.squadRows();
-      const chosen = rows[i].playerIndex;
-      this.infoPlace = this.game!.squadOf(this.manager).findIndex((l) => l.playerIndex === chosen);
+      // Die Zeile ist der Kaderplatz
+      this.infoPlace = i;
       this.selectedRow = -1;
       return;
     }
@@ -5924,8 +5946,8 @@ class App {
       this.werbungOffer = cur.sponsor;
     });
     if (cur.months > 0 && !this.werbungActive) {
-      // Laufender Vertrag: das Original nennt hier die Restmonate (0x28841 mit Monatsform)
-      drawLogo(cur.sponsor, 127, 67, false);
+      // Laufender Vertrag: das Original nennt hier die Restmonate (0x28841 mit Monatsform); der
+      // Kasten bleibt leer, das Logo zeigt erst die Sponsorenansicht (in DOSBox mit TEST2 gesehen)
       s.drawCenter(ctx, toGame(`VERTRAG: ${cur.months} MONAT${cur.months === 1 ? "" : "E"}`), 265, 62, COLORS.white);
       s.drawCenter(ctx, dm(advertisingAmount(g, m, page === 0 ? 0 : 1 + this.werbungSlot)), 265, 74, COLORS.white);
     } else if (!this.werbungActive) {
@@ -6108,16 +6130,21 @@ class App {
     // Der Kontostand steht immer unten im rechten Kasten, mit einem Strich darüber: Strich auf
     // y 84 von x 151 über 138 Punkte in Palettenfarbe 12, die Zeile ab (154,90) in Farbe 1 ohne
     // Schatten. In allen Aufnahmen des Originals ist er da, auch ohne angeklickte Zeile (#63).
-    hline(ctx, 151, 84, 138, PLATE);
+    // Mit einer angeklickten Zeile leert 0x08A0 den Kasten (151,16)-(288,95) samt Strich und
+    // zieht nur die Striche bei y 24 und y 66 neu; den bei y 84 zeichnen erst 0x0732 und 0x167A
+    // wieder, wenn keine Zeile mehr gewählt ist
+    if (!this.stadiumPick) hline(ctx, 151, 84, 138, PLATE);
     s.draw(ctx, toGame(`${T("ui.stadionkopf", 0)}${num(m.balance)} DM`), 154, 90, INK, false);
     const shown = this.stadiumPick;
     if (shown) {
       const isPrice = shown === 8;
       const k = isPrice ? null : stadiumKinds()[shown - 1];
       const e = isPrice ? null : st[shown - 1];
-      s.drawCenter(ctx, cp437ToGame(isPrice ? T("ui.stadium", 2) : k!.name), 220, 18, INK);
-      hline(ctx, 151, 24, 138);
-      hline(ctx, 151, 66, 138);
+      // Überschrift mittig über 151..288 in Farbe 0x0B (0x08F7), also wie die Striche
+      s.drawCenter(ctx, cp437ToGame(isPrice ? T("ui.stadium", 2) : k!.name), 219, 18, PLATE);
+      // Beide Striche in derselben Farbe wie der bei y 84 (0x091C, 0x0C50: Farbe 0x0B)
+      hline(ctx, 151, 24, 138, PLATE);
+      hline(ctx, 151, 66, 138, PLATE);
       if (k && e) {
         const cur = e.value + e.pending;
         const points = Math.trunc(m.balance / k.price);
@@ -6128,15 +6155,16 @@ class App {
         if (!(this.stadiumPick === shown && this.stadiumAsk)) {
           const names = k.kind <= 5 ? sizeNames() : statusNames();
           const cost = k.perThousand ? Math.trunc(max / 1000) * k.price : (max - cur) * k.price;
-          s.draw(ctx, toGame(`KOSTET ${num(k.price)} DM PRO ${k.perThousand ? "1000" : "PUNKT"}`), 154, 69, INK);
+          // Ohne Schatten wie der Kontostand darunter (in DOSBox verglichen)
+          s.draw(ctx, toGame(`KOSTET ${num(k.price)} DM PRO ${k.perThousand ? "1000" : "PUNKT"}`), 154, 69, INK, false);
           if (k.perThousand) {
-            s.draw(ctx, toGame(`MAX. GR|~E: ${num(max)}`), 154, 76, INK);
-            s.draw(ctx, toGame(` KOSTEN: ${num(cost)} DM.`), 154, 83, INK);
+            s.draw(ctx, toGame(`MAX. GR|~E: ${num(max)}`), 154, 76, INK, false);
+            s.draw(ctx, toGame(` KOSTEN: ${num(cost)} DM.`), 154, 83, INK, false);
           } else {
             // "MAX. STATUS: " für alle Arten 4..7, bei Flutlicht und Anzeigetafel mit dem
             // Größennamen (0x12C9)
-            s.draw(ctx, toGame(`${T("ui.stadium", 4)}${cp437ToGame(names[max] ?? "")}`), 154, 76, INK);
-            s.draw(ctx, toGame(`(KOSTEN: ${num(cost)} DM)`), 154, 83, INK);
+            s.draw(ctx, toGame(`${T("ui.stadium", 4)}${cp437ToGame(names[max] ?? "")}`), 154, 76, INK, false);
+            s.draw(ctx, toGame(`(KOSTEN: ${num(cost)} DM)`), 154, 83, INK, false);
           }
         }
         if (this.stadiumPick === shown) this.drawStadiumPick(k, e, max);
@@ -6226,8 +6254,8 @@ class App {
     for (let di = first; di <= e.max; di++) {
       const y = 7 * di + base - 4;
       const reachable = di > cur && di <= max;
-      s.draw(ctx, cp437ToGame(names[di] ?? ""), 154, y, reachable ? INK : INK_DIM);
-      if (di > cur) s.drawRight(ctx, toGame(`${num((di - cur) * k.price)} DM`), 268, y, reachable ? INK : INK_DIM);
+      s.draw(ctx, cp437ToGame(names[di] ?? ""), 154, y, reachable ? INK : INK_DIM, false);
+      if (di > cur) s.drawRight(ctx, toGame(`${num((di - cur) * k.price)} DM`), 268, y, reachable ? INK : INK_DIM, false);
       // Ein Klick auf eine erreichbare Stufe führt gleich zur Rückfrage; bei den Plätzen
       // übernimmt das der Rechtsklick nach dem Regler.
       if (reachable) {
@@ -6724,9 +6752,20 @@ class App {
     let y = 36;
     let zeile = 0;
     let hoverKader: Lineup | null = null;
-    for (let place = 0; place < 25; place++) {
-      const l = g.lineups.at(me * 25 + place);
-      if (l.isEmpty) continue;
+    const kader = kaderZeilen(g, me);
+    for (let place = 0; place < kader.length; place++) {
+      const l = kader[place];
+      if (l.isEmpty) {
+        // Leerer Kaderplatz: Leerzeile wie im Kader (0x1F37F), unter dem Zeiger mit Balken
+        if (zeile === this.marketHover) {
+          hoverKader = l;
+          ctx.fillStyle = PAL[23];
+          ctx.fillRect(2, y, 154, 5);
+        }
+        y += 6;
+        zeile++;
+        continue;
+      }
       const p = g.players.at(l.playerIndex);
       const offer = (l.u8(9) & OFFER_SQUAD) !== 0;
       // Alle Spalten in der Farbe des Mannschaftsteils; nur der Name steht in Farbe 11, wenn ein
@@ -7437,7 +7476,7 @@ class App {
     rows.forEach((r, i) => {
       this.hit(36, 30 + 7 * i, 249, 7, () => {
         for (const [m] of g.activeManagers().entries()) {
-          const place = g.squadOf(m).findIndex((l) => l.playerIndex === r.playerIndex);
+          const place = kaderZeilen(g, m).findIndex((l) => !l.isEmpty && l.playerIndex === r.playerIndex);
           if (place >= 0) this.bestInfo = m * 25 + place;
         }
       });
