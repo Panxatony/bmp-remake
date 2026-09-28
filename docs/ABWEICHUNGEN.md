@@ -23,6 +23,7 @@ soll sich wie das Original verhalten; wo es das nicht tut, ist das ein Fehler.
 
 | Was | Original | Remake |
 |---|---|---|
+| Wert in der Marktliste für einen Spieler mit Angebot eines Rechnervereins (Byte 9 Bit 7) | 0x24D4E würfelt random(95,100) bei jedem Zeichnen der Liste (0x1FBFE) - die Zahl schwankt von Bild zu Bild und verbraucht Würfe | fester Faktor 97; die Anzeige im Browser würfelt nicht (#141, TEST2: Original 823.000, Remake 840.000) |
 | Speichern | beendet den Zug, das Kalenderblatt nimmt keinen Klick mehr an | nur eine Aufnahme des Serverstands, gespielt wird weiter (AUDIT B5) |
 | Zug | die Manager ziehen nacheinander an einem Rechner | alle ziehen gleichzeitig; der Tag läuft, wenn alle fertig sind |
 | Konferenz | läuft durch, Seiten per Klick | wartet an Halbzeit und Schluss, bis alle besetzten Manager bestätigt haben; der Tag wird beim Schlusspfiff gebucht |
