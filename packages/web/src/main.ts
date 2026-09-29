@@ -6285,22 +6285,34 @@ class App {
     if (this.stadiumAsk) {
       ctx.fillStyle = COLORS.panel;
       ctx.fillRect(151, 27, 138, 69);
+      // Jede Zeile mittig über 151..288 (0x74EC: x1 + (x2-x1)/2 - Breite/2), ohne Schatten; Farbe 2
+      // (#8282a2) für Überschrift, Kosten und Bauzeit, Farbe 1 (#a2a2c3) für die neue Stufe und die
+      // Wochen. Die Menge der Plätze steht in Farbe 2 (0x0310), nur die Wochen haben einen
+      // schwarzen Schatten ein Pixel rechts (Schattenfarbe 0 -> 0xFF).
+      const INK_2 = "#8282a2";
+      const zeile = (t: string, y: number, farbe: string, schatten = false) => {
+        const x = 151 + Math.trunc((288 - 151) / 2) - Math.trunc(s.width(t) / 2);
+        if (schatten) s.draw(ctx, t, x + 1, y, COLORS.black, false);
+        s.draw(ctx, t, x, y, farbe, false);
+      };
       if (k.perThousand) {
-        s.drawCenter(ctx, toGame(`${T("ui.ausbaukasten", 0)}${num(amount)}${T("ui.ausbaukasten", 1)}`), 220, 33, INK);
-        s.drawCenter(ctx, toGame(`${num(cur + amount)} ${cp437ToGame(k.label)}`), 220, 42, INK);
+        zeile(toGame(`${T("ui.ausbaukasten", 0)}${num(amount)}${T("ui.ausbaukasten", 1)}`), 33, INK_2);
+        zeile(toGame(`${num(cur + amount)} ${cp437ToGame(k.label)}`), 42, INK_2);
       } else {
-        s.drawCenter(ctx, toGame(k.kind <= 5 ? T("ui.stadiumpick", 0) : T("ui.stadiumpick", 1)), 220, 33, INK);
-        s.drawCenter(ctx, cp437ToGame(names[cur + amount] ?? ""), 220, 42, INK);
+        zeile(toGame(k.kind <= 5 ? T("ui.stadiumpick", 0) : T("ui.stadiumpick", 1)), 33, INK_2);
+        zeile(cp437ToGame(names[cur + amount] ?? ""), 42, INK);
       }
-      s.drawCenter(ctx, toGame(`KOSTEN: ${num((amount / step) * k.price)} DM`), 220, 51, INK);
+      // Der Text des Originals beginnt mit einem Leerzeichen (" KOSTEN: "), das rückt die Zeile mit
+      zeile(toGame(` KOSTEN: ${num((amount / step) * k.price)} DM`), 51, INK_2);
       // Läuft schon ein Ausbau dieser Art, rechnet 0x0000 dessen Resttage ein: "BAUZEIT: INSGESAMT
       // CA." (0x041B, #130, Audit 2 A1)
-      s.drawCenter(ctx, e.days > 0 ? T("ui.bauzeitgesamt", 0) : T("ui.stadiumpick", 2), 220, 60, INK);
+      zeile(e.days > 0 ? T("ui.bauzeitgesamt", 0) : T("ui.stadiumpick", 2), 60, INK_2);
       // Die Bauzeit würfelt der Server, sobald die Rückfrage aufgeht, und hält sie bis zum
       // Tageswechsel fest - genau die steht hier und wird beim Zuschlag übernommen (GitLab #55)
-      s.drawCenter(ctx, toGame(`${buildWeeks(this.bauTage[k.kind] ?? 7 * k.base)} WOCHEN`), 220, 69, INK);
-      button(ctx, s, T("ui.ausbaukasten", 2), 158, 81, 57, true);
-      button(ctx, s, T("ui.ausbaukasten", 3), 227, 81, 57);
+      zeile(toGame(`${buildWeeks(this.bauTage[k.kind] ?? 7 * k.base)} WOCHEN`), 69, INK, true);
+      // Schaltflächen über 0x31B4D: NA KLAR in Farbe 0x12 (#b20020), ACH NEE in Farbe 1
+      this.knopf(T("ui.ausbaukasten", 2), 158, 81, true);
+      this.knopf(T("ui.ausbaukasten", 3), 227, 81, false);
       this.hit(158, 81, 57, 14, () => {
         void this.post("api/stadium", { manager: this.manager, kind: k.kind, amount: k.perThousand ? amount : cur + amount });
         this.stadiumPick = 0;
