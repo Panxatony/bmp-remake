@@ -74,6 +74,16 @@ function listenSpalte(dx: number, maske: number): number {
   return -1;
 }
 /**
+ * Betrag im festen Feld wie der Zahlformatierer 0x76b:0x681: Zahl mit Tausenderpunkten, links
+ * mit '^' auf die Mindestbreite 4cb3:079C aufgefüllt (die Punkte zählen mit), dahinter " DM".
+ * '^' ist in der kleinen Schrift leer und breit wie eine Ziffer, der Punkt nur halb so breit -
+ * darum endet eine Zahl mit zwei Punkten drei Punkte weiter links als eine mit einem.
+ */
+const dmFeld = (n: number, stellen: number): string => {
+  const zahl = dm(Math.abs(n)).slice(0, -3);
+  return `${"^".repeat(Math.max(0, stellen - zahl.length))}${zahl} DM`;
+};
+/**
  * Großschreiben wie die Kopierroutine 0x3196D: a..z sowie die Codepage-437-Umlaute ä ö ü; die
  * Umlaute der Spielschrift ({ | }) bleiben stehen.
  */
@@ -485,12 +495,14 @@ class App {
   namen: string[] = [];
   player = "";
   lastMatchday = -1;
-  /** Werbebildschirm: 0 Trikot, 1 Banden */
-  werbungPage = 0;
+  /** Werbebildschirm: 0 Trikot, 1 Banden, -1 noch nichts gewählt (so öffnet das Original) */
+  werbungPage = -1;
   /** gewählter Bandenplatz, betrachtetes Angebot und ob die Sponsorenansicht offen ist */
   werbungSlot = 0;
   werbungOffer = 0;
   werbungActive = false;
+  /** Ob das Foto seit dem Öffnen gewählt war: erst dann trägt es einen Rahmen (0x286D4) */
+  werbungFotoRand = false;
   /** Live-Konferenz: Zustand vom Server, Zeitpunkt des Empfangs, Szenenbilder */
   live: LiveState | null = null;
   liveReceived = 0;
@@ -3111,6 +3123,13 @@ class App {
       this.vertragsAntwort = "";
       this.bestInfo = -1;
       this.resultPage = 0;
+      // Die Werbung beginnt ohne gewählte Seite: kein weißer Rand, der schwarze Kasten leer
+      // (0x28EF1 setzt die Auswahl auf 0xFF; in DOSBox mit TEST2 gesehen)
+      if (s === "werbung") {
+        this.werbungPage = -1;
+        this.werbungActive = false;
+        this.werbungFotoRand = false;
+      }
     }
     this.screen = s;
     this.selectedRow = -1;
@@ -5873,10 +5892,18 @@ class App {
    *     x 52·i + 54 von y 19 bis 50, Farbe 29 (gewählt) bzw. 28.
    *   Foto: Rahmen (5,59) bis (110,229), dieselben Farben; das Trikotlogo (0x287DD) ist das
    *     kleine Logo 26x16 bei (51,110).
-   *   Vertragskasten: Logo 38x30 bei (127,67) (0x2877A), Text bei y 62, Betrag bei y 74,
-   *     mittig zwischen x 217 und 313 (0x28841). Pfeile 30x23 bei (181,60) und (181,84),
-   *     OK und NEIN 48x16 bei (217,91) und (265,91) aus PIC/31.VGA.
-   *   Einnahmen und Ausgaben rechtsbündig bis x 308.
+   *   Vertragskasten: Logo 38x30 bei (127,67) (0x2877A), Text ab y 65, Betrag ab y 77 (0x28841
+   *     schreibt auf die Grundlinie 69 bzw. 81), mittig zwischen x 217 und 313. Pfeile
+   *     30x23 bei (181,60) und (181,84), OK und NEIN 48x16 bei (217,91) und (265,91) aus
+   *     PIC/31.VGA.
+   *   Einnahmen und Ausgaben (0x28D64-0x28ECD): ab x 240 im Feld von zehn Zeichen (dmFeld),
+   *     Zeilen ab y 131, 145, 159, 188 und 213.
+   *   Alle Texte in Farbe 1 ohne Schatten.
+   *
+   * Palette: der Bildschirm schaltet auf eine eigene Palette um (0x28FE2 über 0x39924 aus der
+   * Ebene 0x798 des Videospeichers) - den zweiten Block von PIC/1.PAL. Darin sind die Farben
+   * 22-26, 30 und 31 anders, das Trikot auf dem Foto ist deshalb weiß statt gelb; tools/vga.py
+   * setzt 46.CP, 31.VGA und 32.VGA mit diesem Block um.
    *
    * Die Werbeausgaben ändert ein Klick um 2500 DM; über 50.000 springt der Wert auf 2.500
    * zurück (0x29455).
@@ -5891,11 +5918,18 @@ class App {
     else panel(ctx, 2, 2, 316, 236);
     const page = this.werbungPage;
     const logos = this.assets.img("32.VGA");
-    const ui = this.assets.img("31.VGA");
-    // Palette 1.PAL: 9 = Feldfüllung, 28 = Rand, 29 = gewählter Rand
-    const FIELD = "#907050";
-    const EDGE = "#503020";
-    const EDGE_SEL = "#f2f2f2";
+    // Palette 1.PAL: 9 = Feldfüllung, 28 = Rand, 29 = gewählter Rand (6-Bit-Werte wie die
+    // Grafikkarte gespreizt, sonst liegt jeder Punkt eine Stufe daneben)
+    const FIELD = "#927151";
+    const EDGE = "#513020";
+    const EDGE_SEL = "#f3f3f3";
+    // Farbe 1: alle Texte des Bildschirms (0x28841 mit Farbe 1)
+    const INK = "#a2a2c3";
+    /** Betrag mittig im Kasten; ein Minus stünde links bei x 217 (0x289E1) */
+    const kastenBetrag = (n: number) => {
+      if (n < 0) s.draw(ctx, "-", 217, 77, INK, false);
+      s.drawCenter(ctx, dmFeld(n, 10), 265, 77, INK, false);
+    };
     /** Sponsorenlogo aus PIC/32.VGA: groß 38x30 (Spaltenbreite 39), klein 26x16 (Breite 28). */
     const smallLogos = this.assets.maskedImg("32.VGA", 240, 240, 0);
     const drawLogo = (sp: number, x: number, y: number, small: boolean) => {
@@ -5926,14 +5960,60 @@ class App {
     // Foto links: Trikotsponsor; das Logo sitzt auf dem Trikot des Spielers
     const shirtC = shirtContract(g, m);
     if (shirtC.months > 0) drawLogo(shirtC.sponsor, 51, 110, true);
-    ctx.strokeStyle = page === 0 ? EDGE_SEL : EDGE;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(5.5, 59.5, 105, 170);
+    // Der Rahmen ums Foto gehört nicht zum Hintergrund: 0x286D4 zieht ihn erst beim Wählen
+    // (Farbe 29) und beim Wechsel zu einer Bande (Farbe 28)
+    if (page === 0 || this.werbungFotoRand) {
+      ctx.strokeStyle = page === 0 ? EDGE_SEL : EDGE;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(5.5, 59.5, 105, 170);
+    }
     this.hit(5, 56, 107, 174, () => {
       this.werbungPage = 0;
+      this.werbungFotoRand = true;
       this.werbungOffer = 0;
       this.werbungActive = false;
     });
+    // Ohne gewählte Seite bleibt der Kasten leer und das Logofeld nimmt keinen Klick an
+    if (page >= 0) this.drawWerbungKasten(page, INK, drawLogo, kastenBetrag);
+    // Einnahmen und Ausgaben in den schwarzen Feldern des Hintergrunds, jede Zeile ab x 240
+    // im Feld von zehn Zeichen; ein Minus steht vorn auf x 240 (0x289E1)
+    const boards = [1, 2, 3, 4, 5, 6].reduce((n, i) => n + advertisingAmount(g, m, i), 0);
+    const shirt = advertisingAmount(g, m, 0);
+    const tv = advertisingAmount(g, m, 7);
+    const spend = advertisingAmount(g, m, 8);
+    const zeile = (n: number, y: number) => {
+      if (n < 0) s.draw(ctx, "-", 240, y, INK, false);
+      s.draw(ctx, dmFeld(n, 10), 240, y, INK, false);
+    };
+    zeile(shirt, 131);
+    zeile(boards, 145);
+    zeile(tv, 159);
+    zeile(spend, 188);
+    zeile(shirt + boards + tv - spend, 213);
+    // Werbeausgaben ändern (0x29420-0x29450): x 217..308, y 186..196, links von x 263 weniger,
+    // ab 263 mehr (2500 DM je Klick)
+    this.hit(217, 186, 46, 11, () => void this.post("api/werbebudget", { manager: m, player: this.player, up: 0 }));
+    this.hit(263, 186, 46, 11, () => void this.post("api/werbebudget", { manager: m, player: this.player, up: 1 }));
+    // Das Original hat hier keine Schaltfläche; man verlässt den Bildschirm mit der rechten Maustaste
+  }
+
+  /** Schwarzer Kasten und Logofeld der gewählten Seite (Trikot 0, Bande 1). */
+  drawWerbungKasten(page: number, INK: string, drawLogo: (sp: number, x: number, y: number, small: boolean) => void, kastenBetrag: (n: number) => void): void {
+    const ctx = this.ctx;
+    const s = this.assets.micro;
+    const g = this.game!;
+    const m = this.manager;
+    const ui = this.assets.img("31.VGA");
+    const shirtC = shirtContract(g, m);
+    // Beim Wählen einer Seite (0x2954C-0x295F5) füllt das Original den schwarzen Kasten
+    // (217,60)-(313,90) samt der untersten Zeile, die zum Rahmen des Hintergrunds gehört, und
+    // setzt OK und NEIN in der grauen Form aus PIC/31.VGA darunter
+    ctx.fillStyle = COLORS.black;
+    ctx.fillRect(217, 60, 97, 31);
+    if (ui) {
+      ctx.drawImage(ui, 96, 47, 48, 16, 217, 91, 48, 16);
+      ctx.drawImage(ui, 96, 63, 48, 16, 265, 91, 48, 16);
+    }
     // Angebot: erst ein Klick auf den Kasten öffnet die Sponsorenansicht (wie im Original),
     // danach blättern die Pfeile durch alle zehn Sponsoren
     const cur = page === 0 ? shirtC : boardContract(g, m, this.werbungSlot);
@@ -5948,12 +6028,12 @@ class App {
     if (cur.months > 0 && !this.werbungActive) {
       // Laufender Vertrag: das Original nennt hier die Restmonate (0x28841 mit Monatsform); der
       // Kasten bleibt leer, das Logo zeigt erst die Sponsorenansicht (in DOSBox mit TEST2 gesehen)
-      s.drawCenter(ctx, toGame(`VERTRAG: ${cur.months} MONAT${cur.months === 1 ? "" : "E"}`), 265, 62, COLORS.white);
-      s.drawCenter(ctx, dm(advertisingAmount(g, m, page === 0 ? 0 : 1 + this.werbungSlot)), 265, 74, COLORS.white);
+      s.drawCenter(ctx, toGame(`VERTRAG: ${cur.months} MONAT${cur.months === 1 ? "" : "E"}`), 265, 65, INK, false);
+      kastenBetrag(advertisingAmount(g, m, page === 0 ? 0 : 1 + this.werbungSlot));
     } else if (!this.werbungActive) {
       // Ohne laufenden Vertrag "K}NDBAR" und der Betrag darunter (0x28841 mit 0 Monaten: 0x28972)
-      s.drawCenter(ctx, texte("ui.kuendbar")[0], 265, 62, COLORS.white);
-      s.drawCenter(ctx, dm(advertisingAmount(g, m, page === 0 ? 0 : 1 + this.werbungSlot)), 265, 74, COLORS.white);
+      s.drawCenter(ctx, texte("ui.kuendbar")[0], 265, 65, INK, false);
+      kastenBetrag(advertisingAmount(g, m, page === 0 ? 0 : 1 + this.werbungSlot));
     } else {
       // Durchgeblättert werden alle zehn Sponsoren; ohne Angebot steht dort "KEIN INTERESSE..."
       const sp = ((this.werbungOffer % 10) + 10) % 10;
@@ -5970,29 +6050,17 @@ class App {
       // Oberer Pfeil zählt hoch bis 9, unterer herunter bis 0, ohne Umlauf (0x2993A-0x29955)
       this.hit(181, 60, 30, 23, () => (this.werbungOffer = Math.min(9, this.werbungOffer + 1)));
       this.hit(181, 84, 30, 23, () => (this.werbungOffer = Math.max(0, this.werbungOffer - 1)));
-      if (amount === 0) s.drawCenter(ctx, T("ui.werbung", 0), 265, 78, COLORS.textDim);
+      // "KEIN INTERESSE..." mit Grundlinie 78 (0x28C5D), also ab y 74
+      if (amount === 0) s.drawCenter(ctx, T("ui.werbung", 0), 265, 74, INK, false);
       else {
-        s.drawCenter(ctx, toGame(`VERTRAG: ${years} JAHR${years === 1 ? "" : "E"}`), 265, 62, COLORS.white);
-        s.drawCenter(ctx, dm(amount), 265, 74, COLORS.white);
+        // Die Jahre stehen ohne Leerzeichen vor "JAHRE": 0x288EF überspringt das erste Zeichen
+        // von " JAHR", solange die Beträge in DM laufen (4cb3:224D = 0)
+        s.drawCenter(ctx, toGame(`VERTRAG: ${years}JAHR${years === 1 ? "" : "E"}`), 265, 65, INK, false);
+        kastenBetrag(amount);
         this.hit(217, 91, 48, 16, () => this.signSponsor(sp));
         this.hit(265, 91, 48, 16, () => (this.werbungActive = false));
       }
     }
-    // Einnahmen und Ausgaben in den schwarzen Feldern des Hintergrunds
-    const boards = [1, 2, 3, 4, 5, 6].reduce((n, i) => n + advertisingAmount(g, m, i), 0);
-    const shirt = advertisingAmount(g, m, 0);
-    const tv = advertisingAmount(g, m, 7);
-    const spend = advertisingAmount(g, m, 8);
-    s.drawRight(ctx, dm(shirt), 308, 130, COLORS.white);
-    s.drawRight(ctx, dm(boards), 308, 144, COLORS.white);
-    s.drawRight(ctx, dm(tv), 308, 158, COLORS.white);
-    s.drawRight(ctx, dm(spend), 308, 187, COLORS.white);
-    s.drawRight(ctx, dm(shirt + boards + tv - spend), 308, 212, COLORS.white);
-    // Werbeausgaben ändern (0x29420-0x29450): x 217..308, y 186..196, links von x 263 weniger,
-    // ab 263 mehr (2500 DM je Klick)
-    this.hit(217, 186, 46, 11, () => void this.post("api/werbebudget", { manager: m, player: this.player, up: 0 }));
-    this.hit(263, 186, 46, 11, () => void this.post("api/werbebudget", { manager: m, player: this.player, up: 1 }));
-    // Das Original hat hier keine Schaltfläche; man verlässt den Bildschirm mit der rechten Maustaste
   }
 
   /** Angebot annehmen: Trikot direkt, Bande auf den ersten freien Platz. */
@@ -6120,9 +6188,13 @@ class App {
       s.draw(ctx, a, 118, y, INK_MID, false);
       // Was sich durch einen laufenden Ausbau ändert, steht im Original hell, der Rest gedämpft
       s.draw(ctx, cp437ToGame(b), 192, y, a === b ? INK_FAR : INK_MID, false);
-      // Rechts daneben die Restzeit des Baus, aufgerundet auf Wochen (0x0602; GitLab #55)
+      // Rechts daneben die Restzeit des Baus, aufgerundet auf Wochen (0x0602; GitLab #55). Die
+      // Zahl steht im Feld von zwei Zeichen (0x1FA7), eine einstellige also eine Ziffer weiter rechts
       const e = row >= 1 && row <= 7 ? st[row - 1] : null;
-      if (e && e.days > 0) s.draw(ctx, toGame(`${restWochen(e.days)}${T("ui.wochen", 0)}`), 243, y, INK_MID, false);
+      if (e && e.days > 0) {
+        const wochen = String(restWochen(e.days));
+        s.draw(ctx, toGame(`${"^".repeat(Math.max(0, 2 - wochen.length))}${wochen}${T("ui.wochen", 0)}`), 243, y, INK_MID, false);
+      }
     }
     for (let row = 1; row < 9; row++) this.hit(7, 114 + 8 * row, 281, 8, () => this.pickStadium(row));
     // Kasten rechts: das Original zeigt die Angaben erst nach dem Anklicken einer Zeile, beim
@@ -6180,10 +6252,14 @@ class App {
         }
       }
     }
-    // Unten der Name der Zeile unter dem Zeiger, wie im Original in großer Schrift
-    if (this.stadiumHover > 0) {
-      const name = this.stadiumHover === 8 ? T("ui.stadium", 2) : stadiumKinds()[this.stadiumHover - 1].name;
-      f.drawCenter(ctx, cp437ToGame(name), 148, 218, INK);
+    // Unten der Name der Zeile unter dem Zeiger, wie im Original in großer Schrift. Ist eine
+    // Zeile angeklickt, bleibt ihr Name stehen, auch wenn der Zeiger wegfährt oder über einer
+    // anderen Zeile steht; erst ohne Auswahl folgt er wieder dem Zeiger (in DOSBox mit TEST2)
+    const beschriftung = this.stadiumPick > 0 ? this.stadiumPick : this.stadiumHover;
+    if (beschriftung > 0) {
+      const name = beschriftung === 8 ? T("ui.stadium", 2) : stadiumKinds()[beschriftung - 1].name;
+      // Mittig über x 133 ab y 219 (in DOSBox an zwei Beschriftungen vermessen)
+      f.drawCenter(ctx, cp437ToGame(name), 133, 219, INK);
     }
     // Das Original hat auf diesem Bildschirm nur die Schaltfläche HAUPTMENÜ
     this.sideButtons([]);
@@ -6234,8 +6310,11 @@ class App {
       this.hit(227, 81, 57, 14, () => {
         // Wie im Original: wer ablehnt, sperrt diese Ausbauart random(15,55) Tage für alle Manager (0x0584)
         void this.post("api/stadium/decline", { manager: this.manager, player: this.player, kind: k.kind });
+        // Danach leert das Original den Kasten und hebt die Auswahl auf (0x1655: -0xA8 = -1),
+        // der Kontostand mit dem Strich darüber bleibt stehen
         this.stadiumAsk = false;
-        if (!k.perThousand) this.stadiumAmount = 0;
+        this.stadiumPick = 0;
+        this.stadiumAmount = 0;
       });
       return;
     }
@@ -6247,15 +6326,16 @@ class App {
       );
       return;
     }
-    // Stufen als Liste (0x0FDE für Größen, 0x114E für Status): Name bei x 154, Betrag
-    // rechtsbündig bis x 268, Zeile di bei y 7·di + 25 bzw. 7·di + 18, jeweils vier höher.
+    // Stufen als Liste (0x0FDE für Größen, 0x114E für Status): Name bei x 154, Betrag ab x 216
+    // im Feld von neun Zeichen (0x0FAA setzt die Mindestbreite 9), Zeile di bei y 7·di + 25 bzw.
+    // 7·di + 18, jeweils vier höher. "380.000 DM" endet so bei x 268, "1.140.000 DM" bei 265.
     const first = k.kind <= 5 ? 1 : 2;
     const base = k.kind <= 5 ? 25 : 18;
     for (let di = first; di <= e.max; di++) {
       const y = 7 * di + base - 4;
       const reachable = di > cur && di <= max;
       s.draw(ctx, cp437ToGame(names[di] ?? ""), 154, y, reachable ? INK : INK_DIM, false);
-      if (di > cur) s.drawRight(ctx, toGame(`${num((di - cur) * k.price)} DM`), 268, y, reachable ? INK : INK_DIM, false);
+      if (di > cur) s.draw(ctx, dmFeld((di - cur) * k.price, 9), 216, y, reachable ? INK : INK_DIM, false);
       // Ein Klick auf eine erreichbare Stufe führt gleich zur Rückfrage; bei den Plätzen
       // übernimmt das der Rechtsklick nach dem Regler.
       if (reachable) {

@@ -10,7 +10,8 @@ BMMAIN.EXE (Ladeadresse 0x38BE0):
     Byte b >= 0x80: (b & 0x7F) + 1 Pixel in der Farbe des Folgebytes
     Byte 0x80: Ende
 
-Palette PIC/1.PAL: 256 x 3 Bytes, 6-Bit-VGA-Werte.
+Palette PIC/1.PAL: 256 x 3 Bytes, 6-Bit-VGA-Werte - die Datei hält drei solche Blöcke; das
+Spiel nimmt fast überall den ersten, der Werbebildschirm den zweiten (siehe WERBE_BILDER).
 
     python3 tools/vga.py PIC/26.VGA PIC/1.PAL out.png [SKALIERUNG]
     python3 tools/vga.py --all PIC/ ausgabe/          # alle Bilder als PNG
@@ -42,8 +43,8 @@ def decode(path):
     return w, h, px
 
 
-def palette(path):
-    pal = open(path, "rb").read()
+def palette(path, block=0):
+    pal = open(path, "rb").read()[block * 768:(block + 1) * 768]
     out = []
     for i in range(256):
         r, g, b = pal[i * 3:i * 3 + 3]
@@ -89,6 +90,14 @@ GRAU = [_grauwert(i) for i in range(16)]
 GRAU_BILDER = ["44.VGA"] + ["%d.VGA" % n for n in range(200, 230)]
 
 
+# Der Werbebildschirm (0x28ED8) schaltet vor dem Aufbau auf eine eigene Palette um: 0x28FE2 ruft
+# 0x39924 mit der Tabelle 0x798, und die liest die Farben aus Ebene 1 des Videospeichers bei
+# 0xE100 (0x38A98). Dort steht der zweite Block von PIC/1.PAL: in einer DOSBox-Aufnahme stimmen
+# alle Farben des Hintergrunds genau damit überein. Er weicht nur in den Farben 22-26, 30 und 31
+# ab - das Trikot auf dem Foto ist damit weiß statt gelb. Die drei Bilder erscheinen nur dort.
+WERBE_BILDER = ["46.CP", "31.VGA", "32.VGA"]
+
+
 def graupalette():
     pal = [0] * 768
     for i, wert in enumerate(GRAU):
@@ -110,10 +119,11 @@ def main():
         srcdir, dstdir = sys.argv[2:4]
         os.makedirs(dstdir, exist_ok=True)
         pal = palette(os.path.join(srcdir, "1.PAL"))
+        werbung = palette(os.path.join(srcdir, "1.PAL"), 1)
         grau = graupalette()
         for f in sorted(os.listdir(srcdir)):
             if f.upper().endswith((".VGA", ".CP")):
-                p = grau if f in GRAU_BILDER else pal
+                p = grau if f in GRAU_BILDER else werbung if f in WERBE_BILDER else pal
                 w, h = save_png(os.path.join(srcdir, f), p, os.path.join(dstdir, f + ".png"), 1)
                 if f in MASKED:
                     save_rgba(os.path.join(srcdir, f), pal, os.path.join(dstdir, f + ".a.png"))
