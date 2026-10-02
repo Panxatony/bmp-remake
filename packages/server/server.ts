@@ -52,6 +52,8 @@ import {
   alsFassung,
   pruefeBeschreibung,
   dopeMatchday,
+  einsaetzeJeSpieler,
+  gespieltSeit,
   dopingCleanup,
   dopeStart,
   dopeStop,
@@ -126,14 +128,17 @@ import {
   raiseSalary,
   POACH_COUNTER_MAX,
   checkDebt,
+  debtMessages,
   isBlocked,
   setStakeLevel,
   stakeLevel,
   stakeOf,
   derbyStake,
   playDerby,
+  derbysHeute,
   bestBid,
   resolveAuction,
+  bidOrder,
   sureBid,
   is2026,
   addToSquad,
@@ -998,11 +1003,20 @@ function poachAusfuehren(
   const besitzer = g.managers.at(q.owner).displayName;
   if (res.agreed) {
     r.log.push(`${werber} wirbt ${q.name} von ${besitzer} ab (${dmText(res.amount)}, Zustimmung ${res.chance} %)`);
+    // Sein Verlängerungsangebot an den alten Verein erlischt; die übrigen Angebote beider Vereine
+    // folgen ihren Spielern auf die neuen Kaderplätze (AUDIT-2026 A27)
+    r.offers = r.offers.filter((o) => !(o.manager === q.owner && o.playerIndex === q.playerIndex));
+    for (const o of r.offers) {
+      if (o.manager !== q.owner && o.manager !== q.poacher) continue;
+      const neu = platzVon(g, o.manager, o.playerIndex);
+      if (neu >= 0) o.place = neu;
+    }
     pushMessage(r, q.poacher, [`${q.name} wechselt`, `zu Ihnen. Abl|se:`, dmText(res.amount)]);
     pushMessage(r, q.owner, [`${q.name} verl{~t Sie`, `Richtung ${g.clubs.at(g.managers.at(q.poacher).clubIndex).displayName}.`, `${texte("ui.abloese")[1]} ${dmText(res.amount)}`]);
-    // Neu aufstellen wie nach einem Kauf (0x22FBA), auch beim Besitzer - nur mit Automatik (#109)
-    autoLineupIfEnabled(g, q.poacher);
-    autoLineupIfEnabled(g, q.owner);
+    // Neu aufstellen wie nach einem Kauf (0x22FBA), auch beim Besitzer - nur mit Automatik (#109),
+    // mit der Sperrenregel des Tages wie beim Kauf (#123)
+    autoLineupIfEnabled(g, q.poacher, sperreAusgesetzt(g, q.poacher));
+    autoLineupIfEnabled(g, q.owner, sperreAusgesetzt(g, q.owner));
   } else {
     r.log.push(`${werber} wirbt vergeblich um ${q.name} (${besitzer}, Zustimmung ${res.chance} %)`);
     pushMessage(r, q.poacher, [`${q.name} bleibt bei`, besitzer + ".", "Er hat abgelehnt."]);
@@ -1499,7 +1513,7 @@ function startLiveDay(r: Room): void {
       clearInterval(r.liveTimer);
       const st2 = r.live;
       st2.booked = true;
-      advanceDay(r, { results: liveResults(st2), postponed: st2.postponed, scorers: scorerLines(st2), events: matchEvents(st2), attendance: liveAttendances(st2), nachspiele: liveNachspiele(st2), booking: { forfeit: (m) => forfeitsOf(st2).has(m), incidents: (m) => incidentsOf(st2, m), vorbereitet: true }, einsaetzeVorher: st2.einsaetzeVorher, staerke: new Map(st2.entries.map((e) => [e.key, [e.match.home, e.match.away] as const])) });
+      advanceDay(r, { results: liveResults(st2), postponed: st2.postponed, scorers: scorerLines(st2), events: matchEvents(st2), attendance: liveAttendances(st2), nachspiele: liveNachspiele(st2), booking: { forfeit: (m) => forfeitsOf(st2).has(m), incidents: (m) => incidentsOf(st2, m), vorbereitet: true }, einsaetzeVorher: st2.einsaetzeVorher, derbyBetrag: st2.derbyBetrag, staerke: new Map(st2.entries.map((e) => [e.key, [e.match.home, e.match.away] as const])) });
       nachTageswechsel(r);
       // Hat schon jeder bestätigt, verschwindet die Anzeige sofort
       if (!st2.paused) r.live = undefined;
@@ -1802,7 +1816,8 @@ function stateJson(r: Room, user: string) {
         if (!platz) return [];
         const ich = r.game.activeManagers().findIndex((_, i) => r.seats.get(i) === user);
         const mein = a.bids.find((b2) => b2.manager === ich);
-        const gebote = a.bids.map((b2) => ({ manager: b2.manager, amount: b2.amount, loan: b2.loan })).sort((x, y) => y.amount - x.amount);
+        // Reihenfolge wie beim Zuschlag: bei Gleichstand vorn, wer schlechter steht (AUDIT-2026 A34/Q5)
+        const gebote = bidOrder(r.game, a.bids).map((b2) => ({ manager: b2.manager, amount: b2.amount, loan: b2.loan }));
         return [{ slot: platz.slot, anzahl: a.bids.length, mein: mein ? mein.amount : null, loan: mein ? mein.loan : false, gebote }];
       }),
     },
@@ -1993,17 +2008,20 @@ function finanzTag(r: Room, dt: { day: number; month0: number; year: number }, s
       // Nur bei einem Abzug neu sortieren: am 30.6. (Sommertage) ist die Tabelle schon leer, und
       // ein Sortieren mischte die Startreihenfolge der neuen Saison (AUDIT-2026 A18)
       if (d.points > 0) updatePositions(g, liga);
-      r.log.push(`${dt.day}.${dt.month0 + 1}. ${mg.displayName}: ${dmText(d.balance)} im Minus - ${d.points} Punkte Abzug und ein Monat Kaufsperre`);
-      pushMessage(r, d.manager, ["Ihr Konto ist zu tief", "im Minus: " + d.points + " Punkte", "Abzug, ein Monat", "keine Eink{ufe."], dt);
+      // Ohne Punkte (30.6. nach dem Leeren der Tabellen, Verein ohne Punkte) bleibt nur die
+      // Kaufsperre - keine Meldung "0 Punkte Abzug" (AUDIT-2026 A34/G10)
+      r.log.push(`${dt.day}.${dt.month0 + 1}. ${mg.displayName}: ${dmText(d.balance)} im Minus - ${d.points > 0 ? `${d.points} Punkte Abzug und ` : ""}ein Monat Kaufsperre`);
+      const text = debtMessages(d, mg.displayName);
+      pushMessage(r, d.manager, text.own, dt);
       g.activeManagers().forEach((_, i) => {
-        if (i !== d.manager) pushMessage(r, i, [`${mg.displayName} bekommt`, `${d.points} Punkte Abzug`, "wegen Schulden."], dt);
+        if (i !== d.manager) pushMessage(r, i, text.others, dt);
       });
     }
   }
 }
 
 /** Spielt die Ereignisse des aktuellen Kalendertags und schaltet auf den nächsten; mit live gespielten Ergebnissen, wenn vorhanden. */
-function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStrength, TeamStrength]>; results: Map<string, MatchResult>; postponed: number[][]; einsaetzeVorher?: number[][]; scorers?: Map<string, { minute: number; side: "home" | "away"; name: string }[]>; events?: Map<string, { minute: number; side: "home" | "away"; goal: boolean }[]>; attendance?: Map<string, number>; booking?: LiveBooking; nachspiele?: Map<string, Nachspiel> }): void {
+function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStrength, TeamStrength]>; results: Map<string, MatchResult>; postponed: number[][]; einsaetzeVorher?: Map<number, number>; derbyBetrag?: Map<string, number>; scorers?: Map<string, { minute: number; side: "home" | "away"; name: string }[]>; events?: Map<string, { minute: number; side: "home" | "away"; goal: boolean }[]>; attendance?: Map<string, number>; booking?: LiveBooking; nachspiele?: Map<string, Nachspiel> }): void {
   const g = r.game;
   const k = dayIndex(g);
   const flag = calendarFlag(g, k);
@@ -2020,8 +2038,10 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   const nachspiel = (home: number, away: number) => live?.nachspiele?.get(`${home}-${away}`);
   const names = (c: number) => g.clubs.at(c).displayName;
   // Einsätze vor dem Tag: daran erkennt die Dopingprüfung, wer gespielt hat (#3)
-  // Mit Konferenz zählt der Kaderteil die Einsätze schon beim Anpfiff - dann gilt deren Stand
-  const einsaetzeVorher = live?.einsaetzeVorher ?? g.activeManagers().map((_, i) => g.squadOf(i).map((l) => l.u8(6) + l.u8(7) + l.u8(8)));
+  // Mit Konferenz zählt der Kaderteil die Einsätze schon beim Anpfiff - dann gilt deren Stand.
+  // Verglichen wird je Spieler: der Zuschlag oben und Käufe während der Konferenz verschieben den
+  // Kader (AUDIT-2026 A23)
+  const einsaetzeVorher = live?.einsaetzeVorher ?? einsaetzeJeSpieler(g);
   // Die Sportzeitung gehört zum Spieltag, an dem sie entstanden ist: sie wird an jedem Spieltag
   // geleert - auch an Pokal- und Europapokaltagen, sonst stünde dort die Ausgabe des letzten
   // Ligaspieltags noch einmal in der Seitenfolge. An Tagen ohne Spiele bleibt sie stehen und
@@ -2071,7 +2091,8 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     const dh = mgrOf(p.home);
     const da = mgrOf(p.away);
     if (dh >= 0 && da >= 0) {
-      const derby = playDerby(g, dh, da, p.result.home, p.result.away);
+      // Mit Konferenz gilt der beim Anpfiff festgeschriebene Einsatz (AUDIT-2026 A30)
+      const derby = playDerby(g, dh, da, p.result.home, p.result.away, live?.derbyBetrag?.get(`${p.home}-${p.away}`));
       if (derby) {
         const sieger = g.managers.at(derby.winner).displayName;
         const verlierer = g.managers.at(derby.loser).displayName;
@@ -2274,30 +2295,18 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
   // Derby-Einsatz (Version 2026): steht am neuen Tag ein Spiel gegen einen Managerverein an,
   // bekommen beide eine Meldung mit ihrem eigenen Einsatz - sonst denkt niemand daran, ihn vor
   // dem Anpfiff zu setzen (GitLab #9).
-  if (is2026(g)) {
-    const heute = calendarFlag(g, dayIndex(g));
-    const managerVon = new Map<number, number>();
-    g.activeManagers().forEach((m, i) => managerVon.set(m.clubIndex, i));
-    for (let liga = 0; liga < 3; liga++) {
-      if (!(heute & FLAG_LEAGUE[liga])) continue;
-      for (const [heim, gast] of g.pairings(liga)) {
-        const a = managerVon.get(heim);
-        const b = managerVon.get(gast);
-        if (a === undefined || b === undefined) continue;
-        for (const [wer, gegner] of [[a, gast], [b, heim]] as const) {
-          if (isAi(g, wer)) continue;
-          pushMessage(r, wer, ["Derby gegen", names(gegner) + ":", `Ihr Einsatz ${dmText(stakeOf(g, wer))}`]);
-        }
-        r.log.push(`Derby am Spieltag: ${names(heim)} - ${names(gast)} (Einsätze ${dmText(stakeOf(g, a))} / ${dmText(stakeOf(g, b))})`);
-      }
+  // Auch die Nachholspiele des Tages - gebucht wird das Derby dort ebenso (AUDIT-2026 A34/G12)
+  for (const [heim, gast, a, b] of derbysHeute(g)) {
+    for (const [wer, gegner] of [[a, gast], [b, heim]] as const) {
+      if (isAi(g, wer)) continue;
+      pushMessage(r, wer, ["Derby gegen", names(gegner) + ":", `Ihr Einsatz ${dmText(stakeOf(g, wer))}`]);
     }
+    r.log.push(`Derby am Spieltag: ${names(heim)} - ${names(gast)} (Einsätze ${dmText(stakeOf(g, a))} / ${dmText(stakeOf(g, b))})`);
   }
   // Doping (Version 2026, #3): nach den Spielen wird für jeden gedopten Spieler gewürfelt, der
   // eingesetzt war. Wer auffliegt, ist Wochen gesperrt, der Verein zahlt, und alle erfahren es.
   g.activeManagers().forEach((m, i) => {
-    const jetzt = g.squadOf(i).map((l) => l.u8(6) + l.u8(7) + l.u8(8));
-    const vorher = einsaetzeVorher[i] ?? [];
-    const erwischt = dopeMatchday(g, i, (place) => (jetzt[place] ?? 0) > (vorher[place] ?? 0), r.rng);
+    const erwischt = dopeMatchday(g, i, gespieltSeit(g, i, einsaetzeVorher), r.rng);
     for (const ev of erwischt) {
       const name = g.players.at(ev.playerIndex).displayName;
       r.log.push(`Doping: ${name} (${m.displayName}) überführt - ${ev.weeks} Wochen gesperrt, ${dmText(ev.fine)} Strafe`);
@@ -3210,7 +3219,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       if (!erg.ok) return json(res, 400, { error: erg.error });
       const wer = room.game.managers.at(manager).displayName;
       room.jugendFrisch.push({ manager, playerIndex: erg.playerIndex, name: erg.name, preis: jugendPreis(room.game, manager, erg.place) });
-      autoLineupIfEnabled(room.game, manager); // #109
+      autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager)); // #109, 513E wie beim Kauf (#123)
       room.log.push(`Jugend ${wer}: ${erg.name} rückt in die Männermannschaft auf (Stärke ${erg.staerke})`);
       pushMessage(room, manager, [`${erg.name} r}ckt in die`, "Mannschaft auf."]);
       // Die anderen erfahren davon und dürfen ihn bis zum Tageswechsel abwerben (#4, Stufe 2)
@@ -3243,8 +3252,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
         pushMessage(room, manager, [name, "bleibt, wo er ist."]);
       } else {
         room.jugendFrisch = room.jugendFrisch.filter((x) => x !== frisch);
-        autoLineupIfEnabled(room.game, manager); // #109
-        autoLineupIfEnabled(room.game, owner);
+        autoLineupIfEnabled(room.game, manager, sperreAusgesetzt(room.game, manager)); // #109, 513E wie beim Kauf (#123)
+        autoLineupIfEnabled(room.game, owner, sperreAusgesetzt(room.game, owner));
         room.log.push(`Jugend: ${wer} wirbt ${name} von ${room.game.managers.at(owner).displayName} ab (${dmText(erg.amount)})`);
         pushMessage(room, manager, [name, "wechselt zu Ihnen.", dmText(erg.amount)]);
         pushMessage(room, owner, [`${name} verl{~t Sie`, `Richtung ${wer}.`, dmText(erg.amount)]);

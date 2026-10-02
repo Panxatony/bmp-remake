@@ -8,6 +8,8 @@
  */
 import {
   attendance,
+  einsaetzeJeSpieler,
+  derbyStake,
   pokalZuschlag,
   kaderVorbereitung,
   dfbFinale,
@@ -178,11 +180,17 @@ export interface LiveState {
   verletzung?: { manager: number; name: string };
   subs: Record<number, { goalkeeper: number; field: number }>;
   /**
-   * Einsätze je Kaderplatz vor dem Anpfiff (Liga, Pokal, Europapokal). Der Kaderteil der
-   * Spielvorbereitung zählt sie schon beim Anpfiff hoch; die Dopingprüfung nach dem Tag erkennt
-   * daran, wer gespielt hat.
+   * Einsätze je Spieler (Spielernummer) vor dem Anpfiff (Liga, Pokal, Europapokal). Der Kaderteil
+   * der Spielvorbereitung zählt sie schon beim Anpfiff hoch; die Dopingprüfung nach dem Tag erkennt
+   * daran, wer gespielt hat - über den Spieler, nicht den Kaderplatz (AUDIT-2026 A23).
    */
-  einsaetzeVorher: number[][];
+  einsaetzeVorher: Map<number, number>;
+  /**
+   * Derby-Einsatz je Paarung ("Heim-Gast"), beim Anpfiff festgeschrieben: die Kappung auf das
+   * kleinere Guthaben gilt für den Stand vor dem Spiel, Ausgaben während der Konferenz drücken
+   * den Betrag nicht mehr (AUDIT-2026 A30).
+   */
+  derbyBetrag: Map<string, number>;
   /** Laufende Elfmetertafel und die, die danach noch kommen (GitLab #72) */
   elfmeter?: Elfmetertafel;
   elfmeterQueue: Elfmetertafel[];
@@ -253,7 +261,7 @@ export function wechselZahl(subs: LiveState["subs"] | undefined, manager: number
  */
 export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempoMs: number, wechselVorher?: LiveState["subs"]): LiveState {
   const managers = g.activeManagers();
-  const einsaetzeVorher = managers.map((_, i) => g.squadOf(i).map((l) => l.u8(6) + l.u8(7) + l.u8(8)));
+  const einsaetzeVorher = einsaetzeJeSpieler(g);
   const managerOf = new Map<number, number>();
   managers.forEach((m, i) => managerOf.set(m.clubIndex, i));
   const entries: LiveEntry[] = [];
@@ -341,6 +349,11 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
       if (e.managerAway !== undefined) e.incidentAway = newIncidentState(e.kind === "league");
     }
   }
+  // Derby-Einsätze beim Anpfiff festschreiben (Version 2026, AUDIT-2026 A30)
+  const derbyBetrag = new Map<string, number>();
+  for (const e of entries) {
+    if (e.kind === "league" && e.managerHome !== undefined && e.managerAway !== undefined) derbyBetrag.set(e.key, derbyStake(g, e.managerHome, e.managerAway));
+  }
   const now = Date.now();
   // Vor dem Anpfiff zeigt das Original eine ganze Seite in Schwarz-Rot-Gold mit der Art des
   // Spieltags (0x1D866: erst die Ligen, dann der DFB-Pokal, dann Europa) und wartet 50 Ticks.
@@ -355,7 +368,7 @@ export function startLive(g: GameState, rng: Rng, k: number, flag: number, tempo
   // die zweite Seite direkt nach der ersten (#119).
   const announce2 = announce !== undefined && nachhol && announce !== titel[4] ? titel[4] : undefined;
   const halt = announce ? ANNOUNCE_MS * (announce2 ? 2 : 1) : 1500;
-  return { dayIndex: k, flag, entries, postponed, minute: 0, paused: false, sceneQueue: [], holdUntil: now + halt, nextMinuteAt: now + halt, finished: false, tempoMs, scenesOn: true, halbzeitStaende: [true, true, true], news: [], subs: {}, einsaetzeVorher, elfmeterQueue: [], announce, announceUntil: announce ? now + ANNOUNCE_MS : undefined, announce2, announce2Until: announce2 ? now + halt : undefined };
+  return { dayIndex: k, flag, entries, postponed, minute: 0, paused: false, sceneQueue: [], holdUntil: now + halt, nextMinuteAt: now + halt, finished: false, tempoMs, scenesOn: true, halbzeitStaende: [true, true, true], news: [], subs: {}, einsaetzeVorher, derbyBetrag, elfmeterQueue: [], announce, announceUntil: announce ? now + ANNOUNCE_MS : undefined, announce2, announce2Until: announce2 ? now + halt : undefined };
 }
 
 /**

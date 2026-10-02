@@ -43,6 +43,16 @@ export function highestBid(g: GameState, bids: Bid[]): Bid | null {
 }
 
 /**
+ * Gebote in der Reihenfolge, in der sie zum Zug kämen: nach Betrag, bei Gleichstand der
+ * schlechtere Tabellenplatz zuerst - wie highestBid. Die Anzeige "VORN" nennt damit denselben
+ * Manager, der den Zuschlag bekäme (AUDIT-2026 A34/Q5).
+ */
+export function bidOrder(g: GameState, bids: Bid[]): Bid[] {
+  const platz = (m: number) => g.standings.at(g.managers.at(m).clubIndex).u8(46);
+  return bids.slice().sort((x, y) => y.amount - x.amount || platz(y.manager) - platz(x.manager));
+}
+
+/**
  * Betrag, den der abgebende Verein sicher annimmt. aiAccepts nimmt ein Gebot immer an, sobald es
  * einen gewürfelten Anteil von 120 bis 130 % des Werts erreicht - ab 130 % ist es also sicher.
  * Der Wert steht in der Absage, damit man weiß, wohin man beim nächsten Mal gehen muss (#19).

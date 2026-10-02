@@ -69,3 +69,13 @@ export function checkDebt(g: GameState): DebtResult[] {
   });
   return out;
 }
+
+/**
+ * Meldungen zum Monatsletzten im Minus: an den Manager selbst und an alle anderen. Ohne Punkte
+ * (am 30.6. sind die Tabellen schon geleert, oder der Verein hat noch keine) bleibt nur die
+ * Kaufsperre - keine Meldung "0 Punkte Abzug" (AUDIT-2026 A34/G10).
+ */
+export function debtMessages(d: DebtResult, name: string): { own: string[]; others: string[] } {
+  if (d.points > 0) return { own: ["Ihr Konto ist zu tief", "im Minus: " + d.points + " Punkte", "Abzug, ein Monat", "keine Eink{ufe."], others: [`${name} bekommt`, `${d.points} Punkte Abzug`, "wegen Schulden."] };
+  return { own: ["Ihr Konto ist zu tief", "im Minus: ein Monat", "keine Eink{ufe."], others: [`${name} bekommt`, "einen Monat Kaufsperre", "wegen Schulden."] };
+}

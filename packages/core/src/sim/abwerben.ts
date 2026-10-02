@@ -184,6 +184,12 @@ export function poach(g: GameState, poacher: number, owner: number, place: numbe
   bytes[10] = 0; // Rückennummer neu vergeben
   bytes[9] &= 0x3f; // offene Angebote bleiben beim alten Verein
   bytes[23] &= 0x3f; // Behandlungsstufe bleibt beim alten Verein (AUDIT-2026 A31)
+  // Ebenso ein liegendes Verlängerungsangebot an den alten Verein (Byte 24 = 100 + Jahre) und
+  // der Meldungszeiger dazu (Bytes 48-51). Ein Gesprächsdialog wie beim Kauf (Byte 24 =
+  // random(10,18)) findet beim Abwerben nicht statt, also ohne Wurf auf 0; ein laufender
+  // Zähler nach einem Gespräch (1..99) und die Rücktrittsmarke (Bit 7) bleiben (AUDIT-2026 A27)
+  if (bytes[24] >= 100 && bytes[24] < 0x80) bytes[24] = 0;
+  bytes.fill(0, 48, 52);
   setSlotBytes(g, poacher * 25 + ziel, bytes);
   kurBeimWechselBeenden(g.lineups.at(poacher * 25 + ziel)); // #110
   ziel = sortIntoSquad(g, poacher, ziel);
