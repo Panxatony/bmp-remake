@@ -346,3 +346,12 @@ export function christmasPresents(g: GameState, rng: Rng): ChristmasResult | nul
   });
   return { base, amounts };
 }
+
+/**
+ * Tag der Rückzahlung eines Kredits für die Anzeige in der Bank. Im Original der Fälligkeitstag
+ * aus Byte 9; die Version 2026 zahlt am Monatsletzten des Fälligkeitsmonats zurück (siehe
+ * dailyFinance), dann steht dieser Tag dort (AUDIT-2026 A34/G9).
+ */
+export function kreditFaelligAm(g: GameState, loan: { dueDay: number; dueMonth: number }): number {
+  return is2026(g) ? DAYS_IN_MONTH[loan.dueMonth] : loan.dueDay;
+}

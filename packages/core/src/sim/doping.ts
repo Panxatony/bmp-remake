@@ -280,3 +280,32 @@ export function dopingRows(g: GameState, manager: number): { place: number; play
   });
   return out;
 }
+
+/**
+ * Einsätze (Liga + Pokal + Europapokal, Kaderbytes 6-8) aller Spieler in den Managerkadern, nach
+ * Spielernummer. Die Dopingprüfung nach dem Tag vergleicht damit über den Spieler, nicht über den
+ * Kaderplatz: zwischen Anpfiff und Buchung kann sich der Kader verschieben (Zuschlag des
+ * Bietgefechts beim Tageswechsel, Kauf oder Verkauf während der Konferenz), und ein Vergleich nach
+ * Platz träfe dann die falschen Spieler (AUDIT-2026 A23).
+ */
+export function einsaetzeJeSpieler(g: GameState): Map<number, number> {
+  const out = new Map<number, number>();
+  g.activeManagers().forEach((_, i) => {
+    for (const l of g.squadOf(i)) out.set(l.playerIndex, l.u8(6) + l.u8(7) + l.u8(8));
+  });
+  return out;
+}
+
+/**
+ * Für dopeMatchday: hat der Spieler auf diesem Platz (Index in squadOf) seit `vorher` gespielt?
+ * Wer beim Anpfiff in keinem Managerkader stand, kam heute für keinen Manager zum Einsatz.
+ */
+export function gespieltSeit(g: GameState, manager: number, vorher: Map<number, number>): (place: number) => boolean {
+  const kader = g.squadOf(manager);
+  return (place) => {
+    const l = kader[place];
+    if (!l) return false;
+    const alt = vorher.get(l.playerIndex);
+    return alt !== undefined && l.u8(6) + l.u8(7) + l.u8(8) > alt;
+  };
+}
