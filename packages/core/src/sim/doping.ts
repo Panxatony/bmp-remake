@@ -34,6 +34,7 @@ import type { GameState, Lineup } from "../records.ts";
 import type { Rng } from "./match.ts";
 import { addBalance } from "./transfer.ts";
 import { is2026 } from "./regeln.ts";
+import { texte } from "../data/texte.ts";
 
 const div = (a: number, b: number): number => Math.trunc(a / b);
 
@@ -147,6 +148,9 @@ export function dopeStart(g: GameState, manager: number, place: number): { ok: b
   if (!Number.isInteger(place) || place < 0 || place > 23 || !Number.isInteger(manager) || manager < 0 || manager > 3) return { ok: false, error: "Kein Spieler" };
   const l = g.lineups.at(manager * 25 + place);
   if (l.isEmpty) return { ok: false, error: "Kein Spieler" };
+  // Kein Leihspieler: die Kur ginge mit ihm zum Besitzer zurück, der sie nie begonnen hat
+  // (AUDIT-2026 A32; dieselbe Prüfung wie beim Angebot auf dem Markt)
+  if (g.players.at(l.playerIndex).u8(33) !== manager || l.u8(12) !== 0) return { ok: false, error: texte("ui.leihspieler").join(" ") };
   if ((l.u8(9) & 3) !== 0) return { ok: false, error: "Gesperrte und verletzte Spieler nicht" };
   if (dopeState(l) !== DOPE_NONE) return { ok: false, error: "Kur l\u00e4uft schon" };
   if (dopeCures(g, manager) >= DOPING_MAX_CURES) return { ok: false, error: `H\u00f6chstens ${DOPING_MAX_CURES} Kuren gleichzeitig` };
@@ -229,10 +233,13 @@ export function dopeMatchday(g: GameState, manager: number, gespielt: (place: nu
     l.setU8(18, Math.max(Math.min(45, l.u8(18)), l.u8(18) - DOPING_MALUS));
     const weeks = rng(DOPING_BAN[0], DOPING_BAN[1]);
     // Rot im selben Spiel: die Spielsperre (Bit 0) weicht der Dopingsperre, sonst zählten
-    // Spiel- und Wochenzähler dasselbe Byte 13 herunter (AUDIT-2026 A19)
-    l.setU8(13, Math.max(weeks, (l.u8(9) & 1) !== 0 ? l.u8(13) : 0));
+    // Spiel- und Wochenzähler dasselbe Byte 13 herunter (AUDIT-2026 A19). Hat er sich im selben
+    // Spiel verletzt (Bit 1), zählt die längere Dauer, und die Art der Verletzung bleibt stehen;
+    // eine Behandlungsstufe fällt weg, weil eine Dopingsperre keinem Arzt gehört (AUDIT-2026 A33)
+    const verletzt = (l.u8(9) & 2) !== 0;
+    l.setU8(13, Math.max(weeks, (l.u8(9) & 3) !== 0 ? l.u8(13) : 0));
     l.setU8(9, (l.u8(9) & ~1) | 2);
-    l.setU8(23, 0);
+    l.setU8(23, verletzt ? l.u8(23) & 0x1f : 0);
     l.setU8(10, 0);
     setState(l, DOPE_BANNED, 0);
     const fine = dopingFine(g.managers.at(manager).balance);

@@ -172,3 +172,172 @@ test("A20: Doping und Medizin nur auf eigenen Kaderplätzen 0..23 (AUDIT-2026, z
   }
   assert.equal(dopeStart(g, 4, 0).ok, false, "Manager 4 ist der Markt");
 });
+
+// ---- Zweiter Durchgang (docs/AUDIT-2026.md, A28 bis A34) ------------------------------------
+
+const besetzt = (team: { name: string }[]) => team.filter((s) => s.name !== "").length;
+
+test("A28: Jugend entsteht beim neuen Spiel 2026, im Original kein Anhang", async () => {
+  const { createGame, parseMana, RULES_ORIGINAL } = await import("../src/index.ts");
+  const mana = parseMana(new Uint8Array(readFileSync(join(BMP_DIR, "MANA.DAT"))));
+  const tpl = SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))).plain;
+  const managers = [{ name: "Lars", club: 0, portrait: 2 }, { name: "Normi", club: 14, portrait: 1 }];
+  const neu = new GameState(SaveFile.decode(createGame(tpl, mana, { managers, level: 3, rules: RULES_2026 }, mulberryRng(7)).encode()));
+  const daten = jugendLesen(neu);
+  assert.equal(daten.length, 2);
+  for (const m of daten) for (const t of m) assert.ok(besetzt(t) > 0, "jede Mannschaft besetzt");
+  const alt = createGame(tpl, mana, { managers, level: 3, rules: RULES_ORIGINAL }, mulberryRng(7));
+  assert.equal(alt.anhang.length, 0);
+});
+
+test("A28: Saisonwechsel und Bildschirm legen fehlende Mannschaften an, vorhandene bleiben", async () => {
+  const { jugendSaison, jugendFehlt } = await import("../src/index.ts");
+  // Stand wie nach einem Saisonwechsel ohne Anlage: nur die C-Jugend ist besetzt
+  const g = laden();
+  jugendAnlegen(g, mulberryRng(5));
+  const daten = jugendLesen(g);
+  for (const m of daten) for (const t of [1, 2]) m[t] = m[t].map((s) => ({ ...s, name: "" }));
+  jugendSchreiben(g, daten);
+  const c = jugendLesen(g).map((m) => m[0].map((s) => s.name).join(","));
+  assert.ok(c.every((x) => x.replace(/,/g, "") !== ""), "C-Jugend besetzt");
+  assert.ok(g.activeManagers().every((_, m) => jugendFehlt(g, m)));
+  jugendSaison(g, mulberryRng(6));
+  const nach = jugendLesen(g);
+  for (const m of nach) assert.ok(besetzt(m[1]) > 0 && besetzt(m[2]) > 0, "B- und A-Jugend angelegt");
+  assert.ok(g.activeManagers().every((_, m) => !jugendFehlt(g, m)));
+  // Wer schon Mannschaften hat, wird nicht neu gewürfelt
+  const vorher = g.save.anhang.slice();
+  assert.deepEqual(jugendAnlegen(g, mulberryRng(9)), []);
+  assert.deepEqual(g.save.anhang, vorher);
+});
+
+test("A28: ein aufgenommener Manager bekommt Jugendmannschaften, die anderen behalten ihre", async () => {
+  const { managerAufnehmen } = await import("../src/index.ts");
+  const g = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+  setRuleSet(g, RULES_2026);
+  jugendAnlegen(g, mulberryRng(11));
+  const alt = jugendLesen(g);
+  const [mi] = managerAufnehmen(g, [{ name: "Neu", club: 5, portrait: 3 }], mulberryRng(8));
+  const neu = jugendLesen(g);
+  assert.deepEqual(neu.slice(0, mi), alt);
+  for (const t of neu[mi]) assert.ok(besetzt(t) > 0, "Mannschaft des Neuen besetzt");
+  // Im Original: kein Anhang
+  const o = new GameState(SaveFile.decode(new Uint8Array(readFileSync(join(BMP_DIR, "TEST4.MAN")))));
+  managerAufnehmen(o, [{ name: "Neu", club: 5, portrait: 3 }], mulberryRng(8));
+  assert.equal(o.save.anhang.length, 0);
+});
+
+test("A29: Aufrücker bekommen eine gewürfelte Seitenvorliebe, nicht die Positionsart", () => {
+  const vorlieben = new Set<number>();
+  for (let seed = 1; seed <= 12; seed++) {
+    const g = laden();
+    jugendAnlegen(g, mulberryRng(29));
+    const daten = jugendLesen(g);
+    for (const s of daten[0][2]) if (s.name !== "") s.alter = JUGEND_ALTER[2][1] + 1;
+    const platz = daten[0][2].findIndex((s) => istReif(s, 2));
+    daten[0][2][platz].art = 0; // Torwart: bisher immer Byte 32 = 0
+    jugendSchreiben(g, daten);
+    const r = jugendAufruecken(g, 0, platz, mulberryRng(seed));
+    assert.ok(r.ok);
+    const v = g.players.at(r.playerIndex).u8(32);
+    assert.ok(v >= 0 && v <= 6);
+    vorlieben.add(v);
+  }
+  assert.ok(vorlieben.size > 1, `Vorlieben ${[...vorlieben]}`);
+});
+
+/** Manager 1 stellt einen Spieler auf den Markt, Manager 0 leiht ihn. */
+const leihe = async (g: GameState, vorher?: (l: ReturnType<GameState["lineups"]["at"]>, platz: number) => void) => {
+  const { listPlayer, completeLoan, marketEntries } = await import("../src/index.ts");
+  const rng = mulberryRng(3);
+  let pl = 0;
+  const frei = (l: ReturnType<GameState["lineups"]["at"]>) => !l.isEmpty && (l.u8(9) & 3) === 0 && l.u8(12) === 0 && (l.u8(24) & 0x80) === 0 && g.players.at(l.playerIndex).u8(33) === 1;
+  while (!frei(g.lineups.at(25 + pl))) pl++;
+  const l = g.lineups.at(25 + pl);
+  const pi = l.playerIndex;
+  vorher?.(l, pl);
+  assert.ok(listPlayer(g, 1, pl, rng).ok);
+  const e = marketEntries(g).find((x) => x.playerIndex === pi)!;
+  const platz = completeLoan(g, 0, e.slot, 1, 1, rng);
+  assert.ok(platz >= 0);
+  // Längere Laufzeit, damit der Spieler nach der Rückkehr nicht gleich mit ausgelaufenem Vertrag
+  // geht und sich der zurückgekehrte Platz ansehen lässt
+  g.lineups.at(platz).setU8(11, 3);
+  return { pi, platz };
+};
+
+test("A31: die Behandlungsstufe bleibt beim alten Verein (Markt, Leihe, Leihrückkehr)", async () => {
+  const { medSet, medLevel, medCost, seasonEvents, setMedLevel } = await import("../src/index.ts");
+  const g = laden();
+  const { pi, platz } = await leihe(g, (l, pl) => {
+    l.setU8(9, l.u8(9) | 2);
+    l.setU8(13, 20);
+    l.setU8(23, 17);
+    assert.ok(medSet(g, 1, pl, 3).ok);
+  });
+  const n = g.lineups.at(platz);
+  assert.equal(medLevel(n), 0, "Stufe beim Entleiher");
+  assert.equal(n.u8(23) & 0x1f, 17, "Verletzungsart bleibt");
+  assert.equal(medCost(g, 0), 0);
+  // Der Entleiher wählt eine Stufe; bei der Rückkehr zum Besitzer endet sie
+  setMedLevel(n, 2);
+  seasonEvents(g, g.activeManagers().map(() => 0), mulberryRng(4));
+  const zurueck = g.squadOf(1).find((x) => x.playerIndex === pi);
+  assert.ok(zurueck, "zurück beim Besitzer");
+  assert.equal(medLevel(zurueck), 0);
+});
+
+test("A32: keine Kur auf einem Leihspieler; eine Kur endet bei der Leihrückkehr", async () => {
+  const { seasonEvents } = await import("../src/index.ts");
+  const g = laden();
+  const { pi, platz } = await leihe(g);
+  assert.deepEqual(dopeStart(g, 0, platz), { ok: false, error: texte("ui.leihspieler").join(" ") });
+  // Ein Stand mit einer Kur auf dem Leihspieler (von vor der Korrektur): die Rückkehr beendet sie
+  const l = g.lineups.at(platz);
+  const leihbyte = l.u8(12);
+  const werte = [16, 17].map((b) => l.u8(b));
+  l.setU8(12, 0);
+  g.players.at(pi).setU8(33, 0);
+  assert.ok(dopeStart(g, 0, platz).ok);
+  l.setU8(12, leihbyte);
+  g.players.at(pi).setU8(33, 1);
+  seasonEvents(g, g.activeManagers().map(() => 0), mulberryRng(4));
+  const zurueck = g.squadOf(1).find((x) => x.playerIndex === pi)!;
+  assert.ok(zurueck, "zurück beim Besitzer");
+  assert.equal(isDoped(zurueck), false);
+  assert.deepEqual([16, 17].map((b) => zurueck.u8(b)), werte);
+});
+
+test("A33: Verletzung und Auffliegen im selben Spiel - die längere Dauer und die Art bleiben", () => {
+  const g = laden();
+  const platz = g.squadOf(0).findIndex((l) => (l.u8(9) & 3) === 0 && l.u8(12) === 0 && g.players.at(l.playerIndex).u8(33) === 0);
+  assert.ok(dopeStart(g, 0, platz).ok);
+  const l = g.lineups.at(platz);
+  l.setU8(9, l.u8(9) | 2); // im Spiel verletzt: 30 Wochen, Art 17, Behandlungsstufe 1
+  l.setU8(13, 30);
+  l.setU8(23, 17 | (1 << 6));
+  dopeMatchday(g, 0, (p) => p === platz, (lo: number) => lo);
+  assert.equal(l.u8(13), 30, "Verletzung länger als die Sperre");
+  assert.equal(l.u8(23), 17, "Art bleibt, Stufe fällt weg");
+  assert.equal(l.u8(9) & 3, 2);
+  // Kurze Verletzung: die Dopingsperre zählt
+  const h = laden();
+  const m = h.lineups.at(platz);
+  assert.ok(dopeStart(h, 0, platz).ok);
+  m.setU8(9, m.u8(9) | 2);
+  m.setU8(13, 2);
+  m.setU8(23, 3);
+  dopeMatchday(h, 0, (p) => p === platz, (lo: number) => lo);
+  assert.equal(m.u8(13), 12);
+  assert.equal(m.u8(23), 3);
+});
+
+test("A34 (Q4): Verletzungsname auch bei laufender Behandlung", async () => {
+  const { injuries, injuryKind, setMedLevel } = await import("../src/index.ts");
+  const g = laden();
+  const l = g.lineups.at(0);
+  l.setU8(23, 5);
+  setMedLevel(l, 3);
+  assert.equal(injuries()[l.u8(23)], undefined, "Byte 23 roh trifft keinen Namen");
+  assert.ok(injuries()[injuryKind(l)]?.name);
+});

@@ -25,6 +25,7 @@ import { CAL_OFFSET, CALENDAR_DAYS, DAY_INDEX_OFFSET } from "./calendar.ts";
 import { LEAGUES } from "./fixtures.ts";
 import { RULES_OFFSET, RULES_ORIGINAL, RULES_2026 } from "./regeln.ts";
 import { POACH_COUNT_OFFSET } from "./abwerben.ts";
+import { jugendAnlegen } from "./jugend.ts";
 
 export interface NewGameManager {
   name: string;
@@ -416,7 +417,11 @@ export function createGame(template: Uint8Array, mana: ManaData, opt: NewGameOpt
   writeI32(p, SCALARS.year, 1992);
   p[SCALARS.year16] = 1992 & 0xff;
   p[SCALARS.year16 + 1] = 1992 >> 8;
-  return new SaveFile(plain).withMessages([]);
+  const save = new SaveFile(plain).withMessages([]);
+  // Version 2026: die Jugendmannschaften gleich mit anlegen (AUDIT-2026 A28); bis dahin entstanden
+  // sie erst beim ersten Öffnen des Jugendbildschirms. Im Original kein Wurf und kein Byte.
+  jugendAnlegen(new GameState(save), rng);
+  return save;
 }
 
 /**
@@ -596,5 +601,8 @@ export function managerAufnehmen(g: GameState, neue: NewGameManager[], rng: Rng,
     managerSchleife(g, mi, level, leiste, rng, () => {}, true);
     anzeigeStaerke(g, mi);
   }
+  // Version 2026: die Neuen bekommen ihre Jugendmannschaften, die der anderen bleiben (AUDIT-2026
+  // A28); im Original kein Wurf
+  jugendAnlegen(g, rng);
   return plaetze;
 }
