@@ -160,3 +160,15 @@ test("#120: Scherztage würfeln random(0,3) und zeigen den Bildschirm nur bei 0"
   assert.equal(scherztagWurf({ day: 13, month0: 10 }, () => (wuerfe++, 0)), 0);
   assert.equal(wuerfe, 0, "an anderen Tagen kein Wurf");
 });
+
+test("A20: Doping und Medizin nur auf eigenen Kaderplätzen 0..23 (AUDIT-2026, zweiter Durchgang)", async () => {
+  const { dopeStart, dopeStop, medSet } = await import("../src/index.ts");
+  const g = laden();
+  // Platz 25 wäre der erste Spieler von Manager 1, 100 der Markt
+  for (const platz of [24, 25, 30, 100, -1, 1.5]) {
+    assert.equal(dopeStart(g, 0, platz).ok, false, `dopeStart ${platz}`);
+    assert.equal(dopeStop(g, 0, platz).ok, false, `dopeStop ${platz}`);
+    assert.equal(medSet(g, 0, platz, 3).ok, false, `medSet ${platz}`);
+  }
+  assert.equal(dopeStart(g, 4, 0).ok, false, "Manager 4 ist der Markt");
+});

@@ -929,7 +929,11 @@ function resolveFreeAgents(r: Room): void {
   const liste = r.freeAgents;
   r.freeAgents = [];
   for (const a of liste) {
-    const best = bestBid(g, a.bids);
+    // Die Kaufsperre gilt bei der Vergabe, nicht nur beim Gebot: ein Monatsende in der
+    // Finanzschleife kann sie gerade erst gesetzt haben (AUDIT-2026 A25)
+    const gesperrt = a.bids.filter((b) => isBlocked(g, b.manager));
+    for (const b of gesperrt) pushMessage(r, b.manager, ["Kaufsperre:", `${a.name} geht`, "nicht zu Ihnen."]);
+    const best = bestBid(g, a.bids.filter((b) => !isBlocked(g, b.manager)));
     const p = g.players.at(a.playerIndex);
     // Ohne Abnehmer wird der Datensatz wieder frei
     p.setU8(33, 5);
@@ -977,6 +981,13 @@ function poachAusfuehren(
   const l = g.lineups.at(q.owner * 25 + q.place);
   if (l.isEmpty || l.playerIndex !== q.playerIndex) {
     r.log.push(`${q.name} ist nicht mehr da - die Abwerbung entfällt`);
+    return null;
+  }
+  // Kaufsperre bei der Ausführung prüfen, nicht nur bei der Anfrage (AUDIT-2026 A25)
+  if (isBlocked(g, q.poacher)) {
+    r.log.push(`Abwerbung von ${q.name}: Kaufsperre`);
+    pushMessage(r, q.poacher, ["Kaufsperre:", `${q.name} kann nicht`, "abgeworben werden."]);
+    flushMessages(r);
     return null;
   }
   const res = poach(g, q.poacher, q.owner, q.place, q.bonus, r.rng, counter);
@@ -1177,7 +1188,14 @@ function zugBeenden(r: Room): void {
     autoLineupIfEnabled(r.game, i, sperreAusgesetzt(r.game, i));
   });
   const stand = saisonwechselStand(r.game);
-  if (stand === "zug") saisonwechselBeginnen(r);
+  if (stand === "zug") {
+    // Der Übergangstag endet ohne advanceDay: offene Gebote und Abwerbeanfragen werden hier
+    // entschieden wie an jedem Tageswechsel - sonst überdauern sie den Saisonwechsel, und im
+    // Vertragszug wechselte ein Spieler mit Vertrag 0 (AUDIT-2026 A22, früher A10)
+    resolveAuctions(r);
+    resolvePoachRequests(r);
+    saisonwechselBeginnen(r);
+  }
   else if (stand === "vertraege") saisonwechselAbschliessen(r);
   else startLiveDay(r);
 }
@@ -1297,7 +1315,7 @@ function saisonwechselAbschliessen(r: Room, logStart = r.log.length): void {
     },
   });
   // Jugendarbeit (Version 2026, #4): ein Jahr älter, Entwicklung, Aufstiege und Abgänge
-  jugendZaehlerLeeren(g);
+  if (is2026(g)) jugendZaehlerLeeren(g); // nur 2026 (AUDIT-2026 H1)
   for (const ev of jugendSaison(g, r.rng)) {
     const wer = g.managers.at(ev.manager).displayName;
     if (ev.kind === "aufstieg") {
@@ -1362,6 +1380,9 @@ function spielBeenden(r: Room, logStart: number): void {
   broadcast(r);
   broadcastLobby();
 }
+
+/** Endpunkte, die nach dem Spielende noch gehen: sie ändern den Spielstand nicht (#133, A26). */
+const NACH_SPIELENDE = new Set(["/api/seat", "/api/options", "/api/abschluss", "/api/hinweis", "/api/sonderseite", "/api/anzeigen", "/api/messages/clear", "/api/szene", "/api/save", "/api/ceremony"]);
 
 /** Meldungen des Saisonwechsels, außer den Vertragsgesprächen. */
 function saisonMeldungen(r: Room, events: SeasonEvent[]): void {
@@ -2289,7 +2310,9 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
       });
     }
   });
-  dopingCleanup(g);
+  // Nur in der Version 2026: im Original stehen in den leeren Managerplätzen Altdaten, die
+  // dopingCleanup sonst als Dopingsperre lesen und ändern würde (AUDIT-2026 A21)
+  if (is2026(g)) dopingCleanup(g);
   // Laufzeitdaten des Marktes verfallen mit dem Tag, ebenso die abgelehnten Bauangebote und
   // die Abwerbefrist für frisch aufgerückte Jugendspieler
   r.jugendFrisch = [];
@@ -2896,6 +2919,10 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   const count = room.game.activeManagers().length;
   const validManager = manager >= 0 && manager < count;
   const mine = validManager && room.seats.get(manager) === user;
+  // Nach dem Spielende eines 1-/3-Jahres-Spiels (#133) ändert nichts mehr den Spielstand; offen
+  // bleiben nur Sitzplatz, Anzeigen, Einstellungen und Speichern (AUDIT-2026 A26). Neues Spiel,
+  // Hochladen und Laden stehen weiter oben und gehen immer.
+  if (room.spielende && req.method === "POST" && !NACH_SPIELENDE.has(p)) return json(res, 409, { error: "Das Spiel ist zu Ende" });
   if (p === "/api/seat") {
     if (!validManager) return json(res, 400, { error: "Manager ungültig" });
     const taken = room.seats.get(manager);
@@ -3151,6 +3178,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const was = String(body.was ?? "foerdern");
     // Aufrücken und Abwerben ändern den Kader - nicht im laufenden Spiel (AUDIT-2026 A11)
     if (room.live && (was === "aufruecken" || was === "abwerben")) return json(res, 409, { error: "Die Konferenz läuft" });
+    // Offene Kaufverhandlung: ihr Kaderplatz bleibt frei, sonst scheitert der Kauf (AUDIT-2026 A24)
+    if ((was === "aufruecken" || was === "abwerben") && room.purchases.has(manager)) return json(res, 409, { error: "Erst den Vertrag aushandeln" });
     if (was === "anlegen") {
       if (!jugendVorhanden(room.game)) {
         jugendAnlegen(room.game, room.rng);
@@ -3712,6 +3741,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     // In den Vertragsgesprächen des Saisonwechsels stehen offene Verträge mit 0 Jahren im Kader;
     // ein so abgeworbener Spieler liefe nie mehr aus (AUDIT-2026 A10)
     if (saisonwechselStand(room.game) === "vertraege") return json(res, 409, { error: "Erst die Vertragsgespr{che beenden" });
+    // Eine offene Kaufverhandlung hält ihren Kaderplatz: sonst wird der Kader 25 Mann groß
+    // (AUDIT-2026 A24)
+    if (room.purchases.has(manager)) return json(res, 409, { error: "Erst den Vertrag aushandeln" });
     const owner = Number(body.owner) | 0;
     const place = Number(body.place) | 0;
     const bonus = Number(body.bonus) | 0;
@@ -3752,8 +3784,11 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     const idx = room.poachRequests.findIndex((q) => q.owner === manager && q.playerIndex === (Number(body.playerIndex) | 0));
     if (idx < 0) return json(res, 404, { error: "Keine Anfrage offen" });
     if (room.live) return json(res, 409, { error: "Die Konferenz läuft" });
+    if (saisonwechselStand(room.game) !== null) return json(res, 409, { error: "Erst den Saisonwechsel abschließen" });
     const q = room.poachRequests[idx];
     const counter = Math.max(0, Math.min(POACH_COUNTER_MAX, Number(body.counter) | 0));
+    // Verhandelt der Werbende gerade einen Kauf, bleibt die Anfrage offen (AUDIT-2026 A24)
+    if (room.purchases.has(q.poacher)) return json(res, 409, { error: "Der Werbende verhandelt gerade einen Kauf - bitte später antworten" });
     room.poachRequests.splice(idx, 1);
     // Der Kader kann sich seit der Anfrage verschoben haben: Platz über den Spieler suchen, sonst
     // bekäme ein anderer die Gehaltserhöhung (AUDIT-2026 A9)

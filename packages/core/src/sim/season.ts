@@ -15,7 +15,7 @@ import { initialDraw, clearCupResults, europeanParticipants, titelTraegerTausche
 import { seasonEndAdvertising, generateOffers } from "./werbung.ts";
 import { texte } from "../data/texte.ts";
 import { seasonEvents, torschuetzenKoenige, type SeasonEvent } from "./seasonEvents.ts";
-import { winPoints } from "./regeln.ts";
+import { winPoints, is2026 } from "./regeln.ts";
 
 /** Kalendervorlage (Bitfeld 34227 aus dem Spielstand ohne Nachholmarken 0x80). */
 export const CALENDAR_TEMPLATE = [7, 112, 7, 0, 7, 112, 7, 6, 8, 0, 7, 0, 7, 6, 7, 112, 7, 7, 7, 112, 7, 0, 8, 1, 7, 6, 7, 0, 7, 6, 8, 112, 7, 0, 7, 112, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 0, 7, 112, 8, 7, 7, 112, 7, 6, 7, 0, 7, 0, 7, 0, 7, 112, 7, 0, 7, 112, 7, 0, 7, 0, 8, 0, 7, 0, 7, 16, 16, 0, 0];
@@ -427,7 +427,7 @@ export function saisonwechselTeil2(g: GameState, rng: Rng, teil: SaisonTeil1, ha
   }
   // Die Nachholtabelle (4238:5714) lässt das Original stehen - abgetragene Einträge tragen Tag 0,
   // offene gibt es am Saisonende keine (gegen KP-SAISON geprüft, #100)
-  resetPoachCounts(g); // Abwerbungen der Version 2026 gelten je Saison
+  if (is2026(g)) resetPoachCounts(g); // Abwerbungen der Version 2026 gelten je Saison (AUDIT-2026 H1)
   for (let i = 0; i < CALENDAR_DAYS; i++) p[CAL_OFFSET + i] = CALENDAR_TEMPLATE[i];
   // Datum: 29. Juli des Folgejahres, Tagindex 0
   const year = seasonStartYear(g) + 1;

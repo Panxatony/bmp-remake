@@ -189,6 +189,9 @@ export function medCost(g: GameState, manager: number): number {
 /** Stufe setzen (Server): prüft Regelwerk, Verletzung und Stufe. */
 export function medSet(g: GameState, manager: number, place: number, level: number): { ok: boolean; error?: string } {
   if (!is2026(g)) return { ok: false, error: "Nur in der Version 2026" };
+  // Nur ein eigener Kaderplatz 0..23: sonst trifft manager·25 + place den Kader eines
+  // Mitspielers oder den Markt (AUDIT-2026 A20)
+  if (!Number.isInteger(place) || place < 0 || place > 23 || !Number.isInteger(manager) || manager < 0 || manager > 3) return { ok: false, error: "Kein Spieler" };
   const l = g.lineups.at(manager * 25 + place);
   if (l.isEmpty) return { ok: false, error: "Kein Spieler" };
   if (!behandelbar(l)) return { ok: false, error: "Nicht verletzt" };

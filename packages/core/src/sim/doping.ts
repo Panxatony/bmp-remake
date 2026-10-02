@@ -142,6 +142,9 @@ export function dopeCures(g: GameState, manager: number): number {
  */
 export function dopeStart(g: GameState, manager: number, place: number): { ok: boolean; error?: string } {
   if (!is2026(g)) return { ok: false, error: "Nur in der Version 2026" };
+  // Nur ein eigener Kaderplatz 0..23: sonst trifft manager·25 + place den Kader eines
+  // Mitspielers oder den Markt (AUDIT-2026 A20)
+  if (!Number.isInteger(place) || place < 0 || place > 23 || !Number.isInteger(manager) || manager < 0 || manager > 3) return { ok: false, error: "Kein Spieler" };
   const l = g.lineups.at(manager * 25 + place);
   if (l.isEmpty) return { ok: false, error: "Kein Spieler" };
   if ((l.u8(9) & 3) !== 0) return { ok: false, error: "Gesperrte und verletzte Spieler nicht" };
@@ -183,6 +186,9 @@ export function kurBeimWechselBeenden(l: Lineup): void {
 /** Kur beenden: die Werte fallen auf den Stand ohne Doping zurück. */
 export function dopeStop(g: GameState, manager: number, place: number): { ok: boolean; error?: string } {
   if (!is2026(g)) return { ok: false, error: "Nur in der Version 2026" };
+  // Nur ein eigener Kaderplatz 0..23: sonst trifft manager·25 + place den Kader eines
+  // Mitspielers oder den Markt (AUDIT-2026 A20)
+  if (!Number.isInteger(place) || place < 0 || place > 23 || !Number.isInteger(manager) || manager < 0 || manager > 3) return { ok: false, error: "Kein Spieler" };
   const l = g.lineups.at(manager * 25 + place);
   if (!isDoped(l)) return { ok: false, error: "Keine Kur im Gange" };
   abziehen(l);
