@@ -71,8 +71,8 @@ Work Items #104-#112. Umgesetzt: B1 (#104), B3 (#105, dazu offene Derby-Einsätz
 
 ## H. Hinweise
 
-- H1: `resetPoachCounts`, `jugendZaehlerLeeren`, `dopingCleanup` mit `is2026` einfassen (schreiben
-  im Original nur Nullen).
+- H1: `resetPoachCounts`, `jugendZaehlerLeeren`, `dopingCleanup` mit `is2026` einfassen - erledigt
+  mit A21 (dopingCleanup änderte im Original Altdaten, schrieb also nicht nur Nullen).
 - H2: Die 2026-Bytes 34099..34129 liegen in der Ablauftabelle der Meldungen 4238:5664 (regeln.ts
   sagt anderes). Im eigenen Spiel kein Konflikt; beim Import eines Originalstands mit belegten
   Einträgen 1..9 stünden Zeiger im Regelbyte (unklar, in 50 Originalständen nie belegt).
@@ -108,6 +108,11 @@ Zähler und Felder (außer Jugend). Die Entscheidungen B1-B14 sind umgesetzt, mi
 B9: G5).
 
 ## A. Fehler
+
+**Stand 2.10.2026: alle behoben** (Tests in core/test/audit2026.test.ts und audit2026b.test.ts).
+Die Dopingprüfung vergleicht seit A23 die Einsätze je Spieler, nicht je Kaderplatz; der
+Derby-Einsatz steht seit A30 beim Anpfiff fest. Laufende Runden bekommen fehlende B- und A-Jugend
+am nächsten Saisonwechsel (A28).
 
 | Nr | Befund | Stelle |
 |---|---|---|
