@@ -93,3 +93,65 @@ Automatik und Anzeige; Bietgefecht-Zuschlag über `aiAccepts` und `kaderVoll`; K
 Zustimmung prüft Grenzen doppelt; Kaufsperre an allen direkten Kaufwegen; Derby ohne Würfel;
 Guthabenzins-Obergrenze in Anzeige und Buchung gleich; Meldungen über die Originalwege (neueste
 vorn, höchstens 20).
+
+# Zweiter Durchgang (2.10.2026)
+
+Nach dem Umbau des Original-Fundaments (Audit 2, #121-#144) erneut geprüft, in vier Bereichen:
+Transfers (T), Geld und Gesundheit (G), Spielbetrieb und Jugend (S), Querschnitt (Q). Berichte mit
+Belegen in `abgleich/audit2026b/`. Mehrere Befunde fanden zwei Prüfer unabhängig (G1/Q1, S1/Q3,
+S7/Q6, S3/T6).
+
+**Bestätigt:** Trennung vom Original mit Skript belegt (gleich viele Zufallswürfe und gleicher
+Spielstand mit und ohne 2026-Code über zwölf Server-Züge, zwei Saisonwechsel, Winterpause) - bis auf
+Q2. Tagesablauf (#121) und Monatsreihenfolge (#124) passen; aufgenommene Manager haben ihre
+Zähler und Felder (außer Jugend). Die Entscheidungen B1-B14 sind umgesetzt, mit zwei Lücken (B8: G7,
+B9: G5).
+
+## A. Fehler
+
+| Nr | Befund | Stelle |
+|---|---|---|
+| A20 | /api/doping und /api/medizin prüfen den Kaderplatz nicht: ein Manager dopt Spieler der Mitspieler oder setzt ihnen eine teure Behandlung (G1, G2, Q1) | doping.ts `dopeStart`/`dopeStop`, medizin.ts `medSet` |
+| A21 | `dopingCleanup` läuft auch im Original und ändert Altdaten in leeren Managerplätzen (15 von 70 Originalständen) (Q2) | server.ts |
+| A22 | Abwerbeanfragen vom Übergangstag überdauern den Saisonwechsel; Annahme im Vertragszug holt einen Spieler mit Vertrag 0 - A10 wieder offen (T1) | server.ts `zugBeenden`, /api/poach/answer |
+| A23 | Zuschlag des Bietgefechts nach der Konferenz verschiebt den Kader, die Dopingprüfung vergleicht nach Platz die falschen Spieler (T2) | server.ts `resolveAuctions` |
+| A24 | Offene Kaufverhandlung: Abwerben und Jugend prüfen sie nicht - Kaderzahl 25 bzw. Kauf scheitert (T3, S10) | server.ts /api/poach, /api/jugend |
+| A25 | Kaufsperre nur beim Gebot, nicht bei der Ausführung (ablösefrei, Abwerben) (T4, G4) | server.ts `resolveFreeAgents`, `poachAusfuehren` |
+| A26 | Nach dem Spielende (#133) bleiben Bieten, Abwerben, Kredit, Derby, Medizin, Doping offen (T5) | server.ts |
+| A27 | Abwerben nimmt Verlängerungsangebot (Byte 24 = 100 + Jahre) und Meldungszeiger mit (T8) | abwerben.ts |
+| A28 | Jugend wird nur angelegt, wenn vor dem ersten Saisonende jemand den Jugendbildschirm öffnet (sonst nur C-Jugend, jahrelang kein Aufrücken); aufgenommene Manager bekommen keine (S1, S2, Q3) | jugend.ts, server.ts, newgame.ts `managerAufnehmen` |
+| A29 | Jugend-Aufrücken schreibt die Positionsart in Byte 32 (Seitenvorliebe) (S5) | jugend.ts `jugendAufruecken` |
+| A30 | Derby-Einsatz lässt sich während der Konferenz über Ausgaben drücken (G3) | derby.ts, server.ts |
+| A31 | Behandlungsstufe wandert über Markt, Leihe und Leihrückkehr zum neuen Verein (G6) | transfer.ts |
+| A32 | Kur auf einem Leihspieler, die mit ihm zum Besitzer zurückkehrt (G7, B8 unvollständig) | doping.ts `dopeStart` |
+| A33 | Verletzung und Auffliegen im selben Spiel: Verletzungsdauer und -art gehen verloren (G8) | doping.ts |
+| A34 | Kleinere: Fälligkeit in der Bank (G9), Meldung "0 Punkte Abzug" am 30.6. (G10), Derby-Ankündigung bei Nachholspielen (G12), "VERLETZT ()" bei Behandlung (Q4), VORN/KAUFSPERRE übereinander und VORN ≠ Zuschlag bei Gleichstand (Q5), Neuaufstellung nach Jugendwechsel ohne 513E (S12) | verschieden |
+
+## B. Entscheidungen
+
+| Nr | Frage | Empfehlung |
+|---|---|---|
+| B15 | Rückennummer für Zuschlag, ablösefreie, abgeworbene und aufgerückte Spieler: wie seit E16 keine, oder eine Banknummer (T6, S3) | keine, wie im Original |
+| B16 | Sponsor-Zuschuss beim Zuschlag vom Rechner (T7) | ja, wie beim Kauf vom Rechner |
+| B17 | Gleichstand im Bietgefecht und bei ablösefreien Spielern: nur Tabellenplatz innerhalb der Liga (T9) | erst niedrigere Liga, dann schlechterer Platz |
+| B18 | Meldung an den Werber, wenn eine Abwerbung beim Tageswechsel scheitert (T10) | ja |
+| B19 | Fünf Wechsel bei vier Ersatzspielern: der fünfte geht nur als Wiedereinwechslung (S4) | Wiedereinwechslung verbieten, Bank in 2026 auf fünf |
+| B20 | Jugend-Balance; im 1-Jahres-Spiel kann nie jemand aufrücken (S6) | Jugend im 1-Jahres-Spiel sperren; Werte nach einer Spielzeit ansehen |
+| B21 | 2026-Spiele in derselben Bestenliste wie Originalspiele (S7, Q6) | eigene Datei für 2026 |
+| B22 | Eigene Torszenen kommen in der Konferenz nie vor (S11) | in 2026 mit in die Auswahl |
+| B23 | Kreditzinsen: 3-Monats-Kredit kostet 7 Raten (Termin + Ausgaben), jeder zahlt Zinsen auch fremder Kredite (G5, Eigenheit des Originals) | in 2026 genau n Raten, nur eigene Kredite |
+| B24 | Punktabzug verfällt am Saisonende (G11) | in die neue Saison vortragen |
+| B25 | Kuren laufen weiter, wenn ein Manager aufhört (G13) | bei /api/quit beenden |
+| B26 | Torszenen-Editor: jeder darf jede eigene Szene überschreiben, Szenen gelten für alle Runden (Q7) | Besitzer je Szene; überschreiben nur Besitzer und Präsident |
+
+## C. Doku
+
+T11, T12, S8, S9, G14, Q8, Q9: veraltete Angaben in SPIELMECHANIK, Kommentaren und MEMORY-MAP (Doping-Bytes,
+"verdeckt", Jugendalter, Bytes 34099..34129 als "ungenutzt", Regeltabelle ohne B5/B6/#140/B12).
+
+## Unklar
+
+- Die belegten Einträge 10, 20, 21, 22 der Ablauftabelle 4238:5664 deuten auf eine Einteilung
+  Manager·10 + k; dann könnte ein Originalstand ins Regelbyte schreiben (Q U1, 0x33F44 nicht gelesen).
+- Marktrouten des Originals ohne Live-Sperre; /api/market/answer überschreibt eine offene
+  Kaufverhandlung des Käufers ohne `kaufAbbrechen` (T, Unklar).
