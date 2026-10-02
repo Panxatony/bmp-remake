@@ -12,6 +12,7 @@ import { addToSquad as aufnehmen } from "./newgame.ts";
 import { TABLES } from "../records.ts";
 import { sortIntoSquad } from "./lineup.ts";
 import { leagueScorers, torschuetzenSchreiben } from "./display.ts";
+import { kurBeimWechselBeenden } from "./doping.ts";
 
 const div = (a: number, b: number): number => Math.trunc(a / b);
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
@@ -194,6 +195,13 @@ function jahrgangswechsel(g: GameState, rng: Rng): void {
       const neu = aufnehmen(g, besitzer, x, 1, rng);
       if (neu >= 0) {
         plain.set(alt, TABLES.lineups.offset + (besitzer * 25 + neu) * 52);
+        if (is2026(g)) {
+          // Leihrückkehr: Kur und Behandlungsstufe des Entleihers enden beim Wechsel (AUDIT-2026
+          // A31, A32); im Original kein Byte
+          const zurueck = g.lineups.at(besitzer * 25 + neu);
+          kurBeimWechselBeenden(zurueck);
+          zurueck.setU8(23, zurueck.u8(23) & 0x3f);
+        }
         p.setU8(33, besitzer);
         letzterNeu = neu;
         aufgenommen = true;

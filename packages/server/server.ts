@@ -40,7 +40,6 @@ import {
   jugendMonat,
   jugendSaison,
   jugendAnlegen,
-  jugendVorhanden,
   jugendLesen,
   jugendSchreiben,
   foerdern,
@@ -3181,9 +3180,12 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     // Offene Kaufverhandlung: ihr Kaderplatz bleibt frei, sonst scheitert der Kauf (AUDIT-2026 A24)
     if ((was === "aufruecken" || was === "abwerben") && room.purchases.has(manager)) return json(res, 409, { error: "Erst den Vertrag aushandeln" });
     if (was === "anlegen") {
-      if (!jugendVorhanden(room.game)) {
-        jugendAnlegen(room.game, room.rng);
-        room.log.push("Jugendmannschaften angelegt");
+      // Nur für Manager, denen sie fehlen (AUDIT-2026 A28): Stände von vor der Anlage beim neuen
+      // Spiel, auch wenn ein anderer Manager seine schon hat
+      const neu = jugendAnlegen(room.game, room.rng);
+      if (neu.length > 0) {
+        room.log.push(`Jugendmannschaften angelegt: ${neu.map((i) => room.game.managers.at(i).displayName).join(", ")}`);
+        await persist(room);
         room.version++;
         broadcast(room);
       }

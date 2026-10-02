@@ -183,6 +183,7 @@ export function poach(g: GameState, poacher: number, owner: number, place: numbe
   const bytes = slotBytes(g, owner * 25 + place);
   bytes[10] = 0; // Rückennummer neu vergeben
   bytes[9] &= 0x3f; // offene Angebote bleiben beim alten Verein
+  bytes[23] &= 0x3f; // Behandlungsstufe bleibt beim alten Verein (AUDIT-2026 A31)
   setSlotBytes(g, poacher * 25 + ziel, bytes);
   kurBeimWechselBeenden(g.lineups.at(poacher * 25 + ziel)); // #110
   ziel = sortIntoSquad(g, poacher, ziel);

@@ -20,6 +20,7 @@ import { sortIntoSquad } from "./lineup.ts";
 import { addToSquad } from "./newgame.ts";
 import { salaryDemand, vertragsDialog, type DialogAbsage } from "./contracts.ts";
 import { texte } from "../data/texte.ts";
+import { is2026 } from "./regeln.ts";
 
 export const MARKET_MANAGER = 4;
 export const MARKET_SIZE = 12;
@@ -389,6 +390,9 @@ export function listPlayer(g: GameState, manager: number, place: number, rng: Rn
   rng(0, 1);
   const bytes = slotBytes(g, manager * 25 + place);
   bytes[10] = 0;
+  // Version 2026: die Behandlungsstufe (Byte 23 Bits 6..7) bleibt beim alten Verein, sonst zahlte
+  // der Käufer oder Entleiher sie, ohne sie gewählt zu haben (AUDIT-2026 A31)
+  if (is2026(g)) bytes[23] &= 0x3f;
   // Nach Spielernummer einsortieren wie jeder Marktzugang (0x224A8); in den Originalständen
   // stehen auch die angebotenen Spieler der Manager an ihrer Stelle (RIED-2TE, TEST1, #99)
   let ziel = 0;

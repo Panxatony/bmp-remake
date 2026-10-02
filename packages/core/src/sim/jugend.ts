@@ -260,19 +260,41 @@ export function neuerJugendspieler(g: GameState, manager: number, team: number, 
   };
 }
 
-/** Drei Mannschaften anlegen (beim ersten Öffnen oder beim neuen Spiel). */
-export function jugendAnlegen(g: GameState, rng: Rng): void {
-  if (!is2026(g)) return;
+/**
+ * Fehlen diesem Manager die Jugendmannschaften? So ist es, wenn B- und A-Jugend leer sind: bei
+ * einem neuen Spiel, bei einem aufgenommenen Manager (#132) und in Spielständen, in denen der
+ * Saisonwechsel aus leeren Daten nur die C-Jugend aufgefüllt hat (AUDIT-2026 A28). Im laufenden
+ * Betrieb stehen in B- und A-Jugend zusammen rund zehn Spieler.
+ */
+export function jugendFehlt(g: GameState, manager: number): boolean {
+  const m = jugendLesen(g)[manager];
+  return !!m && !m[1].some((s) => s.name !== "") && !m[2].some((s) => s.name !== "");
+}
+
+/**
+ * Mannschaften anlegen - für jeden Manager, dem sie fehlen (`jugendFehlt`); wer schon welche
+ * hat, behält sie. Eine C-Jugend, die der Saisonwechsel schon aufgefüllt hat, bleibt stehen.
+ * Aufgerufen beim neuen Spiel, bei der Aufnahme eines Managers, vor jedem Saisonwechsel der
+ * Jugend und beim Öffnen des Jugendbildschirms (AUDIT-2026 A28). Liefert die Manager, für die
+ * angelegt wurde.
+ */
+export function jugendAnlegen(g: GameState, rng: Rng): number[] {
+  if (!is2026(g)) return [];
   const daten = jugendLesen(g);
-  g.activeManagers().forEach((_, m) => {
+  const neu: number[] = [];
+  daten.forEach((mannschaften, m) => {
+    if (mannschaften[1].some((s) => s.name !== "") || mannschaften[2].some((s) => s.name !== "")) return;
     for (let t = 0; t < JUGEND_TEAMS; t++) {
+      if (mannschaften[t].some((s) => s.name !== "")) continue;
       for (let p = 0; p < JUGEND_PLAETZE; p++) {
         // Nicht jeder Platz ist besetzt, das sieht lebendiger aus
-        daten[m][t][p] = rng(0, 9) < 8 ? neuerJugendspieler(g, m, t, rng) : leer();
+        mannschaften[t][p] = rng(0, 9) < 8 ? neuerJugendspieler(g, m, t, rng) : leer();
       }
     }
+    neu.push(m);
   });
-  jugendSchreiben(g, daten);
+  if (neu.length > 0) jugendSchreiben(g, daten);
+  return neu;
 }
 
 /** Chance in Prozent, dass sich dieser Spieler in einer Saison entwickelt. */
@@ -365,6 +387,9 @@ export interface JugendEreignis {
 export function jugendSaison(g: GameState, rng: Rng): JugendEreignis[] {
   const ereignisse: JugendEreignis[] = [];
   if (!is2026(g)) return ereignisse;
+  // Wem die Mannschaften noch fehlen, der bekommt sie vorher (AUDIT-2026 A28): sonst füllte der
+  // Saisonwechsel aus leeren Daten nur die C-Jugend auf, und B- und A-Jugend blieben jahrelang leer
+  jugendAnlegen(g, rng);
   const daten = jugendLesen(g);
   daten.forEach((mannschaften, m) => {
     // 1. Älter werden und entwickeln
@@ -511,7 +536,9 @@ export function jugendAufruecken(g: GameState, manager: number, platz: number, r
   p.setU8(28, s.ko);
   p.setU8(29, s.te);
   p.setU8(30, s.fo);
-  p.setU8(32, s.art);
+  // Byte 32 ist die Seitenvorliebe 0..6 (playerinfo, positionFit), im Spielerpool frei gewürfelt
+  // (newgame.ts buildPlayerPool: rng(0, 6)) - nicht die Positionsart (AUDIT-2026 A29)
+  p.setU8(32, rng(0, 6));
   // Positionswert nach Mannschaftsteil wie im Spielerpool (0x3260C): mit Art · 14 wurde ein
   // Abwehrspieler zum Torwart (Wert unter 25) und ein Torwart zum Feldspieler (AUDIT-2026 A7)
   const gruppe = s.art === 0 ? 0 : s.art <= 2 ? 1 : s.art <= 4 ? 2 : 3;
@@ -555,6 +582,7 @@ export function jugendAbwerben(g: GameState, poacher: number, owner: number, pla
   const bytes = slotBytes(g, owner * 25 + place);
   bytes[10] = 0;
   bytes[9] &= 0x3f;
+  bytes[23] &= 0x3f; // Behandlungsstufe bleibt beim alten Verein (AUDIT-2026 A31)
   setSlotBytes(g, poacher * 25 + frei, bytes);
   kurBeimWechselBeenden(g.lineups.at(poacher * 25 + frei)); // #110
   const ziel = sortIntoSquad(g, poacher, frei);
