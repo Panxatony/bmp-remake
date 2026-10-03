@@ -893,12 +893,17 @@ function resolveAuctions(r: Room): void {
     }
     const slot = eintrag.slot;
     const preis = g.lineups.at(100 + slot).i32(40);
-    const res = resolveAuction(g, preis, a.bids, r.rng);
+    // Auch hier gilt die Kaufsperre beim Zuschlag, nicht nur beim Gebot (AUDIT-2026 A25)
+    const gesperrt = a.bids.filter((b) => isBlocked(g, b.manager));
+    for (const b of gesperrt) pushMessage(r, b.manager, ["Kaufsperre:", `${eintrag.name} geht`, "nicht zu Ihnen."]);
+    const bids = a.bids.filter((b) => !isBlocked(g, b.manager));
+    if (bids.length === 0) continue;
+    const res = resolveAuction(g, preis, bids, r.rng);
     if (!res.winner) {
       // Der Verein würfelt wie im Original (aiAccepts). Damit niemand im Dunkeln bietet, nennt
       // die Absage den Betrag, ab dem es sicher gereicht hätte (#19, lhunos Entscheidung).
       r.log.push(`Bietgefecht um ${eintrag.name}: kein Gebot reichte dem Verein (sicher ab ${dmText(sureBid(preis))})`);
-      for (const b of a.bids) {
+      for (const b of bids) {
         const sicher = sureBid(b.loan ? Math.trunc(preis / 3) : preis);
         pushMessage(r, b.manager, [`Ihr Gebot f}r ${eintrag.name}`, "war zu niedrig.", `Sicher ab ${dmText(sicher)}.`]);
       }

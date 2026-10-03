@@ -136,17 +136,17 @@ am nächsten Saisonwechsel (A28).
 
 | Nr | Frage | Empfehlung |
 |---|---|---|
-| B15 | Rückennummer für Zuschlag, ablösefreie, abgeworbene und aufgerückte Spieler: wie seit E16 keine, oder eine Banknummer (T6, S3) | keine, wie im Original |
-| B16 | Sponsor-Zuschuss beim Zuschlag vom Rechner (T7) | ja, wie beim Kauf vom Rechner |
-| B17 | Gleichstand im Bietgefecht und bei ablösefreien Spielern: nur Tabellenplatz innerhalb der Liga (T9) | erst niedrigere Liga, dann schlechterer Platz |
-| B18 | Meldung an den Werber, wenn eine Abwerbung beim Tageswechsel scheitert (T10) | ja |
+| B15 | Rückennummer für Zuschlag, ablösefreie, abgeworbene und aufgerückte Spieler: wie seit E16 keine, oder eine Banknummer (T6, S3) | keine, wie im Original - **umgesetzt 3.10.2026** |
+| B16 | Sponsor-Zuschuss beim Zuschlag vom Rechner (T7) | ja, wie beim Kauf vom Rechner - **umgesetzt 3.10.2026** |
+| B17 | Gleichstand im Bietgefecht und bei ablösefreien Spielern: nur Tabellenplatz innerhalb der Liga (T9) | erst niedrigere Liga, dann schlechterer Platz - **umgesetzt 3.10.2026** |
+| B18 | Meldung an den Werber, wenn eine Abwerbung beim Tageswechsel scheitert (T10) | ja - **umgesetzt 3.10.2026** |
 | B19 | Fünf Wechsel bei vier Ersatzspielern: der fünfte geht nur als Wiedereinwechslung (S4) | Wiedereinwechslung verbieten, Bank in 2026 auf fünf - **umgesetzt 3.10.2026**: Bank 12..16 (`autoLineup`, `nummernPflege`), Rückwechsel und Tribüne→Bank im Spiel abgewiesen (live.ts `applySubstitutions`) |
 | B20 | Jugend-Balance; im 1-Jahres-Spiel kann nie jemand aufrücken (S6) | Jugend im 1-Jahres-Spiel sperren; Werte nach einer Spielzeit ansehen - **Sperre umgesetzt 3.10.2026** (`jugendAktiv`); Werte offen |
 | B21 | 2026-Spiele in derselben Bestenliste wie Originalspiele (S7, Q6) | eigene Datei für 2026 - **umgesetzt 3.10.2026**: HIGH26.xy |
 | B22 | Eigene Torszenen kommen in der Konferenz nie vor (S11) | in 2026 mit in die Auswahl - **umgesetzt 3.10.2026**: Chance 1/10, eigener Zufall, Würfelfolge des Spiels unverändert |
-| B23 | Kreditzinsen: 3-Monats-Kredit kostet 7 Raten (Termin + Ausgaben), jeder zahlt Zinsen auch fremder Kredite (G5, Eigenheit des Originals) | in 2026 genau n Raten, nur eigene Kredite |
-| B24 | Punktabzug verfällt am Saisonende (G11) | in die neue Saison vortragen |
-| B25 | Kuren laufen weiter, wenn ein Manager aufhört (G13) | bei /api/quit beenden |
+| B23 | Kreditzinsen: 3-Monats-Kredit kostet 7 Raten (Termin + Ausgaben), jeder zahlt Zinsen auch fremder Kredite (G5, Eigenheit des Originals) | in 2026 genau n Raten, nur eigene Kredite - **umgesetzt 3.10.2026** |
+| B24 | Punktabzug verfällt am Saisonende (G11) | in die neue Saison vortragen - **umgesetzt 3.10.2026** |
+| B25 | Kuren laufen weiter, wenn ein Manager aufhört (G13) | bei /api/quit beenden - **umgesetzt 3.10.2026** |
 | B26 | Torszenen-Editor: jeder darf jede eigene Szene überschreiben, Szenen gelten für alle Runden (Q7) | Besitzer je Szene; überschreiben nur Besitzer und Präsident - **umgesetzt 3.10.2026**, dazu LÖSCHEN; Szenen ohne Besitzer nur der Präsident |
 
 **Stand 3.10.2026:** lhuno hat die Empfehlungen freigegeben. Umgesetzt (Tests in
@@ -165,6 +165,8 @@ core/test/regeln2026b.test.ts, im Original unverändert):
 - B24 (#154): nicht abziehbare Punkte werden vorgetragen (Byte 34130 + Manager, `debtCarry`) und
   bei den nächsten Monatsprüfungen nachgeholt.
 - B25 (#155): `/api/quit` beendet die Kuren des Vereins (`kurenBeenden`).
+- A25, Rest (T4): auch der Zuschlag im Bietgefecht (`resolveAuctions`) lässt Bieter mit Kaufsperre
+  aus; sie bekommen eine Meldung.
 
 ## C. Doku
 
