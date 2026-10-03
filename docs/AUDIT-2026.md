@@ -167,6 +167,9 @@ core/test/regeln2026b.test.ts, im Original unverändert):
 - B25 (#155): `/api/quit` beendet die Kuren des Vereins (`kurenBeenden`).
 - A25, Rest (T4): auch der Zuschlag im Bietgefecht (`resolveAuctions`) lässt Bieter mit Kaufsperre
   aus; sie bekommen eine Meldung.
+- Von lhuno bestätigt (3.10.2026): Szenen ohne Besitzer ändert nur der Präsident (B26); eigene
+  Torszenen mit Chance 1/10 (B22); der stärkste freie Spieler bekommt die 16 auch bei eigener
+  Aufstellung (B19); ein vorgetragener Abzug kommt am nächsten Monatsende (B24).
 
 ## C. Doku
 
