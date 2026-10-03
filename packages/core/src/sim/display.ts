@@ -11,7 +11,7 @@ import { fixtures, LEAGUES } from "./fixtures.ts";
 import { tableOrder } from "./standings.ts";
 import { currentPairs, cupRoundOf, ROUND_PAIRS, CUP_RESULTS, FIRST_LEG, cupNames } from "./europa.ts";
 import { seriesCurrent, seriesRecord, clubRecords, type ClubRecord } from "./history.ts";
-import { monthlyIncome, monthlyExpenses, loanTotal, INTEREST_CAP } from "./finance.ts";
+import { monthlyIncome, monthlyExpenses, loanTotal, kreditZinsen, INTEREST_CAP } from "./finance.ts";
 import { is2026 } from "./regeln.ts";
 
 const div = (a: number, b: number): number => Math.trunc(a / b);
@@ -353,6 +353,14 @@ export function statistics(g: GameState, manager: number, konto?: { sum: number;
   const total = m.i32(484);
   let income = monthlyIncome(g, manager, 1);
   let expenses = monthlyExpenses(g, manager);
+  // Version 2026: Kreditzinsen buchen zum Termin, nicht in der Monatsabrechnung - für die
+  // Monatsrechnung der Statistik zählen sie trotzdem, eigene als Ausgabe, die der Mitspieler an
+  // diesen Manager als Einnahme (AUDIT-2026 B23)
+  if (is2026(g)) {
+    const z = kreditZinsen(g, manager);
+    income += z.erhalten;
+    expenses += z.gezahlt;
+  }
   // Wie in dailyFinance am Monatsende: Zins auf den Monatsdurchschnitt des Kontos
   if (konto && konto.tag > 0) {
     const schnitt = div(konto.sum, konto.tag);

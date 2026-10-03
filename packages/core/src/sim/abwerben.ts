@@ -30,12 +30,13 @@ import type { GameState } from "../records.ts";
 import { TABLES } from "../records.ts";
 import type { Rng } from "./match.ts";
 import { playerValue } from "./value.ts";
-import { addBalance, slotBytes, setSlotBytes, assignNumber, removePlace, kaderVoll } from "./transfer.ts";
+import { addBalance, slotBytes, setSlotBytes, removePlace, kaderVoll } from "./transfer.ts";
 import { is2026 } from "./regeln.ts";
 import { kurBeimWechselBeenden } from "./doping.ts";
 import { texte } from "../data/texte.ts";
 import { sortIntoSquad } from "./lineup.ts";
 import { LEAGUES } from "./fixtures.ts";
+import { isBlocked } from "./schulden.ts";
 
 const div = (a: number, b: number): number => Math.trunc(a / b);
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
@@ -88,6 +89,15 @@ function leagueOf(club: number): number {
 function rang(g: GameState, manager: number): [number, number] {
   const club = g.managers.at(manager).clubIndex;
   return [leagueOf(club), g.standings.at(club).u8(46)];
+}
+
+/**
+ * Rang eines Managervereins als eine Zahl: je größer, desto schwächer - erst die Liga, dann der
+ * Platz darin. Für den Gleichstand im Bietgefecht und bei ablösefreien Spielern (AUDIT-2026 B17).
+ */
+export function tabellenRang(g: GameState, manager: number): number {
+  const [liga, platz] = rang(g, manager);
+  return liga * 256 + platz;
 }
 
 /**
@@ -163,10 +173,52 @@ export function poachCheck(g: GameState, poacher: number, owner: number, place: 
   return { ok: true, amount };
 }
 
+/** Text in Zeilen von höchstens `breite` Zeichen brechen (Meldungsliste). */
+function zeilen(text: string, breite = 24): string[] {
+  const out: string[] = [];
+  let zeile = "";
+  for (const w of text.split(" ")) {
+    if ((zeile + " " + w).trim().length > breite && zeile) {
+      out.push(zeile);
+      zeile = w;
+    } else zeile = (zeile + " " + w).trim();
+  }
+  if (zeile) out.push(zeile);
+  return out;
+}
+
+export type AbwerbVorpruefung =
+  | { ok: true; place: number }
+  /** `log` für den Verlauf, `meldung` an den Werber (AUDIT-2026 B18) */
+  | { ok: false; log: string; meldung: string[] };
+
+/**
+ * Prüfung vor dem Vollzug einer Abwerbeanfrage (Version 2026): beim Tageswechsel oder nach der
+ * Antwort des Besitzers. Der Spieler wird über seine Nummer gesucht, nicht über den gemerkten
+ * Platz (der Kader kann aufgerückt sein). Scheitert es - Spieler weg, Kaufsperre (AUDIT-2026 A25),
+ * eine Regel aus `poachCheck` (zweite Abwerbung beim selben Besitzer, Kader voll, Geld fehlt) -,
+ * bekommt der Werber eine Meldung: er wartet auf eine Antwort (AUDIT-2026 B18, #148).
+ */
+export function abwerbungVorpruefen(g: GameState, q: { poacher: number; owner: number; playerIndex: number; bonus: number; name: string }): AbwerbVorpruefung {
+  let place = -1;
+  for (let p = 0; p < 25 && place < 0; p++) {
+    const l = g.lineups.at(q.owner * 25 + p);
+    if (!l.isEmpty && l.playerIndex === q.playerIndex) place = p;
+  }
+  if (place < 0) {
+    const besitzer = g.managers.at(q.owner).displayName;
+    return { ok: false, log: `${q.name} ist nicht mehr da - die Abwerbung entfällt`, meldung: [`${q.name} ist nicht`, `mehr bei ${besitzer}:`, "Die Abwerbung entf{llt."] };
+  }
+  if (isBlocked(g, q.poacher)) return { ok: false, log: `Abwerbung von ${q.name}: Kaufsperre`, meldung: ["Kaufsperre:", `${q.name} kann nicht`, "abgeworben werden."] };
+  const pruef = poachCheck(g, q.poacher, q.owner, place, q.bonus);
+  if (!pruef.ok) return { ok: false, log: `Abwerbung von ${q.name}: ${pruef.error}`, meldung: [`Abwerbung von ${q.name}`, "gescheitert:", ...zeilen(pruef.error)] };
+  return { ok: true, place };
+}
+
 /**
  * Abwerbeversuch ausführen. Sagt der Spieler zu, wechselt er mit allem, was auf seinem
- * Kaderplatz steht (Vertrag, Gehalt, Karten, Verletzung), bekommt eine freie Rückennummer und
- * die Ablöse wird gebucht.
+ * Kaderplatz steht (Vertrag, Gehalt, Karten, Verletzung) - ohne Rückennummer, wie nach einem
+ * Kauf (AUDIT-2026 B15) - und die Ablöse wird gebucht.
  */
 export function poach(g: GameState, poacher: number, owner: number, place: number, bonus: number, rng: Rng, counter = 0): PoachResult {
   const pruef = poachCheck(g, poacher, owner, place, bonus);
@@ -181,7 +233,7 @@ export function poach(g: GameState, poacher: number, owner: number, place: numbe
   let ziel = 0;
   while (ziel < 24 && !g.lineups.at(poacher * 25 + ziel).isEmpty) ziel++;
   const bytes = slotBytes(g, owner * 25 + place);
-  bytes[10] = 0; // Rückennummer neu vergeben
+  bytes[10] = 0; // keine Rückennummer, wie nach einem Kauf (AUDIT-2026 B15, #145)
   bytes[9] &= 0x3f; // offene Angebote bleiben beim alten Verein
   bytes[23] &= 0x3f; // Behandlungsstufe bleibt beim alten Verein (AUDIT-2026 A31)
   // Ebenso ein liegendes Verlängerungsangebot an den alten Verein (Byte 24 = 100 + Jahre) und
@@ -193,7 +245,6 @@ export function poach(g: GameState, poacher: number, owner: number, place: numbe
   setSlotBytes(g, poacher * 25 + ziel, bytes);
   kurBeimWechselBeenden(g.lineups.at(poacher * 25 + ziel)); // #110
   ziel = sortIntoSquad(g, poacher, ziel);
-  assignNumber(g, poacher, ziel);
   removePlace(g, owner * 25, place, 25);
   addBalance(g, poacher, -amount);
   addBalance(g, owner, amount);

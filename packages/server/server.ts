@@ -57,6 +57,7 @@ import {
   dopingCleanup,
   dopeStart,
   dopeStop,
+  kurenBeenden,
   dopingRows,
   injuryKind,
   medSet,
@@ -123,6 +124,7 @@ import {
   takeLoan,
   loanCheck,
   poachCheck,
+  abwerbungVorpruefen,
   poach,
   loanRequestCheck,
   raiseSalary,
@@ -139,11 +141,11 @@ import {
   bestBid,
   resolveAuction,
   bidOrder,
+  zuschlagVollziehen,
   sureBid,
   is2026,
   addToSquad,
   sortSquad,
-  assignNumber,
   updatePositions,
   isAi,
   setAi,
@@ -200,7 +202,6 @@ import {
   decideSale,
   buyOffer,
   cancelPurchase,
-  completePurchase,
   kaufplatz,
   kaufVertrag,
   kaufAbbrechen,
@@ -211,7 +212,6 @@ import {
   completeLoan,
   kaderVoll,
   refreshMarket,
-  salaryDemand,
   contractCheck,
   rejectOffer,
   MAX_CONTRACT_YEARS,
@@ -885,17 +885,14 @@ function resolveAuctions(r: Room): void {
       pushMessage(r, w.manager, ["Ihr Kader ist voll:", `${eintrag.name} bleibt`, "auf dem Markt."]);
       continue;
     }
-    let platz = -1;
-    let gehalt = 0;
-    if (w.loan) platz = completeLoan(g, w.manager, slot, w.amount, MARKET_MANAGER, r.rng);
-    else {
-      gehalt = salaryDemand(g, w.manager, frei, 2, { manager: MARKET_MANAGER, place: slot });
-      platz = completePurchase(g, w.manager, slot, w.amount, 2, gehalt, r.rng);
-    }
+    // Kauf über zwei Jahre oder Leihe, danach der Sponsor-Zuschuss wie beim Kauf vom Rechner
+    // (AUDIT-2026 B16); er wartet in room.subsidies, bis der Manager den Markt öffnet
+    const { platz, gehalt, zuschuss } = zuschlagVollziehen(g, w, slot, r.rng);
     if (platz < 0) {
       r.log.push(`Bietgefecht um ${eintrag.name}: der Wechsel kam nicht zustande`);
       continue;
     }
+    if (zuschuss > 0) r.subsidies.set(w.manager, zuschuss);
     autoLineupIfEnabled(g, w.manager);
     const name = g.managers.at(w.manager).displayName;
     r.log.push(`Bietgefecht um ${eintrag.name}: Zuschlag an ${name} für ${dmText(w.amount)}${w.loan ? " (Leihe)" : ` (2 Jahre, ${dmText(gehalt)})`}`);
@@ -911,7 +908,7 @@ function resolveAuctions(r: Room): void {
 function resolvePoachRequests(r: Room): void {
   const offen = r.poachRequests;
   r.poachRequests = [];
-  for (const q of offen) poachAusfuehren(r, q, 0);
+  for (const q of offen) poachAusfuehren(r, q, 0, true);
 }
 
 /**
@@ -957,7 +954,7 @@ function resolveFreeAgents(r: Room): void {
     const idx = best.manager * 25 + platz;
     const off = TABLES.lineups.offset + idx * 52 + 40;
     for (let i = 0; i < 4; i++) g.save.plain[off + i] = (best.salary >>> (8 * i)) & 0xff;
-    assignNumber(g, best.manager, platz);
+    // Keine Rückennummer, wie nach einem Kauf (AUDIT-2026 B15, #145)
     autoLineupIfEnabled(g, best.manager);
     const name = g.managers.at(best.manager).displayName;
     r.log.push(`Abl|sefrei: ${a.name} unterschreibt bei ${name} (2 Jahre, ${dmText(best.salary)})`.replace("Abl|sefrei", "Ablösefrei"));
@@ -971,29 +968,29 @@ function resolveFreeAgents(r: Room): void {
 
 /**
  * Abwerbung ausführen und alle Beteiligten benachrichtigen (Version 2026, sim/abwerben.ts).
- * `counter` ist die Gehaltserhöhung, mit der sich der Besitzer gewehrt hat.
+ * `counter` ist die Gehaltserhöhung, mit der sich der Besitzer gewehrt hat. `melden`: der Werber
+ * wartet auf die Antwort (Tageswechsel, Antwort des Besitzers) und erfährt auch ein Scheitern vor
+ * dem Wurf (AUDIT-2026 B18); bei der sofortigen Abwerbung vom Rechner steht es in der Antwort.
  */
 function poachAusfuehren(
   r: Room,
   q: { poacher: number; owner: number; place: number; bonus: number; playerIndex: number; name: string },
   counter: number,
+  melden: boolean,
 ): { agreed: boolean; amount: number; chance: number } | null {
   const g = r.game;
-  // Auch beim Tageswechsel über den Spieler suchen, nicht über den gemerkten Platz
-  const platz = platzVon(g, q.owner, q.playerIndex);
-  if (platz >= 0) q.place = platz;
-  const l = g.lineups.at(q.owner * 25 + q.place);
-  if (l.isEmpty || l.playerIndex !== q.playerIndex) {
-    r.log.push(`${q.name} ist nicht mehr da - die Abwerbung entfällt`);
+  // Auch beim Tageswechsel über den Spieler suchen, nicht über den gemerkten Platz; die
+  // Kaufsperre gilt bei der Ausführung, nicht nur bei der Anfrage (AUDIT-2026 A25)
+  const vor = abwerbungVorpruefen(g, q);
+  if (!vor.ok) {
+    r.log.push(vor.log);
+    if (melden) {
+      pushMessage(r, q.poacher, vor.meldung);
+      flushMessages(r);
+    }
     return null;
   }
-  // Kaufsperre bei der Ausführung prüfen, nicht nur bei der Anfrage (AUDIT-2026 A25)
-  if (isBlocked(g, q.poacher)) {
-    r.log.push(`Abwerbung von ${q.name}: Kaufsperre`);
-    pushMessage(r, q.poacher, ["Kaufsperre:", `${q.name} kann nicht`, "abgeworben werden."]);
-    flushMessages(r);
-    return null;
-  }
+  q.place = vor.place;
   const res = poach(g, q.poacher, q.owner, q.place, q.bonus, r.rng, counter);
   if (!res.ok) {
     r.log.push(`Abwerbung von ${q.name}: ${res.error}`);
@@ -2010,7 +2007,10 @@ function finanzTag(r: Room, dt: { day: number; month0: number; year: number }, s
       if (d.points > 0) updatePositions(g, liga);
       // Ohne Punkte (30.6. nach dem Leeren der Tabellen, Verein ohne Punkte) bleibt nur die
       // Kaufsperre - keine Meldung "0 Punkte Abzug" (AUDIT-2026 A34/G10)
-      r.log.push(`${dt.day}.${dt.month0 + 1}. ${mg.displayName}: ${dmText(d.balance)} im Minus - ${d.points > 0 ? `${d.points} Punkte Abzug und ` : ""}ein Monat Kaufsperre`);
+      // Vorgetragener Abzug (AUDIT-2026 B24): nachgeholt, bzw. noch offen
+      const offen = d.offen ? ` (${d.offen} Punkte vorgetragen)` : "";
+      if (d.gesperrt === false) r.log.push(`${dt.day}.${dt.month0 + 1}. ${mg.displayName}: ${d.points} Punkte Abzug wegen Schulden nachgeholt${offen}`);
+      else r.log.push(`${dt.day}.${dt.month0 + 1}. ${mg.displayName}: ${dmText(d.balance)} im Minus - ${d.points > 0 ? `${d.points} Punkte Abzug und ` : ""}ein Monat Kaufsperre${offen}`);
       const text = debtMessages(d, mg.displayName);
       pushMessage(r, d.manager, text.own, dt);
       g.activeManagers().forEach((_, i) => {
@@ -3009,6 +3009,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
     if (room.live) return json(res, 409, { error: "Die Konferenz läuft" });
     setAi(room.game, manager, true);
+    // Laufende Kuren enden, der Rechner könnte sie nicht absetzen (Version 2026, AUDIT-2026 B25)
+    const kuren = kurenBeenden(room.game, manager);
+    if (kuren > 0) room.log.push(`${room.game.managers.at(manager).displayName}: ${kuren} ${kuren === 1 ? "Kur" : "Kuren"} beendet`);
     room.seats.delete(manager);
     room.done.add(manager);
     // Ohne eigenes System stellt der Rechner nach 1-4-4-2 auf
@@ -3780,7 +3783,7 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       broadcast(room);
       return json(res, 200, { ok: true, pending: true, amount: pruef.amount, message: `${name} überlegt - ${room.game.managers.at(owner).displayName} darf sich wehren` });
     }
-    const r = poachAusfuehren(room, { poacher: manager, owner, place, bonus, playerIndex: l.playerIndex, name }, 0);
+    const r = poachAusfuehren(room, { poacher: manager, owner, place, bonus, playerIndex: l.playerIndex, name }, 0, false);
     if (!r) return json(res, 400, { error: "Der Wechsel findet nicht statt" });
     await persist(room);
     room.version++;
@@ -3804,13 +3807,24 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     // Der Kader kann sich seit der Anfrage verschoben haben: Platz über den Spieler suchen, sonst
     // bekäme ein anderer die Gehaltserhöhung (AUDIT-2026 A9)
     q.place = platzVon(room.game, q.owner, q.playerIndex);
-    if (q.place < 0) return json(res, 409, { error: `${q.name} steht nicht mehr in Ihrem Kader` });
+    if (q.place < 0) {
+      // Der Werber wartet auf die Antwort (AUDIT-2026 B18)
+      const vor = abwerbungVorpruefen(room.game, q);
+      if (!vor.ok) {
+        room.log.push(vor.log);
+        pushMessage(room, q.poacher, vor.meldung);
+        flushMessages(room);
+        room.version++;
+        broadcast(room);
+      }
+      return json(res, 409, { error: `${q.name} steht nicht mehr in Ihrem Kader` });
+    }
     if (counter > 0) {
       const neuesGehalt = raiseSalary(room.game, q.owner, q.place, counter);
       room.log.push(`${room.game.managers.at(q.owner).displayName} h{lt ${q.name} mit ${counter} % mehr Gehalt (${dmText(neuesGehalt)})`.replace("h{lt", "hält"));
       pushMessage(room, q.poacher, [`${room.game.managers.at(q.owner).displayName}`, `erh|ht das Gehalt`, `von ${q.name} um ${counter} %`]);
     }
-    const r = poachAusfuehren(room, q, counter);
+    const r = poachAusfuehren(room, q, counter, true);
     if (!r) return json(res, 400, { error: "Der Wechsel findet nicht statt" });
     await persist(room);
     room.version++;

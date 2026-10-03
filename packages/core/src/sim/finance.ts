@@ -18,6 +18,18 @@ function advertising(g: GameState, manager: number, i: number): number {
   return (p[o] | (p[o + 1] << 8) | (p[o + 2] << 16) | (p[o + 3] << 24)) | 0;
 }
 
+/**
+ * Kreditzinsen der Version 2026 je Monat für die Statistik: `gezahlt` die eigenen Raten, `erhalten`
+ * die Raten der Mitspieler an diesen Manager als Geldgeber (AUDIT-2026 B23). Gebucht werden sie in
+ * dailyFinance zum Termin, nicht in den Monatseinnahmen und -ausgaben.
+ */
+export function kreditZinsen(g: GameState, manager: number): { gezahlt: number; erhalten: number } {
+  let erhalten = 0;
+  const n = g.activeManagers().length;
+  for (let other = 0; other < n; other++) if (other !== manager) erhalten += lenderDebt(g, other, manager, true);
+  return { gezahlt: loanTotal(g, manager, true), erhalten };
+}
+
 /** Summe der Kreditzinsen je Monat (interest = true) oder der Kreditsummen aller Geldgeber. */
 export function loanTotal(g: GameState, manager: number, interest: boolean): number {
   let sum = 0;
@@ -65,13 +77,21 @@ export function monthlyIncome(g: GameState, manager: number, dayOfMonth: number)
   m.setU8(481, (q >> 8) & 0xff);
   let income = q;
   for (let i = 0; i < 8; i++) income += advertising(g, manager, i);
-  const n = g.activeManagers().length;
-  for (let other = 0; other < n; other++) if (other !== manager) income += loanTotal(g, other, true);
+  // Das Original zählt hier die Zinsen aller Kredite der Mitspieler, an wen auch immer (auch an
+  // die Bank). Die Version 2026 bucht jede Rate einmal zum Termin vom Borger an den Geldgeber
+  // (dailyFinance) - hier also nichts (AUDIT-2026 B23, #153)
+  if (!is2026(g)) {
+    const n = g.activeManagers().length;
+    for (let other = 0; other < n; other++) if (other !== manager) income += loanTotal(g, other, true);
+  }
   void dayOfMonth; // Zuschuss (4cb3:0644) liegt nicht im Spielstand
   return income < 0 ? 0 : income;
 }
 
-/** Monatsausgaben: Grundkosten, Gehälter, Stadion, Trainer, Jugend, Werbung, Zinsen, Steuer. */
+/**
+ * Monatsausgaben: Grundkosten, Gehälter, Stadion, Trainer, Jugend, Werbung, Zinsen (nur im
+ * Original, s. AUDIT-2026 B23), Steuer.
+ */
 export function monthlyExpenses(g: GameState, manager: number): number {
   const m = g.managers.at(manager);
   let e = 150000;
@@ -91,7 +111,9 @@ export function monthlyExpenses(g: GameState, manager: number): number {
   e += m.u8(478) | (m.u8(479) << 8);
   e += (10000 * (m.u8(319) + 1)) >> 4;
   e += advertising(g, manager, 8);
-  e += loanTotal(g, manager, true);
+  // Eigene Kreditzinsen: im Original zusätzlich zur Buchung am Termin (0x1222D), in der Version
+  // 2026 nur am Termin - ein Kredit über n Monate kostet genau n Raten (AUDIT-2026 B23, #153)
+  if (!is2026(g)) e += loanTotal(g, manager, true);
   const balance = m.i32(496);
   if (league !== 2 && balance > 2000000) {
     let tax = 30000 * div(balance - 2000000, 500000) + 20000;
@@ -223,6 +245,9 @@ export function dailyFinance(g: GameState, manager: number, date: { day: number;
       if (!termin) continue;
       const interest = m.i32(o + 4);
       writeI32(g, manager, 496, m.i32(496) - interest);
+      // Version 2026: die Rate geht an genau diesen Geldgeber (die Bank behält sie); im Original
+      // kommen Zinseinnahmen nur über die Monatseinnahmen (AUDIT-2026 B23)
+      if (fester && lender !== 4) writeI32(g, lender, 496, g.managers.at(lender).i32(496) + interest);
       events.push({ kind: "interest", text: `Zinsen ${interest} DM für Kredit über ${amount} DM`, amount: interest });
       const dueYear = m.u8(o + 16) | (m.u8(o + 17) << 8);
       if (dueYear === date.year && m.u8(o + 11) === date.month0) {

@@ -7,7 +7,7 @@ import { text as T, texte } from "../data/texte.ts";
 import { is2026 } from "./regeln.ts";
 import type { Rng } from "./match.ts";
 import { playerValue } from "./value.ts";
-import { removePlace, kaderZahl, assignNumber } from "./transfer.ts";
+import { removePlace, kaderZahl } from "./transfer.ts";
 import { addToSquad as aufnehmen } from "./newgame.ts";
 import { TABLES } from "../records.ts";
 import { sortIntoSquad } from "./lineup.ts";
@@ -74,14 +74,13 @@ function freePlace(g: GameState, manager: number): number {
  * Aufnahme für die Jugendarbeit der Version 2026 (sim/jugend.ts), wie der Jugendspieler des
  * Originals am Saisonende (`jugendInKader`): Aufnahme 0x224A8 (Frische random(80,120),
  * Trainingsfaktor, Trainingsprogramm, Ligatore und -einsätze des alten Datensatzes gelöscht),
- * danach die Hälfte der Gehaltsbasis und random(2,3) Jahre (0x0D0A6). Dazu eine Rückennummer
- * ab 12 und der Besitzer. Bis zum Audit (AUDIT-2026 A8) hatte die Jugend eine eigene Aufnahme,
- * die Byte 20 leer ließ (im Training ein Sonderprogramm) und die Tore des alten Datensatzes erbte.
+ * danach die Hälfte der Gehaltsbasis und random(2,3) Jahre (0x0D0A6). Dazu der Besitzer; eine
+ * Rückennummer gibt es wie beim Jugendspieler des Originals nicht (AUDIT-2026 B15, #145). Bis
+ * zum Audit (AUDIT-2026 A8) hatte die Jugend eine eigene Aufnahme, die Byte 20 leer ließ (im Training ein Sonderprogramm) und die Tore des alten Datensatzes erbte.
  */
 export function addToSquad(g: GameState, manager: number, playerIndex: number, rng: Rng): number {
   const place = jugendInKader(g, manager, playerIndex, rng);
   if (place < 0) return -1;
-  assignNumber(g, manager, place);
   g.players.at(playerIndex).setU8(33, manager);
   return place;
 }

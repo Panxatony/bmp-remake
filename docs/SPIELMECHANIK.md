@@ -2304,14 +2304,18 @@ nicht der Besitzer, sondern der Spieler:
   Rückennummer hat. Begrenzt auf 5 bis 90. Gewürfelt wird `random(0,99) < Zustimmung`.
 - Sagt der Spieler zu, ist der Wechsel **bindend**: der Werbende zahlt, der Besitzer bekommt das
   Geld, ablehnen kann keiner von beiden. Sagt er ab, fließt nichts.
-- Der Spieler wechselt **mit seinem laufenden Vertrag** (Restjahre und Gehalt bleiben stehen) und
-  bekommt beim neuen Verein eine freie Rückennummer ab 12. Eine Vertragsverhandlung wie beim Kauf
-  vom Markt gibt es nicht.
+- Der Spieler wechselt **mit seinem laufenden Vertrag** (Restjahre und Gehalt bleiben stehen),
+  aber ohne Rückennummer - wie nach einem Kauf (seit E16) bekommt er erst mit der nächsten
+  Aufstellung eine (AUDIT-2026 B15). Eine Vertragsverhandlung wie beim Kauf vom Markt gibt es
+  nicht. Ebenso ohne Rückennummer kommen der Zuschlag im Bietgefecht, ablösefreie Spieler und
+  aufgerückte oder abgeworbene Jugendspieler.
 - Nicht abwerben lassen sich Leihspieler und Spieler vor dem Karriereende; dem Besitzer müssen
   zwölf Spieler bleiben, der Werbende braucht einen freien Kaderplatz und das Geld auf dem Konto.
 - Jeder Spieler lässt sich **einmal je Spieltag** ansprechen (Laufzeitdaten des Servers wie die
   Vertragsangebote). Beide Manager bekommen eine Meldung ins Postfach, der Besitzer auch dann,
-  wenn sein Spieler geblieben ist.
+  wenn sein Spieler geblieben ist. Scheitert eine offene Anfrage noch vor dem Wurf - der Spieler
+  ist nicht mehr im Kader des Besitzers, Kaufsperre, schon ein Spieler von diesem Besitzer, Kader
+  voll, Geld fehlt -, bekommt der Werber ebenfalls eine Meldung mit dem Grund (AUDIT-2026 B18).
 - Gewildert wird nur **nach oben**: der Besitzer muss in einer höheren Liga oder in derselben
   Liga auf einem besseren Tabellenplatz stehen (Standing-Byte 46, `poachAllowedFrom`). Der
   Tabellenletzte darf damit bei allen, der Erste bei niemandem - sonst nimmt der wohlhabende
@@ -2337,6 +2341,12 @@ null), die Reihenfolge wird sofort neu geschrieben, und alle Manager bekommen ei
 Sperre steht als Bitmaske in Byte 34117 und wird bei der nächsten Monatsprüfung neu gesetzt -
 wer sein Konto ausgleicht, ist sie nach einem Monat los.
 
+Was mangels Punkten nicht abgezogen werden kann, verfällt nicht, sondern wird **vorgetragen**
+(Byte 34130 + Manager) und bei den nächsten Monatsprüfungen nachgeholt, so weit Punkte da sind -
+auch wenn das Konto inzwischen wieder ausgeglichen ist (eigene Meldung "Nachgeholter Abzug").
+Das betrifft vor allem den 30.6., an dem die Tabellen schon geleert sind, und den 31.7. mit
+höchstens einem Spieltag: der Abzug geht dann in die neue Saison (AUDIT-2026 B24).
+
 ### Derby-Einsatz (sim/derby.ts)
 
 Treffen zwei Managervereine aufeinander, geht es um Geld. Jeder stellt vorher seinen Einsatz
@@ -2353,8 +2363,11 @@ Ein Gebot auf einen Spieler ohne Manager wird nicht mehr sofort entschieden: es 
 nächsten Tageswechsel, und jeder darf nachlegen (ein Gebot je Manager, das letzte zählt). Beim
 Tageswechsel bekommt das höchste Gebot den Zuschlag, sofern der abgebende Verein es überhaupt
 annimmt (dieselbe Prüfung wie im Original, `aiAccepts`); bei gleichen Geboten gewinnt der
-schlechtere Tabellenplatz. Der Vertrag läuft dann ohne Verhandlung über zwei Jahre zur üblichen
-Forderung - es ist eine Versteigerung, kein Gespräch. Alle Bieter bekommen eine Meldung, im
+schwächere Verein: erst die niedrigere Liga, dann der schlechtere Tabellenplatz (`tabellenRang`,
+AUDIT-2026 B17). Der Vertrag läuft dann ohne Verhandlung über zwei Jahre zur üblichen
+Forderung - es ist eine Versteigerung, kein Gespräch. Wie beim Kauf vom Rechner bietet danach
+mit 1/7 ein Sponsor einen Zuschuss an (0x272D, AUDIT-2026 B16); das Angebot steht im
+Transfermarkt, bis der Manager es annimmt oder ablehnt. Alle Bieter bekommen eine Meldung, im
 Transfermarkt steht statt des Werts das laufende Höchstgebot. Spieler, die einem Mitspieler
 gehören, laufen weiter über das Angebot an ihn (0x22C15).
 
@@ -2372,7 +2385,8 @@ Läuft der Vertrag eines Spielers aus, bekommt der Verein im Original den halben
 (0x0DB40). In der Version 2026 bekommt er **nichts**: der Spieler ist ablösefrei und steht allen
 Managern offen. Jeder darf ein Monatsgehalt bieten, den Zuschlag bekommt das beste Angebot -
 wobei ein höher spielender Verein zählt, als hätte er zehn Prozent mehr geboten, und bei
-Gleichstand der schlechtere Tabellenplatz gewinnt. Entschieden wird beim nächsten Tageswechsel,
+Gleichstand der schwächere Verein gewinnt - erst die niedrigere Liga, dann der schlechtere Platz
+(AUDIT-2026 B17). Entschieden wird beim nächsten Tageswechsel,
 der Vertrag läuft über zwei Jahre zum gebotenen Gehalt. Wer keinen Abnehmer findet, geht ins
 Ausland.
 
@@ -2391,6 +2405,15 @@ Im Original hängt der Zinstermin eines Kredits am Tag der Aufnahme, und die Kal
 ungleich über den Monat verteilt: je nach Aufnahmetag wird ein Kredit in einer Saison einmal
 oder fünfmal mit Zinsen belastet. Die Version 2026 bucht die Zinsen aller Kredite zum selben
 Termin wie die Monatsabrechnung - gleicher Takt für alle, kein Vorteil aus der Kalenderkenntnis.
+Im Aufnahmemonat gibt es keine Rate: ein Kredit über n Monate kostet **genau n Raten** (#107).
+
+Das Original zählt die eigenen Zinsen außerdem noch einmal zu den Monatsausgaben (0x17262), und
+jeder Manager bekommt in den Monatseinnahmen die Zinsen **aller** Kredite der Mitspieler - auch
+die an die Bank oder an einen Dritten. Ein 3-Monats-Kredit kostete so sieben Raten, der Geldgeber
+bekam vier. In der Version 2026 gibt es beides nicht: jede Rate geht zum Termin vom Borger an
+genau seinen Geldgeber (bei der Bank bleibt sie dort), die Monatsrechnung enthält keine
+Kreditzinsen; die Statistik rechnet die laufenden Raten für die Anzeige trotzdem ein (eigene als
+Ausgabe, die der Mitspieler an einen selbst als Einnahme; AUDIT-2026 B23).
 
 ### Marktpreise ohne Überlauf (sim/value.ts)
 
@@ -2573,7 +2596,9 @@ Wer auffliegt:
 
 Außerdem gilt eine Grenze: **höchstens drei Kuren gleichzeitig** je Manager (`DOPING_MAX_CURES`).
 Wechselt ein Spieler auf Kur den Verein (Abwerben, Jugend), endet die Kur; auf den Markt darf er
-gar nicht (#110, AUDIT-2026 A13). Eine Dopingsperre wandert mit.
+gar nicht (#110, AUDIT-2026 A13). Eine Dopingsperre wandert mit. Hört ein Manager auf und der
+Rechner übernimmt, enden alle seine Kuren (`kurenBeenden`, AUDIT-2026 B25) - der Rechner könnte
+sie nicht absetzen.
 Der Bildschirm zeigt den Stand als "2/3 KUREN LAUFEN" und nennt die Strafe in DM, wie sie beim
 aktuellen Kontostand ausfiele.
 
@@ -2625,7 +2650,8 @@ Mitspieler bekommen eine Meldung. Wer will, kann den Verein später auf dem Plat
 wieder übernehmen - dann endet die Rechnerführung.
 
 Gespeichert steht das als Bitmaske in Byte 34116 (Bit je Manager), im selben ungenutzten
-Bereich wie das Regelbyte. Das gilt für beide Regelwerke, Original wie Version 2026.
+Bereich wie das Regelbyte. Das gilt für beide Regelwerke, Original wie Version 2026. In der
+Version 2026 enden beim Aufhören außerdem die laufenden Dopingkuren des Vereins (AUDIT-2026 B25).
 
 
 ## Texte, Bilder und Klänge kommen aus der eigenen Installation

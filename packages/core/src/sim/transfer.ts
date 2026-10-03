@@ -106,16 +106,6 @@ export function kaderVoll(g: GameState, manager: number, playerIndex: number): b
   return kaderZahl(g, manager) > 23;
 }
 
-/** Freie Rückennummer ab 12 vergeben (0x224A8 vergibt Nummern ab 12). */
-export function assignNumber(g: GameState, manager: number, place: number): void {
-  const l = g.lineups.at(manager * 25 + place);
-  if (l.u8(10) !== 0) return;
-  const used = new Set(g.squadOf(manager).map((s) => s.number));
-  let n = 12;
-  while (used.has(n)) n++;
-  l.setU8(10, n);
-}
-
 export interface MarketEntry {
   /** Marktplatz 0..11 */
   slot: number;
@@ -684,7 +674,8 @@ export function completePurchase(g: GameState, manager: number, slot: number, am
   }
   n.setU8(11, years);
   writeI32(g, manager * 25 + place, 40, salary);
-  assignNumber(g, manager, place);
+  // Keine Rückennummer: Kauf und Leihe vergeben seit E16 (#125) wie 0x224A8 keine, der Zuschlag
+  // ebenso (AUDIT-2026 B15, #145)
   removePlace(g, 100, slot, MARKET_SIZE);
   addBalance(g, manager, -amount);
   if (owner !== MARKET_MANAGER) addBalance(g, owner, amount);

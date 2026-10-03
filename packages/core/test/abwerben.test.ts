@@ -61,7 +61,7 @@ test("Abwerben: bei Zustimmung wechselt der Spieler mit Vertrag und Gehalt, die 
   assert.equal(g.players.at(spieler).displayName, name);
   assert.equal(neu.u8(11), vertrag);
   assert.equal(neu.i32(40), gehalt);
-  assert.ok(neu.u8(10) >= 12, "neue Rückennummer");
+  assert.equal(neu.u8(10), 0, "keine Rückennummer, wie nach einem Kauf (B15)");
   assert.equal(g.players.at(spieler).u8(33), 0);
   assert.equal(g.players.at(spieler).u8(36), g.managers.at(0).clubIndex);
   assert.equal(g.managers.at(0).balance, kasse[0] - betrag);
