@@ -137,8 +137,9 @@ test("2026: Guthabenzins nur bis zur Obergrenze", () => {
     const g = load("RIED-CLI.MAN", regeln);
     const m = g.managers.at(0);
     m.balance = kontostand;
-    // Keine Kredite, damit nur die Monatsabrechnung wirkt
-    for (let i = 0; i < 5 * 3; i++) for (let k = 0; k < 18; k++) m.setU8(508 + i * 18 + k, 0);
+    // Keine Kredite (auch nicht bei den Mitspielern: deren Zinsen zählt nur das Original zu den
+    // Einnahmen, AUDIT-2026 B23), damit nur die Monatsabrechnung wirkt
+    g.activeManagers().forEach((mm) => { for (let i = 0; i < 5 * 3; i++) for (let k = 0; k < 18; k++) mm.setU8(508 + i * 18 + k, 0); });
     const vorher = m.balance;
     dailyFinance(g, 0, { day: 30, month0: 10, year: 1997 }, (lo) => lo);
     return m.balance - vorher;

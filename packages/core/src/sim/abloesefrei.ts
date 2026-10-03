@@ -10,6 +10,7 @@
  */
 import type { GameState } from "../records.ts";
 import { LEAGUES } from "./fixtures.ts";
+import { tabellenRang } from "./abwerben.ts";
 
 export interface FreeAgent {
   /** Spielerdatensatz */
@@ -44,7 +45,10 @@ export function bidScore(g: GameState, bid: FreeBid): number {
   return Math.trunc((bid.salary * (100 + 10 * (2 - liga))) / 100);
 }
 
-/** Zuschlag: bestes Angebot, bei Gleichstand der schlechtere Tabellenplatz. */
+/**
+ * Zuschlag: bestes Angebot, bei Gleichstand der schwächere Verein - erst die niedrigere Liga,
+ * dann der schlechtere Platz (AUDIT-2026 B17).
+ */
 export function bestBid(g: GameState, bids: FreeBid[]): FreeBid | null {
   let best: FreeBid | null = null;
   let bestScore = -1;
@@ -56,10 +60,7 @@ export function bestBid(g: GameState, bids: FreeBid[]): FreeBid | null {
       bestScore = s;
       continue;
     }
-    if (s === bestScore && best) {
-      const platz = (m: number) => g.standings.at(g.managers.at(m).clubIndex).u8(46);
-      if (platz(b.manager) > platz(best.manager)) best = b;
-    }
+    if (s === bestScore && best && tabellenRang(g, b.manager) > tabellenRang(g, best.manager)) best = b;
   }
   return best;
 }

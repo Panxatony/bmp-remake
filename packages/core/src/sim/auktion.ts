@@ -5,12 +5,15 @@
  * zuerst klickt, bekommt den Spieler. In der Version 2026 läuft stattdessen eine Frist bis zum
  * nächsten Kalendertag, in der jeder Manager bieten und nachlegen darf. Beim Tageswechsel
  * bekommt das höchste Gebot den Zuschlag, sofern der abgebende Verein es überhaupt annimmt
- * (dieselbe Prüfung wie im Original). Bei gleichen Geboten gewinnt der schlechtere
- * Tabellenplatz.
+ * (dieselbe Prüfung wie im Original). Bei gleichen Geboten gewinnt der schwächere Verein: erst
+ * die niedrigere Liga, dann der schlechtere Tabellenplatz (AUDIT-2026 B17).
  */
 import type { GameState } from "../records.ts";
 import type { Rng } from "./match.ts";
-import { aiAccepts } from "./transfer.ts";
+import { aiAccepts, completeLoan, completePurchase, MARKET_MANAGER } from "./transfer.ts";
+import { salaryDemand } from "./contracts.ts";
+import { sponsorSubsidy } from "./finance.ts";
+import { tabellenRang } from "./abwerben.ts";
 
 export interface Bid {
   manager: number;
@@ -25,7 +28,11 @@ export interface AuctionResult {
   rejected: boolean;
 }
 
-/** Höchstes Gebot; bei Gleichstand der Verein mit dem schlechteren Tabellenplatz. */
+/**
+ * Höchstes Gebot; bei Gleichstand der schwächere Verein - erst die niedrigere Liga, dann der
+ * schlechtere Platz (AUDIT-2026 B17). Bis dahin zählte nur der Platz innerhalb der Liga, und ein
+ * Bundesliga-Zehnter schlug einen Zweitliga-Fünften.
+ */
 export function highestBid(g: GameState, bids: Bid[]): Bid | null {
   let best: Bid | null = null;
   for (const b of bids) {
@@ -34,10 +41,7 @@ export function highestBid(g: GameState, bids: Bid[]): Bid | null {
       best = b;
       continue;
     }
-    if (b.amount === best.amount) {
-      const platz = (m: number) => g.standings.at(g.managers.at(m).clubIndex).u8(46);
-      if (platz(b.manager) > platz(best.manager)) best = b;
-    }
+    if (b.amount === best.amount && tabellenRang(g, b.manager) > tabellenRang(g, best.manager)) best = b;
   }
   return best;
 }
@@ -48,8 +52,7 @@ export function highestBid(g: GameState, bids: Bid[]): Bid | null {
  * Manager, der den Zuschlag bekäme (AUDIT-2026 A34/Q5).
  */
 export function bidOrder(g: GameState, bids: Bid[]): Bid[] {
-  const platz = (m: number) => g.standings.at(g.managers.at(m).clubIndex).u8(46);
-  return bids.slice().sort((x, y) => y.amount - x.amount || platz(y.manager) - platz(x.manager));
+  return bids.slice().sort((x, y) => y.amount - x.amount || tabellenRang(g, y.manager) - tabellenRang(g, x.manager));
 }
 
 /**
@@ -68,4 +71,33 @@ export function resolveAuction(g: GameState, price: number, bids: Bid[], rng: Rn
   const preis = best.loan ? Math.trunc(price / 3) : price;
   if (!aiAccepts(preis, best.amount, rng)) return { winner: null, rejected: true };
   return { winner: best, rejected: false };
+}
+
+export interface Zuschlag {
+  /** neuer Kaderplatz, -1 wenn der Wechsel nicht zustande kam */
+  platz: number;
+  /** Monatsgehalt beim Kauf (Leihe: 0, das Gehalt setzt completeLoan) */
+  gehalt: number;
+  /** Angebot eines Sponsor-Zuschusses (0 = keins) */
+  zuschuss: number;
+}
+
+/**
+ * Zuschlag für einen Marktspieler des Rechners vollziehen: ein Kauf über zwei Jahre zur üblichen
+ * Forderung ohne Verhandlung, oder eine Leihe. Danach der Sponsor-Zuschuss wie beim Kauf und bei
+ * der Leihe vom Rechner (0x240E1 -> 0x272D, Audit 2 E23; AUDIT-2026 B16). Eine Rückennummer
+ * gibt es wie nach jedem Kauf nicht (B15). Geld und Kaderplatz prüft der Aufrufer.
+ */
+export function zuschlagVollziehen(g: GameState, w: Bid, slot: number, rng: Rng): Zuschlag {
+  let frei = 0;
+  while (frei < 24 && !g.lineups.at(w.manager * 25 + frei).isEmpty) frei++;
+  let platz: number;
+  let gehalt = 0;
+  if (w.loan) platz = completeLoan(g, w.manager, slot, w.amount, MARKET_MANAGER, rng);
+  else {
+    gehalt = salaryDemand(g, w.manager, frei, 2, { manager: MARKET_MANAGER, place: slot });
+    platz = completePurchase(g, w.manager, slot, w.amount, 2, gehalt, rng);
+  }
+  if (platz < 0) return { platz, gehalt, zuschuss: 0 };
+  return { platz, gehalt, zuschuss: sponsorSubsidy(w.amount, rng) };
 }

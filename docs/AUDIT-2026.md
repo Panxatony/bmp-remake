@@ -149,6 +149,23 @@ am nächsten Saisonwechsel (A28).
 | B25 | Kuren laufen weiter, wenn ein Manager aufhört (G13) | bei /api/quit beenden |
 | B26 | Torszenen-Editor: jeder darf jede eigene Szene überschreiben, Szenen gelten für alle Runden (Q7) | Besitzer je Szene; überschreiben nur Besitzer und Präsident |
 
+**Stand 3.10.2026:** lhuno hat die Empfehlungen freigegeben. Umgesetzt (Tests in
+core/test/regeln2026b.test.ts, im Original unverändert):
+
+- B15 (#145): keine Rückennummer mehr für Zuschlag, ablösefreie und abgeworbene Spieler sowie
+  aufgerückte und abgeworbene Jugendspieler; `assignNumber` ist entfernt. Der Zuschlag bleibt beim Weg
+  `completePurchase` (für einen Marktspieler des Rechners gleichwertig zu `kaufplatz` +
+  `kaufVertrag`: dieselbe Aufnahme 0x224A8, Byte 9/23 frisch), jetzt über `zuschlagVollziehen`.
+- B16 (#146): Sponsor-Zuschuss nach dem Zuschlag (Kauf und Leihe), wartet in `room.subsidies`.
+- B17 (#147): Gleichstand über `tabellenRang` (Liga, dann Platz) in `highestBid`, `bidOrder`, `bestBid`.
+- B18 (#148): `abwerbungVorpruefen`; der Werber bekommt eine Meldung, wenn seine Anfrage beim
+  Tageswechsel oder nach der Antwort des Besitzers vor dem Wurf scheitert.
+- B23 (#153): in 2026 keine Kreditzinsen in Monatseinnahmen und -ausgaben; die Rate geht zum
+  Termin vom Borger an genau seinen Geldgeber (Statistik rechnet sie ein, `kreditZinsen`).
+- B24 (#154): nicht abziehbare Punkte werden vorgetragen (Byte 34130 + Manager, `debtCarry`) und
+  bei den nächsten Monatsprüfungen nachgeholt.
+- B25 (#155): `/api/quit` beendet die Kuren des Vereins (`kurenBeenden`).
+
 ## C. Doku
 
 T11, T12, S8, S9, G14, Q8, Q9: veraltete Angaben in SPIELMECHANIK, Kommentaren und MEMORY-MAP (Doping-Bytes,

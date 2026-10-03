@@ -37,7 +37,7 @@ import type { Rng } from "./match.ts";
 import { is2026 } from "./regeln.ts";
 import { kurBeimWechselBeenden } from "./doping.ts";
 import { texte } from "../data/texte.ts";
-import { addBalance, slotBytes, setSlotBytes, assignNumber, removePlace, kaderVoll, kaderZahl } from "./transfer.ts";
+import { addBalance, slotBytes, setSlotBytes, removePlace, kaderVoll, kaderZahl } from "./transfer.ts";
 import { addToSquad } from "./seasonEvents.ts";
 import { sortIntoSquad } from "./lineup.ts";
 import { poachPrice, poachAmount, poachChance, POACH_MIN_SQUAD } from "./abwerben.ts";
@@ -585,8 +585,8 @@ export function jugendAbwerben(g: GameState, poacher: number, owner: number, pla
   bytes[23] &= 0x3f; // Behandlungsstufe bleibt beim alten Verein (AUDIT-2026 A31)
   setSlotBytes(g, poacher * 25 + frei, bytes);
   kurBeimWechselBeenden(g.lineups.at(poacher * 25 + frei)); // #110
+  // Keine Rückennummer, wie nach einem Kauf (AUDIT-2026 B15, #145)
   const ziel = sortIntoSquad(g, poacher, frei);
-  assignNumber(g, poacher, ziel);
   removePlace(g, owner * 25, place, 25);
   addBalance(g, poacher, -amount);
   addBalance(g, owner, amount);

@@ -187,6 +187,23 @@ export function kurBeimWechselBeenden(l: Lineup): void {
   setState(l, DOPE_NONE, 0);
 }
 
+/**
+ * Ein Manager hört auf, der Rechner übernimmt (Version 2026): alle laufenden Kuren seines Kaders
+ * enden wie beim Vereinswechsel - der Rechner kann sie nicht absetzen und trüge sonst Woche für
+ * Woche das Risiko (AUDIT-2026 B25, #155). Dopingsperren bleiben. Liefert die Zahl der Kuren.
+ */
+export function kurenBeenden(g: GameState, manager: number): number {
+  if (!is2026(g) || !Number.isInteger(manager) || manager < 0 || manager > 3) return 0;
+  let n = 0;
+  for (let place = 0; place < 25; place++) {
+    const l = g.lineups.at(manager * 25 + place);
+    if (l.isEmpty || !isDoped(l)) continue;
+    kurBeimWechselBeenden(l);
+    n++;
+  }
+  return n;
+}
+
 /** Kur beenden: die Werte fallen auf den Stand ohne Doping zurück. */
 export function dopeStop(g: GameState, manager: number, place: number): { ok: boolean; error?: string } {
   if (!is2026(g)) return { ok: false, error: "Nur in der Version 2026" };

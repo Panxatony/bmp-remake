@@ -44,7 +44,7 @@ test("A7/A8: Aufrücker bekommen den Positionswert ihres Mannschaftsteils und di
     assert.equal(p.u8(34), 0, "Ligatore gelöscht");
     assert.notEqual(l.u8(20), 0, "Trainingsprogramm gesetzt");
     assert.ok(l.u8(19) >= 80 && l.u8(19) <= 120, `Frische ${l.u8(19)}`);
-    assert.ok(l.number >= 12, `Nummer ${l.number}`);
+    assert.equal(l.number, 0, "keine Rückennummer (B15)");
   }
 });
 
