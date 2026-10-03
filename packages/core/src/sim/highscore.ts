@@ -11,6 +11,7 @@ import { playerValue } from "./value.ts";
 import { stadiumValue } from "./werbung.ts";
 import { loanTotal } from "./finance.ts";
 import { spielart } from "./newgame.ts";
+import { is2026 } from "./regeln.ts";
 
 const div = (a: number, b: number): number => Math.trunc(a / b);
 
@@ -32,8 +33,10 @@ export interface HighscoreEntry {
  * immer HIGH.02, die Liste von Level 2 im Endlosspiel (Audit 2 H7, offen).
  */
 export function highscoreFile(g: GameState): string {
-  // Spielart-Ziffer 0/1/3 (0x344AF-0x344DB) und angezeigtes Level '5' - 4A28 (0x3449D) (#133)
-  return `HIGH.${spielart(g)}${5 - g.save.plain[34062]}`;
+  // Spielart-Ziffer 0/1/3 (0x344AF-0x344DB) und angezeigtes Level '5' - 4A28 (0x3449D) (#133).
+  // Die Version 2026 führt eine eigene Liste HIGH26.xy, die das Original nie öffnet: ihre Punkte
+  // entstehen nach anderen Regeln (AUDIT-2026 B21). Der Name bleibt im 8.3-Schema.
+  return `${is2026(g) ? "HIGH26" : "HIGH"}.${spielart(g)}${5 - g.save.plain[34062]}`;
 }
 
 /**

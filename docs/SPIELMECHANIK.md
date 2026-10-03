@@ -674,8 +674,20 @@ und Schalter:
   Schlüsselbilder, den Weg dazwischen rechnet das Spiel. Beim ersten Öffnen einer Sitzung liegt
   es von selbst oben - ohne Erklärung ist der Editor nicht zu erraten.
 - **Speichern** legt die Beschreibung in `tore-eigen/` und beide Fassungen in
-  `assets/eigen/tore/` ab, schreibt das Verzeichnis fort und lädt den Katalog neu - die Szene
-  läuft danach sofort in der Konferenz mit (POST /api/szene).
+  `assets/eigen/tore/` ab, schreibt das Verzeichnis fort und lädt den Katalog neu (POST
+  /api/szene). In der Konferenz läuft sie nur in Runden der **Version 2026** mit: dort tritt mit
+  Chance 1/10 eine eigene Szene an die Stelle der gewürfelten (`eigeneSzene` in
+  server/live.ts, AUDIT-2026 B22). Gewürfelt wird das mit einem eigenen Zufall, nicht mit dem
+  Würfel des Spiels - `pickScene` hat seine Würfe (Nummer, Elfmeter, Jubel) davor schon getan,
+  Ergebnisse und Zufallsfolge bleiben dieselben wie ohne eigene Szenen. Elfmeterszenen werden
+  nicht ersetzt. In Originalrunden zieht die Konferenz nur die Szenen des Originals. Der Browser
+  holt eine Szene, die nach dem Laden seines Katalogs gespeichert wurde, beim ersten Auftritt
+  nach.
+- **Rechte** (AUDIT-2026 B26): eine Szene gehört dem Benutzer, der sie zuerst gespeichert hat
+  (Feld `besitzer` der Beschreibung, setzt nur der Server). Überschreiben und **LÖSCHEN** dürfen
+  nur er und der Präsident; Szenen ohne Besitzer (vor B26 gespeichert, auch das mitgelieferte
+  "konter") nur der Präsident. LÖSCHEN fragt mit dem ersten Klick nach und entfernt mit dem
+  zweiten Beschreibung, beide Fassungen und den Eintrag im Verzeichnis.
 
 Der Editor arbeitet immer auf der Beschreibung, nicht auf den fertigen Bildern; gespeichert
 wird beides. Eine im Editor gebaute Szene lässt sich also weiter mit der Hand nachbessern und
@@ -701,7 +713,7 @@ endlos), 1964 (1-Jahres-Spiel) bzw. 1966 (3-Jahres-Spiel); ohne historischen Sta
 bleibt dort 1963 aus dem Abbild. Das Standardspiel (Endlosspiel ohne historischen Start) speichert
 22251 in 34063 und 1992 in 27976 (Saison 1992/93, Kalender 29. Juli 1992). Das 1- und das
 3-Jahres-Spiel beginnen in der Bundesliga, mit eigenen Start- und Stadionwerten, und enden nach
-1992/93 bzw. 1994/95 mit Bestenliste und "ENDE" (0x1E6E1); Bestenliste HIGH.<Spielart><Level>,
+1992/93 bzw. 1994/95 mit Bestenliste und "ENDE" (0x1E6E1); Bestenliste HIGH.<Spielart><Level> (Version 2026: HIGH26.<Spielart><Level>, B21),
 +300 nur im Endlosspiel. Einzelheiten im Zweigbuch docs/abgleich/spielarten.md (#133).
 
 Spielerpool (0x3260C): Plätze 1..150 mit Gruppen Torhüter 1..19, Abwehr 20..63, Mittelfeld
@@ -1567,8 +1579,9 @@ die Bestenliste einordnet. Nur beim Spielende eines 1- oder 3-Jahres-Spiels (423
 + Level-Ziffer: Spielart 1 bei Endjahr-Kennung 1964/1993 (1-Jahres-Spiel), 3 bei 1966/1995
 (3-Jahres-Spiel), sonst 0 (Endlosspiel); Level-Ziffer '5' - 4cb3:4A28 (gespeichertes Level), also
 das angezeigte Level 1..4. Das Endlosspiel hat damit je Level eine eigene Liste HIGH.01..HIGH.04;
-die HIGH.02 aller Originalstände gehört zu Level 2 (gespeichert 3). Das Remake wählt die Datei
-bisher nur nach dem Startjahr (HIGH.00/01/02, highscore.ts `highscoreFile`, Audit 2 H7). 20
+die HIGH.02 aller Originalstände gehört zu Level 2 (gespeichert 3). Das Remake bildet den Namen
+seit #133 ebenso (highscore.ts `highscoreFile`); Spielstände der Version 2026 schreiben in eine
+eigene Liste HIGH26.<Spielart><Level> (AUDIT-2026 B21). 20
 Einträge zu 58 Bytes: 0..25 Managername, 26..48 Vereinsname, 49 Meisterschaften, 50 DFB-Pokale, 51
 Europapokale, 52..53 Punkte). Platzierungspunkte (0x34B14): (57 - Tabellenplatz - Ligabasis)/2,
 nicht unter 0, + 2·Runde je laufendem Pokal (Runden 1..6); je Saison im Verlauf (Byte 62 + 4i,
@@ -2283,6 +2296,28 @@ sobald es nicht das Original ist.
 | --- | --- | --- |
 | Punkte je Sieg | 2 (Tabelle zeigt Punkte:Minuspunkte) | 3 (Tabelle zeigt nur die Punkte) |
 | Auswechslungen je Spiel | 1 Torwart + 2 Feldspieler | 5, unabhängig von der Position |
+| Ersatzbank | 4 (Nummern 12..15) | 5 (Nummern 12..16) |
+| Wiedereinwechslung | erlaubt (wer ausgewechselt ist, sitzt mit Nummer ab 12 wieder auf der Bank) | verboten |
+| Jugendarbeit | keine | ja, außer im 1-Jahres-Spiel |
+| Bestenliste | HIGH.<Spielart><Level> | eigene Datei HIGH26.<Spielart><Level> |
+| Eigene Torszenen in der Konferenz | nie | mit Chance 1/10 statt der gewürfelten |
+
+**Bank und Wechsel (AUDIT-2026 B19).** Mit vier Ersatzleuten ging der fünfte Wechsel nur als
+Rückwechsel eines schon Ausgewechselten. Die Version 2026 hat deshalb fünf: die Automatik
+(`autoLineup` mit Bank) setzt nach den vier Ersatzleuten je Mannschaftsteil noch den stärksten
+übrigen Feldspieler als Nummer 16 (ohne Feldspieler den stärksten übrigen Torwart), die
+Nummernpflege des Hauptmenüs hat die Grenze 16 statt 15 (`hoechsteBankNummer`), ein im Spiel
+Ausgewechselter trägt also 17 und wird danach zur 16 oder verliert die Nummer. Wer ausgewechselt
+wurde, merkt sich die Konferenz (`LiveState.ausgewechselt`); er darf nicht wieder hinein ("Ausgewechselte
+dürfen nicht zurück"). Und die Bank steht mit dem Anpfiff fest: im laufenden Spiel bekommt kein
+Spieler ohne Nummer eine (Tribüne gegen Ausgewechselten tauschen ginge sonst). In der
+Verlängerung gibt es weiter einen sechsten Wechsel - mit fünf Ersatzleuten ist er nur möglich,
+wenn vorher höchstens vier gewechselt wurden. Die Stärke zählt wie immer die Nummern 1..11.
+
+**Bestenliste (AUDIT-2026 B21).** Die Punkte eines 2026-Spiels entstehen nach anderen Regeln
+(Zinsobergrenze, Derby, Doping, ablösefreie Abgänge); sie stehen deshalb in einer eigenen Datei
+`HIGH26.<Spielart><Level>` im Spielstandordner (8.3-Name), die das Original nie öffnet. Die
+Anzeige trägt unten "VERSION 2026".
 
 Die Punktzahlen stehen weiter in den Tabellenbytes 0 und 1 (Heim- und Auswärtspunkte); bei 38
 Spieltagen und drei Punkten passt die Summe weiter in ein Byte. Unentschieden bleibt in beiden
@@ -2491,6 +2526,12 @@ Im Original ist die Jugend eine Zahl im Etat (Managerbyte 319) und gelegentlich 
 im Kader steht (0x0CE84). In der Version 2026 hat jeder Manager **drei Mannschaften** mit je
 zwölf Plätzen: C-Jugend (13/14), B-Jugend (15/16), A-Jugend (17/18) - bis #112 war die A-Jugend
 16/17. Förderung zahlen nur Spieler-Manager.
+
+**Nicht im 1-Jahres-Spiel** (AUDIT-2026 B20, `jugendAktiv`): das Spiel endet dort vor dem ersten
+Saisonwechsel der Jugend, die A-Jugend (17/18) würde nie reif, und die Förderung kostete nur Geld
+(und damit Bestenlistenpunkte). Ein neues 1-Jahres-Spiel legt deshalb keine Jugend an, das
+Menü zeigt den Knopf nicht, /api/jugend lehnt ab, und die Monatsabrechnung bucht nichts - auch
+in einem Stand, der vor B20 schon Mannschaften bekommen hatte.
 
 **Zwei Hebel je Spieler** (lhunos Vorgabe vom 17.9.2026): **Geld** bezahlt die Betreuung
 (2.000 DM je Spieler und Monat, gebucht mit der Monatsabrechnung), **Training** treibt an

@@ -54,3 +54,17 @@ export function substitutionLimits(g: GameState): SubstitutionLimits {
 export function ruleName(g: GameState): string {
   return is2026(g) ? "VERSION 2026" : "ORIGINAL";
 }
+
+/**
+ * Ersatzbank: im Original vier Mann (Nummern 12..15, Reservegrenze 4238:56EE = 15), in der
+ * Version 2026 fünf (12..16) - sonst ginge der fünfte Wechsel nur als Wiedereinwechslung
+ * (AUDIT-2026 B19).
+ */
+export function bankGroesse(g: GameState): number {
+  return is2026(g) ? 5 : 4;
+}
+
+/** Höchste Banknummer: 15 im Original (4238:56EE), 16 in der Version 2026. */
+export function hoechsteBankNummer(g: GameState): number {
+  return 11 + bankGroesse(g);
+}

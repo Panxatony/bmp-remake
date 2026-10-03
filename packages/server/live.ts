@@ -180,6 +180,11 @@ export interface LiveState {
   verletzung?: { manager: number; name: string };
   subs: Record<number, { goalkeeper: number; field: number }>;
   /**
+   * Version 2026: wer in dieser Konferenz ausgewechselt wurde (Spielernummern je Manager). Er darf
+   * nicht wieder hinein (AUDIT-2026 B19); das Original kennt den Merker nicht.
+   */
+  ausgewechselt?: Record<number, number[]>;
+  /**
    * Einsätze je Spieler (Spielernummer) vor dem Anpfiff (Liga, Pokal, Europapokal). Der Kaderteil
    * der Spielvorbereitung zählt sie schon beim Anpfiff hoch; die Dopingprüfung nach dem Tag erkennt
    * daran, wer gespielt hat - über den Spieler, nicht den Kaderplatz (AUDIT-2026 A23).
@@ -231,6 +236,25 @@ export function pickScene(rng: Rng, goal: boolean, available: Set<string>): { id
     if (available.has(j)) name = j;
   }
   return { id: available.has(name) ? name : `10.${suffix}`, elfmeter };
+}
+
+/** Version 2026: Chance 1 zu n, dass statt der gewürfelten Szene eine eigene läuft (B22). */
+export const EIGENE_SZENE_CHANCE = 10;
+
+/**
+ * Eigene Torszene der Version 2026 (AUDIT-2026 B22): mit dem Editor gebaute Szenen (Namen mit
+ * einem Buchstaben vorn, Endung .T für Tor, .V für die vergebene Chance) kommen mit Chance
+ * 1/EIGENE_SZENE_CHANCE statt der gewürfelten Szene. Gewürfelt wird mit `zufall`, nicht mit dem
+ * Würfel des Spiels: `pickScene` hat seine Würfe davor schon getan, die Zufallsfolge des Spiels
+ * bleibt also dieselbe, ob es eigene Szenen gibt oder nicht. Elfmeterszenen bleiben, wie sie
+ * sind (der Elfmeter entscheidet über die Vorlage).
+ */
+export function eigeneSzene(goal: boolean, eigene: readonly string[], zufall: () => number): string | undefined {
+  const endung = goal ? ".T" : ".V";
+  const passend = eigene.filter((n) => n.endsWith(endung) && /^[a-z]/i.test(n));
+  if (passend.length === 0) return undefined;
+  if (Math.floor(zufall() * EIGENE_SZENE_CHANCE) !== 0) return undefined;
+  return passend[Math.min(passend.length - 1, Math.floor(zufall() * passend.length))];
 }
 
 /**
@@ -411,7 +435,7 @@ function halbzeitStaerke(state: LiveState, g: GameState, rng: Rng): void {
 }
 
 /** Ein Zeitschritt; true, wenn sich etwas geändert hat. */
-export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<string>): boolean {
+export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<string>, eigene: readonly string[] = [], zufall: () => number = Math.random): boolean {
   if (state.finished || state.paused) return false;
   const now = Date.now();
   if (state.scene) {
@@ -428,7 +452,7 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
   if (state.sceneQueue.length) {
     const s = state.sceneQueue.shift()!;
     s.started = now;
-    s.until = now + sceneDuration(s.id, scenes);
+    s.until = now + sceneDuration(s.id, scenes, eigene);
     state.scene = s;
     return true;
   }
@@ -502,7 +526,12 @@ export function tick(state: LiveState, g: GameState, rng: Rng, scenes: Set<strin
       // 0x1502C): war es ein Elfmeter, zählt keine Vorlage (GitLab #85).
       const matchType = e.kind === "league" ? 0 : e.cup === 0 ? 1 : 2;
       const beteiligt = e.managerHome !== undefined || e.managerAway !== undefined;
-      const szene = state.scenesOn && beteiligt ? pickScene(rng, c.goal, scenes) : undefined;
+      let szene = state.scenesOn && beteiligt ? pickScene(rng, c.goal, scenes) : undefined;
+      // Version 2026: ab und zu eine im Editor gebaute Szene (B22), ohne Wurf des Spiels
+      if (szene && !szene.elfmeter && eigene.length > 0 && is2026(g)) {
+        const id = eigeneSzene(c.goal, eigene, zufall);
+        if (id) szene = { id, elfmeter: false };
+      }
       const booked = bookEvents(g, e.home, e.away, { home: e.match.hg, away: e.match.ag, events: [{ minute: c.minute, side: c.side, goal: c.goal }] }, matchType, rng, [szene?.elfmeter ?? false]);
       e.scorers.push(...booked);
       if (szene) queueScene(state, e, c, szene.id, booked[0]);
@@ -596,9 +625,9 @@ const frameCounts = new Map<string, number>();
 export function setSceneFrames(id: string, frames: number): void {
   frameCounts.set(id, frames);
 }
-function sceneDuration(id: string, scenes: Set<string>): number {
+function sceneDuration(id: string, scenes: Set<string>, eigene: readonly string[] = []): number {
   const frames = frameCounts.get(id) ?? 50;
-  return (scenes.has(id) ? frames * SCENE_FRAME_MS : 0) + SCENE_HOLD_MS;
+  return (scenes.has(id) || eigene.includes(id) ? frames * SCENE_FRAME_MS : 0) + SCENE_HOLD_MS;
 }
 
 function cardSummary(st?: IncidentState): { yellow: number; red: number; injured: number; players: number } | null {
@@ -742,6 +771,16 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
   // Einwechseln lässt sich nur ein Spieler mit Nummer, also von der Bank (0x208E1: "Spieler ist
   // nicht aufgestellt")
   if (ins.some((slot) => before[slot * 52 + 10] === 0)) return { ok: false, error: texte("ui.spielerist").join(" ") };
+  if (is2026(g)) {
+    // Version 2026 (B19): kein Rückwechsel - wer draußen ist, bleibt draußen. Und die Bank steht
+    // mit dem Anpfiff fest: niemand rückt von der Tribüne (Nummer 0) auf die Bank nach (S U1)
+    const raus = state.ausgewechselt?.[manager] ?? [];
+    if (ins.some((slot) => raus.includes(g.lineups.at(manager * 25 + slot).playerIndex))) return { ok: false, error: "Ausgewechselte d}rfen nicht zur}ck" };
+    for (let slot = 0; slot < 25; slot++) {
+      const l = g.lineups.at(manager * 25 + slot);
+      if (!l.isEmpty && before[slot * 52 + 10] === 0 && l.number !== 0) return { ok: false, error: "Die Bank steht seit dem Anpfiff fest" };
+    }
+  }
   const used = (state.subs[manager] ??= { goalkeeper: 0, field: 0 });
   let gk = 0;
   let field = 0;
@@ -778,7 +817,8 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
   // Der Herausgenommene bekommt im Spiel die kleinste freie Nummer ab 12 (0x20661-0x20809,
   // 0x20B12) - gesucht, solange der Eingewechselte seine Banknummer noch trägt: bei voller Bank
   // 12..15 also 16. Das nächste Hauptmenü macht daraus 15 oder 0 (nummernPflege). Bis #131
-  // tauschten die beiden nur ihre Nummern (Audit 2 E17).
+  // tauschten die beiden nur ihre Nummern (Audit 2 E17). In der Version 2026 (Bank 12..16) ist
+  // es die 17.
   const vergeben = new Set<number>();
   for (let slot = 0; slot < 25; slot++) {
     if (outs.includes(slot) || g.lineups.at(manager * 25 + slot).isEmpty) continue;
@@ -790,6 +830,10 @@ export function applySubstitutions(state: LiveState, g: GameState, manager: numb
     while (vergeben.has(n)) n++;
     vergeben.add(n);
     g.lineups.at(manager * 25 + slot).setU8(10, n);
+  }
+  if (is2026(g) && outs.length > 0) {
+    const liste = ((state.ausgewechselt ??= {})[manager] ??= []);
+    for (const slot of outs) liste.push(g.lineups.at(manager * 25 + slot).playerIndex);
   }
   // Der Eingewechselte bekommt einen Einsatz im Wettbewerb (Kaderbyte 6/7/8), in der Liga dazu
   // Spielerbyte 35, und Frische + 4 + random(2,4) (0x20E0B bis 0x20E72); die 16-Bit-Zähler der

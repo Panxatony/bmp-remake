@@ -65,7 +65,12 @@ test("Regelwerk: neues Spiel schreibt die Wahl in den Spielstand", () => {
   assert.equal(gleich(2345, 5457), -1, "Manager");
   assert.equal(gleich(5557, 12357), -1, "Vereine");
   assert.equal(gleich(15813, 21400), -1, "Spieler");
-  assert.equal(gleich(21400, 21400 + 100 * 52), -1, "Kader der Manager");
+  // Kader gleich bis auf den fünften Ersatzmann der Version 2026 (Nummer 16, AUDIT-2026 B19)
+  const kaderDiff: number[] = [];
+  for (let i = 21400; i < 21400 + 100 * 52; i++) if (x[i] !== y[i]) kaderDiff.push(i);
+  assert.equal(kaderDiff.length, 1, "Kader der Manager");
+  assert.equal((kaderDiff[0] - 21400) % 52, 10, "nur eine Rückennummer");
+  assert.deepEqual([x[kaderDiff[0]], y[kaderDiff[0]]], [0, 16]);
   assert.equal(x[RULES_OFFSET], RULES_ORIGINAL);
   assert.equal(y[RULES_OFFSET], RULES_2026);
 });

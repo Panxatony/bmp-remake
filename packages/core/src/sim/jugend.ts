@@ -35,6 +35,7 @@
 import type { GameState } from "../records.ts";
 import type { Rng } from "./match.ts";
 import { is2026 } from "./regeln.ts";
+import { spielart } from "./newgame.ts";
 import { kurBeimWechselBeenden } from "./doping.ts";
 import { texte } from "../data/texte.ts";
 import { addBalance, slotBytes, setSlotBytes, removePlace, kaderVoll, kaderZahl } from "./transfer.ts";
@@ -228,6 +229,18 @@ export function jugendSchreiben(g: GameState, daten: Jugendspieler[][][]): void 
   g.save.anhang = a;
 }
 
+/** Fehlertext, wenn es keine Jugendarbeit gibt (`jugendAktiv`). */
+export const JUGEND_GESPERRT = "Jugend nur in der Version 2026 und nicht im 1-Jahres-Spiel";
+
+/**
+ * Gibt es in diesem Spielstand Jugendarbeit? Nur in der Version 2026 und nicht im 1-Jahres-Spiel:
+ * dort endet das Spiel vor dem ersten Saisonwechsel der Jugend, niemand könnte aufrücken, und die
+ * Förderung kostete nur Geld (AUDIT-2026 B20).
+ */
+export function jugendAktiv(g: GameState): boolean {
+  return is2026(g) && spielart(g) !== 1;
+}
+
 /** Hat dieser Spielstand schon Jugendmannschaften? */
 export function jugendVorhanden(g: GameState): boolean {
   return jugendLesen(g).some((m) => m.some((t) => t.some((s) => s.name !== "")));
@@ -279,7 +292,7 @@ export function jugendFehlt(g: GameState, manager: number): boolean {
  * angelegt wurde.
  */
 export function jugendAnlegen(g: GameState, rng: Rng): number[] {
-  if (!is2026(g)) return [];
+  if (!jugendAktiv(g)) return [];
   const daten = jugendLesen(g);
   const neu: number[] = [];
   daten.forEach((mannschaften, m) => {
@@ -324,7 +337,7 @@ export const gefoerderte = (g: GameState, manager: number, team: number): number
   (jugendLesen(g)[manager]?.[team] ?? []).filter(wirdGefoerdert).length;
 
 export function foerdern(g: GameState, manager: number, team: number, platz: number, geld?: boolean, training?: number): { ok: boolean; error?: string } {
-  if (!is2026(g)) return { ok: false, error: "Nur in der Version 2026" };
+  if (!jugendAktiv(g)) return { ok: false, error: JUGEND_GESPERRT };
   const daten = jugendLesen(g);
   const mannschaft = daten[manager]?.[team];
   const s = mannschaft?.[platz];
@@ -356,7 +369,7 @@ export function jugendKosten(g: GameState, manager: number): number {
 
 /** Kosten der Förderung buchen (Monatsabrechnung). */
 export function jugendMonat(g: GameState, manager: number): number {
-  if (!is2026(g)) return 0;
+  if (!jugendAktiv(g)) return 0;
   const betrag = jugendKosten(g, manager);
   if (betrag > 0) addBalance(g, manager, -betrag);
   return betrag;
@@ -386,7 +399,7 @@ export interface JugendEreignis {
  */
 export function jugendSaison(g: GameState, rng: Rng): JugendEreignis[] {
   const ereignisse: JugendEreignis[] = [];
-  if (!is2026(g)) return ereignisse;
+  if (!jugendAktiv(g)) return ereignisse;
   // Wem die Mannschaften noch fehlen, der bekommt sie vorher (AUDIT-2026 A28): sonst füllte der
   // Saisonwechsel aus leeren Daten nur die C-Jugend auf, und B- und A-Jugend blieben jahrelang leer
   jugendAnlegen(g, rng);
@@ -517,7 +530,7 @@ export type AufrueckErgebnis =
  * fast nichts.
  */
 export function jugendAufruecken(g: GameState, manager: number, platz: number, rng: Rng): AufrueckErgebnis {
-  if (!is2026(g)) return { ok: false, error: "Nur in der Version 2026" };
+  if (!jugendAktiv(g)) return { ok: false, error: JUGEND_GESPERRT };
   const daten = jugendLesen(g);
   const team = JUGEND_TEAMS - 1;
   const s = daten[manager]?.[team]?.[platz];
@@ -562,7 +575,7 @@ export type JugendAbwerbung =
  * aufpassen. Ablöse und Zustimmung rechnen wie beim Abwerben aus dem Kader.
  */
 export function jugendAbwerben(g: GameState, poacher: number, owner: number, place: number, bonus: number, rng: Rng): JugendAbwerbung {
-  if (!is2026(g)) return { ok: false, error: "Nur in der Version 2026" };
+  if (!jugendAktiv(g)) return { ok: false, error: JUGEND_GESPERRT };
   if (poacher === owner) return { ok: false, error: "Das ist Ihr eigener Spieler" };
   if (jugendAbwerbungen(g, poacher) >= JUGEND_MAX_ABWERBEN) return { ok: false, error: "Diese Saison haben Sie schon einen Jugendspieler geholt" };
   const l = g.lineups.at(owner * 25 + place);
