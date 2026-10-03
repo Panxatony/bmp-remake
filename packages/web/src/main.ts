@@ -4,7 +4,7 @@
  * Tabelle, Finanzen, Stadion und Meldungen und schreibt den geänderten
  * Spielstand als *.MAN zurück.
  */
-import { SaveFile, GameState, spielart, endjahr, replays, fixtures, vereinsInfo, restprogramm, restStartRueck, infoX, INFO_Y, INFO_BREITE, INFO_HOEHE, type InfoBefehl, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, bestenliste, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, restWochen, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, injuryKind, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendFehlt, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, CUP_ROUND, dateOfSeasonDay, seasonStartYear, insertHighscore, highscoreEntry, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer, kreditFaelligAm, jugendVorhanden } from "../../core/src/index.ts";
+import { SaveFile, GameState, spielart, endjahr, replays, fixtures, vereinsInfo, restprogramm, restStartRueck, infoX, INFO_Y, INFO_BREITE, INFO_HOEHE, type InfoBefehl, sperreAusgesetzt, text as T, texte, dosText, statistics, allTimeTable, allTimeBalance, seriesRows, recordRows, roundNames, cupNames, strengthTable, strengthModes, tableOrder, matchdayView, matchdayDate, clubStrength, bestenliste, squadScorers, cupView, LEAGUES, shirtContract, boardContract, offerAmount, offerYears, advertisingAmount, trainingSettings, trainingBars, TRAINING_BUDGET, camps, campTraits, CAMP_OPEN_START, campCost, stadiumState, stadiumCapacity, stadiumKinds, buildWeeks, restWochen, stadiumMessages, sizeNames, statusNames, TICKET_RANGE, LOAN_MONTHS, LOAN_RATE_MIN, loanRate, lenderDebt, BANK, MARKET_MANAGER, OFFER_SQUAD, SYSTEM_NAMES, SYSTEM_OFFSET, playerInfo, nextCupDate, dayIndex, seasonDay, winPoints, is2026, ruleName, poachPrice, poachAmount, poachChance, poachLeft, poachAllowedFrom, salaryDemand, contractRefusals, squadHelp, tendencyWords, liveTexts, shootoutTexts, POACH_MAX_BONUS, POACH_MAX_PER_OWNER, DERBY_STAKES, POACH_COUNTER_MAX, MED_LEVELS, medRows, medCost, injuries, injuryKind, dopingRows, dopingRisk, isDoped, isDopeBanned, dopeApps, dopeBonus, DOPING_BONUS, DOPING_FRESH, DOPING_BAN, DOPING_FINE_BASE, DOPING_FINE_PERCENT, DOPING_MAX_CURES, dopingFine, baueSzene, pruefeBeschreibung, SZENE_GRENZEN, jugendLesen, jugendStaerke, jugendFehlt, jugendKosten, jugendChance, jugendRisiko, jugendSprung, istReif, aufruecker, jugendAbwerbungen, JUGEND_MAX_ABWERBEN, JUGEND_MAX_FOERDERUNG, wirdGefoerdert, jugendHerkunft, JUGEND_NAMEN, JUGEND_ALTER, JUGEND_KOSTEN, JUGEND_PLAETZE, JUGEND_TRAINING, JUGEND_MAX_AUFRUECKER, JUGEND_TEAMS, CUP_ROUND, dateOfSeasonDay, seasonStartYear, insertHighscore, highscoreEntry, type Beschreibung, type Szene, type Figur, type Lineup, type Standing, type MarketEntry, type SaleOffer, kreditFaelligAm, jugendVorhanden, jugendAktiv } from "../../core/src/index.ts";
 import { Assets, Sounds, COLORS, W, H, bevel, panel, button, hline, drawIcon, drawIconOver, toGame, upperGame, cp437ToGame, dm, type Font } from "./gfx.ts";
 import { Scenes, SCENE_FRAME_MS, VIEW, type SceneData } from "./scene.ts";
 
@@ -416,6 +416,8 @@ class App {
   /** Torszenen-Editor (GitLab #6): Beschreibung, gebaute Szene und Bedienzustand */
   /** Hat dieser Sitzung die Hilfe des Editors schon gesehen? */
   editorGesehen = false;
+  /** Szenen, die die Konferenz schon einmal nachgeladen hat (B22) */
+  szenenNachgeholt = new Set<string>();
   editor: {
     b: Beschreibung;
     szene: Szene | null;
@@ -431,6 +433,8 @@ class App {
     wieImSpiel: boolean;
     /** Namen der auf dem Server abgelegten Szenen, für den Schalter SZENE >. */
     namen: string[];
+    /** LÖSCHEN einmal geklickt: der zweite Klick löscht diese Szene (B26). */
+    loeschen?: string;
   } | null = null;
   /** Medizin: Arzt oder Doping */
   medView: "arzt" | "doping" = "arzt";
@@ -1624,6 +1628,11 @@ class App {
     if (live) {
       this.wasLive = true;
       if (!this.scenes.ready) void this.scenes.load("").then(() => this.render());
+      // Eine eigene Szene, die nach dem Laden des Katalogs gespeichert wurde (B22): einmal neu holen
+      else if (live.scene && !this.scenes.data?.[live.scene.id] && !this.szenenNachgeholt.has(live.scene.id)) {
+        this.szenenNachgeholt.add(live.scene.id);
+        void this.scenes.neuLaden("").then(() => this.render());
+      }
       const wasPaused = before?.paused ?? false;
       const away = this.screen !== "live" && this.screen !== "squad";
       const seitenlauf = live.paused && (live.pausedBy === "HALBZEIT" || live.pausedBy === "SCHLUSS");
@@ -2686,6 +2695,8 @@ class App {
       s.drawRight(ctx, String(e.points), 242, y, INK, false);
       s.draw(ctx, `(${e.titles[0]}/${e.titles[1]}/${e.titles[2]})`, 243, y, INK, false);
     });
+    // Die Version 2026 hat ihre eigene Liste (HIGH26.xy, B21) - darunter steht, welche es ist
+    if (g && is2026(g)) s.drawCenter(ctx, ruleName(g), 160, 233, COLORS.white);
     this.hit(0, 0, W, H, () => {
       this.highscoreVorlaeufig = false;
       this.go(this.server.spielende ? "ende" : "menu");
@@ -3616,8 +3627,8 @@ class App {
           // Im 1-Jahres-Spiel ist die Werbung fest, der Knopf nimmt keinen Klick an (0xA370, #133)
           if (!(this.game && spielart(this.game) === 1)) this.go("werbung");
         } }],
-        // Jugendarbeit gibt es nur in der Version 2026 (sim/jugend.ts)
-        [this.game && is2026(this.game) && this.online ? { bild: "jugend", action: () => void this.jugendOeffnen() } : null, null, null],
+        // Jugendarbeit gibt es nur in der Version 2026 und nicht im 1-Jahres-Spiel (sim/jugend.ts, B20)
+        [this.game && jugendAktiv(this.game) && this.online ? { bild: "jugend", action: () => void this.jugendOeffnen() } : null, null, null],
       ],
       wappen: [
         [{ icon: "tabBL", action: league(0, "table") }, { icon: "tab2", action: league(1, "table") }, { icon: "tab3", action: league(2, "table") }],
@@ -4106,6 +4117,8 @@ class App {
 
   /** Jugendbildschirm öffnen; fehlen die Mannschaften noch, legt der Server sie an (AUDIT-2026 A28). */
   async jugendOeffnen(): Promise<void> {
+    // Nicht im 1-Jahres-Spiel (B20); der Knopf fehlt dort ohnehin
+    if (!this.game || !jugendAktiv(this.game)) return;
     if (this.game && jugendFehlt(this.game, this.manager)) await this.post("api/jugend", { manager: this.manager, player: this.player, was: "anlegen" });
     this.jugendPlatz = -1;
     this.go("jugend");
@@ -4405,7 +4418,9 @@ class App {
     const s = this.assets.micro;
     const sc = this.scenes;
     panel(ctx, 0, 114, 320, 126);
-    s.drawRight(ctx, toGame(`BILD ${e.bild + 1} VON ${e.b.bilder}`), 314, 120, COLORS.white);
+    // Zahl der Figuren und Marken steht hier mit, unten sitzt LÖSCHEN (B26)
+    const marken = (e.b.figuren[e.figur]?.bahn ?? []).length;
+    s.drawRight(ctx, toGame(`${e.b.figuren.length} FIGUREN, ${marken} MARKEN - BILD ${e.bild + 1} VON ${e.b.bilder}`), 314, 120, COLORS.white);
     // Zeitleiste
     const leiste = { x: 6, y: 132, w: 308, h: 7 };
     ctx.fillStyle = "#303051";
@@ -4491,10 +4506,11 @@ class App {
     knopf(e.namen.length ? "SZENE >" : "KEINE", 124, 204, 52, () => {
       if (e.namen.length) void this.editorNaechsteSzene();
     });
+    // Löschen dürfen nur Besitzer und Präsident (B26); der Server prüft das
+    knopf(toGame("LÖSCHEN"), 180, 204, 52, () => void this.editorLoeschen(), e.loeschen === e.b.name);
     // Hinweiszeile: sie sagt, was der nächste Klick ins Feld bewirkt
     const fehler = pruefeBeschreibung(e.b);
     const wer = (figur?.name ?? "").toUpperCase();
-    const marken = (e.b.figuren[e.figur]?.bahn ?? []).length;
     const text =
       e.meldung ||
       (fehler.length
@@ -4503,7 +4519,7 @@ class App {
           ? "ZUM SETZEN ZUR]CK AUF DAS GANZE FELD SCHALTEN"
           : `KLICK INS FELD: ${wer} STEHT BEI BILD ${e.bild + 1} DORT`);
     s.draw(ctx, toGame(text).slice(0, 62), 6, 220, fehler.length ? COLORS.red : COLORS.text);
-    s.drawRight(ctx, toGame(`${e.b.figuren.length} FIGUREN, ${marken} MARKEN`), 262, 204, COLORS.textDim);
+
     f.draw(ctx, toGame(`Szene: ${e.b.name}`), 6, 118, COLORS.white, false);
     // Klick ins Spielfeld: trifft er eine andere Figur, wählt er sie aus - sonst setzt er die
     // gewählte an diese Stelle. Ohne das Auswählen per Klick müsste man sich durchschalten.
@@ -4537,7 +4553,7 @@ class App {
         e.b = antwort.beschreibung;
         e.figur = 0;
         e.bild = 0;
-        e.meldung = `GELADEN: ${name.toUpperCase()}`;
+        e.meldung = `GELADEN: ${name.toUpperCase()}${antwort.beschreibung.besitzer ? ` (VON ${antwort.beschreibung.besitzer.toUpperCase()})` : ""}`;
         this.editorBauen();
       } else e.meldung = `${name.toUpperCase()} NICHT GEFUNDEN`;
     } catch {
@@ -4572,7 +4588,8 @@ class App {
       ["3. INS SPIELFELD KLICKEN - DORT STEHT SIE BEI DIESEM BILD.", "h"],
       ["4. WEITERE BILDER, WEITERE KLICKS: DAS ERGIBT DEN LAUFWEG.", "h"],
       ["5. SPIEL SPIELT DIE SZENE IM TAKT DES SPIELS AB.", "h"],
-      ["6. SPEICHERN - SIE L[UFT SOFORT IN DER KONFERENZ MIT.", "h"],
+      ["6. SPEICHERN - IN RUNDEN DER VERSION 2026 L[UFT SIE AB UND", "h"],
+      ["   ZU IN DER KONFERENZ MIT (STATT EINER SZENE DES ORIGINALS).", "h"],
       ["", "d"],
       ["ZWIEBEL LEGT DAS VORIGE BILD BLASS DARUNTER.", "d"],
       ["AUSSEHEN W[HLT DAS SPRITE: 0-58 UND 59-117 SIND SPIELER IN", "d"],
@@ -4583,6 +4600,8 @@ class App {
       ["", "d"],
       ["GESPEICHERT WIRD AUF DEM SERVER: DIE BESCHREIBUNG NACH", "d"],
       ["TORE-EIGEN, DIE FERTIGEN BILDER NACH ASSETS/EIGEN/TORE.", "d"],
+      ["]BERSCHREIBEN UND L\\SCHEN D]RFEN NUR WER SIE ANGELEGT HAT", "d"],
+      ["UND DER PR[SIDENT.", "d"],
     ];
     let y = 28;
     for (const [zeile, art] of zeilen) {
@@ -4636,10 +4655,53 @@ class App {
   async editorSpeichern(): Promise<void> {
     const e = this.editor;
     if (!e) return;
+    e.loeschen = undefined;
     const antwort = await this.post("api/szene", { was: "speichern", beschreibung: e.b });
     e.meldung = antwort.ok ? `GESPEICHERT: ${e.b.name.toUpperCase()} (${e.b.bilder} BILDER)` : (antwort.message ?? "SPEICHERN FEHLGESCHLAGEN").toUpperCase();
-    if (antwort.ok) await this.scenes.neuLaden("");
+    if (antwort.ok) {
+      await this.scenes.neuLaden("");
+      await this.editorNamenHolen();
+    }
     this.render();
+  }
+
+  /**
+   * Szene auf dem Server löschen (B26): das dürfen nur ihr Besitzer und der Präsident. Der erste
+   * Klick fragt nach, der zweite löscht.
+   */
+  async editorLoeschen(): Promise<void> {
+    const e = this.editor;
+    if (!e) return;
+    const name = e.b.name;
+    if (!e.namen.includes(name)) {
+      e.meldung = `${name.toUpperCase()} IST NICHT GESPEICHERT`;
+      return this.render();
+    }
+    if (e.loeschen !== name) {
+      e.loeschen = name;
+      e.meldung = toGame(`NOCH EINMAL LÖSCHEN: ${name.toUpperCase()} WIRD ENTFERNT`);
+      return this.render();
+    }
+    e.loeschen = undefined;
+    const antwort = await this.post("api/szene", { was: "loeschen", name });
+    e.meldung = antwort.ok ? toGame(`GELÖSCHT: ${name.toUpperCase()}`) : (antwort.message ?? "L\\SCHEN FEHLGESCHLAGEN").toUpperCase();
+    if (antwort.ok) {
+      await this.scenes.neuLaden("");
+      await this.editorNamenHolen();
+    }
+    this.render();
+  }
+
+  /** Namen der abgelegten Szenen neu holen (nach Speichern und Löschen). */
+  async editorNamenHolen(): Promise<void> {
+    const e = this.editor;
+    if (!e) return;
+    try {
+      const liste = (await (await fetch("api/szene", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ was: "liste" }) })).json()) as { namen?: string[] };
+      e.namen = liste.namen ?? e.namen;
+    } catch {
+      /* Liste bleibt */
+    }
   }
 
   /** Kleiner Schrittschalter (+/-), so hoch wie eine Zeile der kleinen Schrift. */

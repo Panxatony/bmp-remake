@@ -89,6 +89,8 @@ export interface Fassung {
 export interface Beschreibung {
   name: string;
   autor?: string;
+  /** Benutzer, der die Szene zuerst gespeichert hat; setzt nur der Server (AUDIT-2026 B26). */
+  besitzer?: string;
   bilder: number;
   /** Bis zu vier Bildnummern für die Klänge (null = keiner). */
   klaenge?: (number | null)[];

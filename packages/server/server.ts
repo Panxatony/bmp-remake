@@ -19,7 +19,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile, writeFile, readdir, stat } from "node:fs/promises";
-import { existsSync, readFileSync, writeFileSync, statSync, readdirSync, mkdirSync, copyFileSync, renameSync, chmodSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, statSync, readdirSync, mkdirSync, copyFileSync, renameSync, chmodSync, rmSync } from "node:fs";
 import { join, extname, resolve, sep } from "node:path";
 import { randomBytes, createHash } from "node:crypto";
 import {
@@ -40,6 +40,8 @@ import {
   jugendMonat,
   jugendSaison,
   jugendAnlegen,
+  jugendAktiv,
+  JUGEND_GESPERRT,
   jugendLesen,
   jugendSchreiben,
   foerdern,
@@ -236,7 +238,7 @@ const web = resolve(root, "packages/web");
 const savesDir = process.env.BMP_DIR ?? resolve(root, "../bmp");
 const usersFile = process.env.BMP_USERS ?? join(savesDir, "users.json");
 
-/** Highscore-Datei des Startjahrs lesen (0x34474: HIGH.00/01/02 im Spielstandordner). */
+/** Highscore-Datei lesen (0x34474: HIGH.xy im Spielstandordner, Version 2026 HIGH26.xy - B21). */
 function loadHighscore(g: GameState): HighscoreEntry[] {
   const file = join(savesDir, highscoreFile(g));
   if (!existsSync(file)) return [];
@@ -303,6 +305,35 @@ try {
 } catch {
   /* ohne Szenen läuft die Konferenz ohne Animation */
 }
+
+/**
+ * Im Editor gebaute Szenen (assets/eigen/tore/szenen.json, z.B. "konter.T"). Die Konferenz der
+ * Version 2026 zieht sie ab und zu statt der gewürfelten Szene (AUDIT-2026 B22); /api/szene hält
+ * die Liste beim Speichern und Löschen aktuell.
+ */
+const eigeneSzenenOrdner = join(root, "assets", "eigen", "tore");
+let eigeneSzenen: string[] = [];
+function eigeneSzenenLaden(): void {
+  let liste: string[] = [];
+  try {
+    liste = JSON.parse(readFileSync(join(eigeneSzenenOrdner, "szenen.json"), "utf8")) as string[];
+  } catch {
+    /* noch keine eigenen Szenen */
+  }
+  eigeneSzenen = [];
+  for (const name of liste) {
+    // Nur Namen mit einem Buchstaben vorn (A16) - eine Nummer gehört dem Original
+    if (typeof name !== "string" || !/^[a-z][a-z0-9_-]*\.[TV]$/i.test(name)) continue;
+    try {
+      const sc = JSON.parse(readFileSync(join(eigeneSzenenOrdner, `${name}.json`), "utf8")) as { frames: unknown[] };
+      setSceneFrames(name, sc.frames.length);
+      eigeneSzenen.push(name);
+    } catch {
+      /* Datei fehlt: die Szene läuft nicht */
+    }
+  }
+}
+eigeneSzenenLaden();
 
 // ---- Benutzer und Sitzungen ------------------------------------------------
 
@@ -1491,7 +1522,7 @@ function startLiveDay(r: Room): void {
   r.liveTimer = setInterval(() => {
     if (!r.live) return;
     const vorher = r.live.news.length;
-    const changed = tick(r.live, r.game, r.rng, sceneNames);
+    const changed = tick(r.live, r.game, r.rng, sceneNames, eigeneSzenen);
     // Verletzt sich ein Spieler eines Managers, hält das Original die Konferenz an und öffnet
     // den Kaderbildschirm - dort kann man auswechseln (GitLab #16).
     for (const n of r.live.news.slice(vorher)) {
@@ -3185,7 +3216,8 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
   if (p === "/api/jugend") {
     // Jugendarbeit (Version 2026, #4): Mannschaften anlegen und Förderung schalten
     if (!mine) return json(res, 403, { error: "nicht dein Manager" });
-    if (!is2026(room.game)) return json(res, 400, { error: "Nur in der Version 2026" });
+    // Nur in der Version 2026 und nicht im 1-Jahres-Spiel (AUDIT-2026 B20)
+    if (!jugendAktiv(room.game)) return json(res, 400, { error: JUGEND_GESPERRT });
     const was = String(body.was ?? "foerdern");
     // Aufrücken und Abwerben ändern den Kader - nicht im laufenden Spiel (AUDIT-2026 A11)
     if (room.live && (was === "aufruecken" || was === "abwerben")) return json(res, 409, { error: "Die Konferenz läuft" });
@@ -3272,8 +3304,36 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     // Torszenen-Editor (GitLab #6): Beschreibungen liegen in tore-eigen/, die gebauten Szenen
     // in assets/eigen/tore/ - von dort lädt sie der Browser zum Katalog des Originals dazu.
     const quelle = join(root, "tore-eigen");
-    const ziel = join(root, "assets", "eigen", "tore");
+    const ziel = eigeneSzenenOrdner;
     const was = String(body.was ?? "liste");
+    // Rechte (AUDIT-2026 B26): eine Szene gehört dem, der sie zuerst gespeichert hat (Feld
+    // "besitzer" der Beschreibung). Überschreiben und löschen dürfen nur er und der Präsident;
+    // Szenen ohne Besitzer (vor B26 gespeichert oder mitgeliefert) nur der Präsident.
+    const besitzerVon = (name: string): { da: boolean; besitzer?: string } => {
+      try {
+        const alt = JSON.parse(readFileSync(join(quelle, `${name}.json`), "utf8")) as { besitzer?: unknown };
+        return { da: true, besitzer: typeof alt.besitzer === "string" && alt.besitzer ? alt.besitzer : undefined };
+      } catch {
+        return { da: existsSync(join(quelle, `${name}.json`)) };
+      }
+    };
+    const darfAendern = (name: string): boolean => {
+      const b = besitzerVon(name);
+      if (!b.da) return true;
+      return rolleVon(user) === "praesident" || (b.besitzer !== undefined && b.besitzer === user);
+    };
+    const verzeichnis = (aendern: (liste: string[]) => string[]): void => {
+      let liste: string[] = [];
+      try {
+        liste = JSON.parse(readFileSync(join(ziel, "szenen.json"), "utf8")) as string[];
+      } catch {
+        /* noch keins */
+      }
+      liste = aendern(liste).sort();
+      mkdirSync(ziel, { recursive: true });
+      writeFileSync(join(ziel, "szenen.json"), JSON.stringify(liste, null, 2) + "\n");
+      eigeneSzenenLaden();
+    };
     if (was === "liste") {
       let namen: string[] = [];
       try {
@@ -3281,7 +3341,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       } catch {
         /* noch keine eigenen Szenen */
       }
-      return json(res, 200, { ok: true, namen });
+      // Besitzer dazu, damit der Editor zeigen kann, wer was ändern darf (B26)
+      const besitzer = Object.fromEntries(namen.map((n) => [n, besitzerVon(n).besitzer ?? ""]));
+      return json(res, 200, { ok: true, namen, besitzer, praesident: rolleVon(user) === "praesident" });
     }
     if (was === "laden") {
       const name = String(body.name ?? "").replace(/[^a-z0-9_-]/gi, "");
@@ -3308,24 +3370,36 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
       }
       const fehler = pruefeBeschreibung(b);
       if (fehler.length) return json(res, 400, { error: fehler[0] });
+      // Fremde Szenen nicht überschreiben (B26); der Besitzer bleibt, auch wenn der Präsident
+      // speichert, und den Besitzer setzt nur der Server
+      if (!darfAendern(b.name)) return json(res, 403, { error: `Die Szene "${b.name}" geh|rt ${besitzerVon(b.name).besitzer ?? "dem Pr{sidenten"}` });
+      const vorher = besitzerVon(b.name);
+      b.besitzer = vorher.da ? vorher.besitzer : user;
+      if (b.besitzer === undefined) delete b.besitzer;
       mkdirSync(quelle, { recursive: true });
       mkdirSync(ziel, { recursive: true });
       writeFileSync(join(quelle, `${b.name}.json`), JSON.stringify(b, null, 2) + "\n");
       const fassungen: [string, ReturnType<typeof baueSzene>][] = [[".T", baueSzene(b)]];
       if (b.chance) fassungen.push([".V", baueSzene(alsFassung(b, b.chance))]);
       for (const [endung, szene] of fassungen) writeFileSync(join(ziel, `${b.name}${endung}.json`), JSON.stringify(szene));
+      // Ohne Chancenfassung fällt eine alte .V weg, sonst liefe sie weiter
+      if (!b.chance) rmSync(join(ziel, `${b.name}.V.json`), { force: true });
       // Verzeichnis fortschreiben
-      let liste: string[] = [];
-      try {
-        liste = JSON.parse(readFileSync(join(ziel, "szenen.json"), "utf8")) as string[];
-      } catch {
-        /* noch keins */
-      }
-      for (const [endung] of fassungen) if (!liste.includes(`${b.name}${endung}`)) liste.push(`${b.name}${endung}`);
-      liste.sort();
-      writeFileSync(join(ziel, "szenen.json"), JSON.stringify(liste, null, 2) + "\n");
+      verzeichnis((liste) => [...liste.filter((n) => n !== `${b.name}.T` && n !== `${b.name}.V`), ...fassungen.map(([endung]) => `${b.name}${endung}`)]);
       room?.log.push(`Torszene "${b.name}" gespeichert (${b.bilder} Bilder${b.chance ? ", mit Chancenfassung" : ""})`);
-      return json(res, 200, { ok: true, bilder: b.bilder, fassungen: fassungen.length });
+      return json(res, 200, { ok: true, bilder: b.bilder, fassungen: fassungen.length, besitzer: b.besitzer ?? "" });
+    }
+    if (was === "loeschen") {
+      // Löschen (B26): nur Besitzer und Präsident; Originalszenen (Nummern) gibt es hier nicht
+      const name = String(body.name ?? "").replace(/[^a-z0-9_-]/gi, "");
+      if (!name || /^[0-9]/.test(name)) return json(res, 400, { error: "Kein Name" });
+      if (!besitzerVon(name).da) return json(res, 404, { error: "Beschreibung nicht gefunden" });
+      if (!darfAendern(name)) return json(res, 403, { error: `Die Szene "${name}" geh|rt ${besitzerVon(name).besitzer ?? "dem Pr{sidenten"}` });
+      rmSync(join(quelle, `${name}.json`), { force: true });
+      for (const endung of [".T", ".V"]) rmSync(join(ziel, `${name}${endung}.json`), { force: true });
+      verzeichnis((liste) => liste.filter((n) => n !== `${name}.T` && n !== `${name}.V`));
+      room?.log.push(`Torszene "${name}" gelöscht (${user})`);
+      return json(res, 200, { ok: true });
     }
     return json(res, 400, { error: "Unbekannter Auftrag" });
   }

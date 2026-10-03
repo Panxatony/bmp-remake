@@ -8,6 +8,7 @@
 import type { GameState } from "../records.ts";
 import { TABLES } from "../records.ts";
 import { calendarFlag, dayIndex, FLAG_CUP } from "./calendar.ts";
+import { hoechsteBankNummer, is2026 } from "./regeln.ts";
 
 export const SYSTEM_OFFSET = 51;
 export const SYSTEM_MANUAL = 1;
@@ -109,7 +110,8 @@ export function selectPlace(g: GameState, manager: number, group: number, system
  * Aufstellung nach System (0x22030): alle Nummern löschen, je Gruppe die Sollzahl mit der
  * Spielerwahl füllen (Nummern 1..11, Feldposition Bytes 25/26), danach die Bank: zu Spielbeginn
  * (Kadergröße 15) je Gruppe ein Ersatzspieler 12..15, sonst Nummer 12 an den ersten gefundenen
- * (meist der zweite Torwart) und 13 an den stärksten übrigen Feldspieler.
+ * (meist der zweite Torwart) und 13 an den stärksten übrigen Feldspieler. Die Version 2026 setzt
+ * mit `benchFour` noch einen fünften Ersatzmann (16) dazu (B19).
  * `system` 2..4; bei 1 (manuell) passiert nichts.
  */
 export function autoLineup(g: GameState, manager: number, system: number, benchFour = false, sperreFrei = false): void {
@@ -204,6 +206,12 @@ function aufstellungKern(g: GameState, manager: number, system: number, benchFou
       if (place < 0) break;
       g.lineups.at(manager * 25 + place).setU8(10, number++);
     }
+    // Version 2026: ein fünfter Ersatzmann (Nummer 16), der stärkste übrige Feldspieler
+    // (AUDIT-2026 B19). Das Original kennt nur vier.
+    if (is2026(g) && number === 16) {
+      const place = fuenfterErsatz(g, manager, sperreFrei);
+      if (place >= 0) g.lineups.at(manager * 25 + place).setU8(10, 16);
+    }
     return;
   }
   const b = { v: 0 };
@@ -221,6 +229,29 @@ function aufstellungKern(g: GameState, manager: number, system: number, benchFou
     }
   }
   if (bestPlace >= 0) g.lineups.at(manager * 25 + bestPlace).setU8(10, number);
+}
+
+/**
+ * Fünfter Ersatzmann der Version 2026 (B19): der stärkste noch nummernlose, einsatzfähige
+ * Feldspieler (Stärke wie in `selectPlace`), bei Gleichstand der vordere Kaderplatz; ohne
+ * Feldspieler der stärkste übrige Torwart. -1, wenn niemand mehr da ist.
+ */
+function fuenfterErsatz(g: GameState, manager: number, sperreFrei: boolean): number {
+  let feld = -1;
+  let tor = -1;
+  let sFeld = -1;
+  let sTor = -1;
+  for (let place = 0; place < 24; place++) {
+    const l = g.lineups.at(manager * 25 + place);
+    if (l.isEmpty || l.u8(10) !== 0) continue;
+    const f = l.u8(9) & 3;
+    if ((f === 1 && !sperreFrei) || f >= 2) continue;
+    const s = div(l.u8(16) + l.u8(17) + l.u8(18), 3);
+    if (groupOf(g, l.playerIndex) === 0) {
+      if (s > sTor) [sTor, tor] = [s, place];
+    } else if (s > sFeld) [sFeld, feld] = [s, place];
+  }
+  return feld >= 0 ? feld : tor;
 }
 
 /**
@@ -249,13 +280,23 @@ export function sperreAusgesetzt(g: GameState, manager: number): boolean {
  * Nummernpflege des Hauptmenüs (0x9C78-0x9D40) vor der Aufstellung: trägt niemand die höchste
  * Reservenummer 4238:56EE (15), rückt eine 16 dorthin; danach verliert jede Nummer darüber ihre
  * Nummer. So endet ein im Spiel Ausgewechselter mit 16 meist ohne Nummer (#131, Audit 2 E17).
+ * Version 2026: Bank bis 16, ein Ausgewechselter trägt 17 (B19); fehlt die 16 ganz, setzt sie
+ * der stärkste übrige Feldspieler.
  */
 export function nummernPflege(g: GameState, manager: number): void {
   const plaetze = Array.from({ length: 24 }, (_, i) => g.lineups.at(manager * 25 + i)).filter((l) => !l.isEmpty);
-  const max = 15;
+  // Im Original 15, in der Version 2026 mit fünf Ersatzleuten 16 (B19)
+  const max = hoechsteBankNummer(g);
   // Der Merker "15 vergeben" steht vor der Schleife fest (0x9C78-0x9CB5): jede 16 wird zur 15
   if (!plaetze.some((l) => l.number === max)) for (const l of plaetze) if (l.number === max + 1) l.setU8(10, max);
   for (const l of plaetze) if (l.number > max) l.setU8(10, 0);
+  // Version 2026: fehlt die 16 (Stand von vor B19, manuelle Aufstellung - der Kaderbildschirm
+  // tauscht nur Nummern), bekommt sie der stärkste übrige Feldspieler; sonst bliebe die Bank
+  // ohne Automatik für immer bei vier
+  if (is2026(g) && !plaetze.some((l) => l.number === max)) {
+    const place = fuenfterErsatz(g, manager, false);
+    if (place >= 0) g.lineups.at(manager * 25 + place).setU8(10, max);
+  }
 }
 
 /**
@@ -291,7 +332,7 @@ export function autoLineupIfEnabled(g: GameState, manager: number, sperreFrei = 
   const system = systemOf(g, manager);
   if (system === SYSTEM_MANUAL) return false;
   // Die Bank ist auch im laufenden Spiel vier Mann stark (CLAUDE.MAN nach dem 1. Spieltag:
-  // Nummern 12 bis 15)
+  // Nummern 12 bis 15), in der Version 2026 fünf (12 bis 16, B19)
   autoLineup(g, manager, system, true, sperreFrei);
   return true;
 }
