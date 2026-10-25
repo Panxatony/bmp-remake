@@ -57,13 +57,22 @@ export class Scenes {
             .catch(() => undefined);
           if (sc && data) data[name] = sc;
         }
-        this.data = data;
-        this.pitch = pitch;
-        this.sprites = sprites;
-        this.goals = goals;
+        this.data = data ?? this.data;
+        this.pitch = pitch ?? this.pitch;
+        this.sprites = sprites ?? this.sprites;
+        this.goals = goals ?? this.goals;
         this.buffer.width = 320;
         this.buffer.height = 112;
-      })();
+        // Fehlt etwas (Netz weg, Server startet neu), versucht es der nächste Aufruf noch
+        // einmal - sonst bliebe "SZENE WIRD GELADEN" bis zum Neuladen der Seite stehen
+        if (!this.ready) {
+          console.warn("Torszenen unvollständig geladen:", { katalog: !!data, feld: !!pitch, figuren: !!sprites, tore: !!goals });
+          this.loading = undefined;
+        }
+      })().catch((err) => {
+        console.warn("Torszenen nicht geladen:", err);
+        this.loading = undefined;
+      });
     }
     return this.loading;
   }
