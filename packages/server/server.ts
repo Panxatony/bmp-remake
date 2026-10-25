@@ -2056,6 +2056,25 @@ function finanzTag(r: Room, dt: { day: number; month0: number; year: number }, s
   }
 }
 
+/**
+ * Derby-Einsatz (Version 2026): steht heute ein Spiel gegen einen Managerverein an, bekommen
+ * beide eine Meldung mit ihrem eigenen Einsatz - sonst denkt niemand daran, ihn vor dem Anpfiff
+ * zu setzen (GitLab #9). Auch die Nachholspiele des Tages - gebucht wird das Derby dort ebenso
+ * (AUDIT-2026 A34/G12). Läuft beim Tageswechsel und beim neuen Spiel, dessen erster Tag schon
+ * ein Spieltag sein kann.
+ */
+function derbyAnkuendigen(r: Room): void {
+  const g = r.game;
+  const names = (c: number) => g.clubs.at(c).displayName;
+  for (const [heim, gast, a, b] of derbysHeute(g)) {
+    for (const [wer, gegner] of [[a, gast], [b, heim]] as const) {
+      if (isAi(g, wer)) continue;
+      pushMessage(r, wer, ["Derby gegen", names(gegner) + ":", `Ihr Einsatz ${dmText(stakeOf(g, wer))}`]);
+    }
+    r.log.push(`Derby am Spieltag: ${names(heim)} - ${names(gast)} (Einsätze ${dmText(stakeOf(g, a))} / ${dmText(stakeOf(g, b))})`);
+  }
+}
+
 /** Spielt die Ereignisse des aktuellen Kalendertags und schaltet auf den nächsten; mit live gespielten Ergebnissen, wenn vorhanden. */
 function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStrength, TeamStrength]>; results: Map<string, MatchResult>; postponed: number[][]; einsaetzeVorher?: Map<number, number>; derbyBetrag?: Map<string, number>; scorers?: Map<string, { minute: number; side: "home" | "away"; name: string }[]>; events?: Map<string, { minute: number; side: "home" | "away"; goal: boolean }[]>; attendance?: Map<string, number>; booking?: LiveBooking; nachspiele?: Map<string, Nachspiel> }): void {
   const g = r.game;
@@ -2328,17 +2347,7 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
     // Stärke mit Flag 0 - dann der Saisonwechsel
     tagesendeAufstellen(g, seasonDay(kNeu));
   }
-  // Derby-Einsatz (Version 2026): steht am neuen Tag ein Spiel gegen einen Managerverein an,
-  // bekommen beide eine Meldung mit ihrem eigenen Einsatz - sonst denkt niemand daran, ihn vor
-  // dem Anpfiff zu setzen (GitLab #9).
-  // Auch die Nachholspiele des Tages - gebucht wird das Derby dort ebenso (AUDIT-2026 A34/G12)
-  for (const [heim, gast, a, b] of derbysHeute(g)) {
-    for (const [wer, gegner] of [[a, gast], [b, heim]] as const) {
-      if (isAi(g, wer)) continue;
-      pushMessage(r, wer, ["Derby gegen", names(gegner) + ":", `Ihr Einsatz ${dmText(stakeOf(g, wer))}`]);
-    }
-    r.log.push(`Derby am Spieltag: ${names(heim)} - ${names(gast)} (Einsätze ${dmText(stakeOf(g, a))} / ${dmText(stakeOf(g, b))})`);
-  }
+  derbyAnkuendigen(r);
   // Doping (Version 2026, #3): nach den Spielen wird für jeden gedopten Spieler gewürfelt, der
   // eingesetzt war. Wer auffliegt, ist Wochen gesperrt, der Verein zahlt, und alle erfahren es.
   g.activeManagers().forEach((m, i) => {
@@ -2881,6 +2890,9 @@ async function api(req: IncomingMessage, url: URL, res: ServerResponse): Promise
     neu.game.activeManagers().forEach((_, i) => anzeigeStaerke(neu.game, i));
     // Auslosung des DFB-Pokals als Zeremonie für alle (0x17C26), sobald alle Plätze besetzt sind
     neu.ceremony = { cup: 0, phase: "vote", ready: false, votes: {}, startedAt: null, skipped: false, seen: [] };
+    // Der erste Tag kann schon ein Spieltag mit Derby sein - ohne Tageswechsel davor (r4, 25.10.2026)
+    derbyAnkuendigen(neu);
+    flushMessages(neu);
     neu.log.push(`Neues Spiel von ${user} (${opts.rules === 1 ? "Version 2026" : "Original"}): ${opts.managers.map((m: { name: string }) => m.name).join(", ")}`);
     setRoom(user, neu);
     await persist(neu);
