@@ -2154,6 +2154,11 @@ function advanceDay(r: Room, live?: { staerke?: Map<string, readonly [TeamStreng
         r.log.push(`    Derby-Einsatz: ${verlierer} zahlt ${dmText(derby.amount)} an ${sieger}`);
         pushMessage(r, derby.winner, ["Derby gewonnen:", `${verlierer} zahlt Ihnen`, dmText(derby.amount)]);
         pushMessage(r, derby.loser, ["Derby verloren:", `Zahlung an ${sieger}`, dmText(derby.amount)]);
+      } else if (is2026(g)) {
+        // Unentschieden (oder eine leere Kasse): auch das erfahren beide, sonst wartet man
+        // vergeblich auf eine Abrechnung (r4, 25.10.2026)
+        r.log.push(`    Derby-Einsatz: ${p.result.home}:${p.result.away}, kein Geld wechselt`);
+        for (const [wer, gegner] of [[dh, da], [da, dh]]) pushMessage(r, wer, ["Derby gegen", `${g.managers.at(gegner).displayName}: ${p.result.home}:${p.result.away}`, "Kein Geld wechselt."]);
       }
     }
     if (p.forfeit !== undefined) {
