@@ -189,6 +189,10 @@ export function cp437ToGame(s: string): string {
  */
 export class Sounds {
   private puffer = new Map<string, HTMLAudioElement>();
+  /** Vorab dekodierte Klänge: sie starten ohne die schwankende Verzögerung eines <audio> */
+  private daten = new Map<string, AudioBuffer>();
+  private kontext?: AudioContext;
+  private quelle?: AudioBufferSourceNode;
   private spur?: HTMLAudioElement;
   private laufend?: HTMLAudioElement;
   private basis = "";
@@ -198,25 +202,65 @@ export class Sounds {
 
   laden(base: string, namen: string[]): void {
     this.basis = base;
+    try {
+      this.kontext = new AudioContext();
+    } catch {
+      this.kontext = undefined;
+    }
+    // Browser lassen den Ton erst nach der ersten Eingabe zu
+    const wecken = () => void this.kontext?.resume().catch(() => undefined);
+    document.addEventListener("pointerdown", wecken);
+    document.addEventListener("keydown", wecken);
     for (const n of namen) {
-      const a = new Audio(base + "assets/sound/" + n + ".wav");
+      const url = base + "assets/sound/" + n + ".wav";
+      const a = new Audio(url);
       a.preload = "auto";
       this.puffer.set(n, a);
+      const k = this.kontext;
+      if (!k) continue;
+      void fetch(url)
+        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
+        .then((b) => k.decodeAudioData(b))
+        .then((d) => void this.daten.set(n, d))
+        .catch(() => undefined);
     }
   }
 
   /**
    * Einen Klang anwerfen. Der Sound Blaster gibt jeweils nur eine Aufnahme aus, deshalb löst
-   * ein neuer Klang den laufenden ab (im Original 0x76b:0x182).
+   * ein neuer Klang den laufenden ab (im Original 0x76b:0x182). Über Web Audio startet er sofort
+   * mit dem Szenenbild; das <audio>-Element bleibt nur der Ersatz, solange nichts dekodiert ist.
    */
   spiele(name: string): void {
     if (!this.an) return;
+    const k = this.kontext;
+    const d = this.daten.get(name);
+    if (k && d && k.state === "running") {
+      this.stille();
+      const q = k.createBufferSource();
+      q.buffer = d;
+      q.connect(k.destination);
+      q.start();
+      this.quelle = q;
+      return;
+    }
     const a = this.puffer.get(name);
     if (!a) return;
-    const k = a.cloneNode() as HTMLAudioElement;
+    const kopie = a.cloneNode() as HTMLAudioElement;
+    this.stille();
+    this.laufend = kopie;
+    void kopie.play().catch(() => undefined);
+  }
+
+  private stille(): void {
+    try {
+      this.quelle?.stop();
+    } catch {
+      /* schon zu Ende */
+    }
+    this.quelle = undefined;
     this.laufend?.pause();
-    this.laufend = k;
-    void k.play().catch(() => undefined);
+    this.laufend = undefined;
   }
 
   /**
