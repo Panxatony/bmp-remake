@@ -15,3 +15,6 @@ __pycache__/
 assets/stand.json
 # Bildschirmfotos aus dem Vergleich mit dem Original (entstehen beim Arbeiten)
 p-*.png
+
+# Interne Angaben für Agenten (Hosts, Adressen, Orte der Zugangsdaten) - nur lokal
+AGENTS.local.md
